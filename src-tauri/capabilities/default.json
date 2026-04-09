@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capability.json",
+  "identifier": "default",
+  "description": "Default capability for commandeer palette",
+  "windows": ["palette"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-is-visible",
+    "core:window:allow-set-size",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered"
+  ]
+}
