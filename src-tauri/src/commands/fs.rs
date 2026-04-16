@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
 
 #[derive(Debug, Serialize)]
 pub struct ScriptInfo {
@@ -8,22 +9,17 @@ pub struct ScriptInfo {
     pub path: String,
     pub ext: String,
     pub icon: Option<String>,
+    pub folder: Option<String>,
+    pub is_folder: bool,
 }
 
-#[tauri::command]
-pub async fn list_scripts(scripts_dir: String) -> Result<Vec<ScriptInfo>, String> {
-    if scripts_dir.is_empty() {
-        return Ok(vec![]);
-    }
+fn collect_script_files(dir: &Path, folder: Option<String>) -> Vec<ScriptInfo> {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return vec![],
+    };
 
-    let dir = std::path::Path::new(&scripts_dir);
-    if !dir.exists() {
-        return Ok(vec![]);
-    }
-
-    let entries = fs::read_dir(dir).map_err(|e| e.to_string())?;
-
-    let mut scripts: Vec<ScriptInfo> = entries
+    entries
         .filter_map(|e| e.ok())
         .filter(|e| {
             let path = e.path();
@@ -53,9 +49,61 @@ pub async fn list_scripts(scripts_dir: String) -> Result<Vec<ScriptInfo>, String
                 None
             };
 
-            Some(ScriptInfo { name: stem, path: path_str, ext, icon })
+            Some(ScriptInfo { name: stem, path: path_str, ext, icon, folder: folder.clone(), is_folder: false })
         })
-        .collect();
+        .collect()
+}
+
+#[tauri::command]
+pub async fn list_scripts(scripts_dir: String) -> Result<Vec<ScriptInfo>, String> {
+    if scripts_dir.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let dir = Path::new(&scripts_dir);
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut scripts: Vec<ScriptInfo> = Vec::new();
+
+    // Root-level scripts
+    scripts.extend(collect_script_files(dir, None));
+
+    // Subdirectories: folder entry + their scripts
+    let entries = fs::read_dir(dir).map_err(|e| e.to_string())?;
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let folder_name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+
+        // Folder icon: look for <FolderName>.png alongside the folder in scripts_dir
+        let folder_png = dir.join(format!("{}.png", folder_name));
+        let folder_icon = if folder_png.exists() {
+            fs::read(&folder_png).ok().map(|bytes| {
+                format!("data:image/png;base64,{}", base64_encode(&bytes))
+            })
+        } else {
+            None
+        };
+
+        scripts.push(ScriptInfo {
+            name: folder_name.clone(),
+            path: path.to_string_lossy().replace('\\', "/"),
+            ext: String::new(),
+            icon: folder_icon,
+            folder: None,
+            is_folder: true,
+        });
+
+        scripts.extend(collect_script_files(&path, Some(folder_name)));
+    }
 
     // For .lnk files without a PNG icon, extract the shell icon via PowerShell
     let lnk_indices: Vec<usize> = scripts

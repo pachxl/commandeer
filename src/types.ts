@@ -7,6 +7,8 @@ export interface PaletteItem {
   label: string
   sublabel?: string
   icon: string
+  searchText?: string
+  isFolder?: boolean
   data?: unknown
 }
 
@@ -30,6 +32,8 @@ export interface Command {
   label: string
   description?: string
   icon: string
+  folderName?: string
+  isFolder?: boolean
   // Either run directly (scripts/shortcuts) or push a step (multi-step commands)
   action?: (config: AppConfig) => Promise<void>
   createRootStep?: (config: AppConfig) => Step

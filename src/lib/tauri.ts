@@ -6,6 +6,8 @@ export interface ScriptInfo {
   path: string
   ext: string
   icon: string | null
+  folder: string | null
+  is_folder: boolean
 }
 
 export const readConfig = () =>

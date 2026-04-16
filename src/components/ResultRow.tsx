@@ -73,6 +73,17 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
             {item.sublabel}
           </span>
         )}
+
+        {item.isFolder && (
+          <span style={{
+            fontSize: 13,
+            color: active ? 'rgba(255,255,255,0.5)' : 'var(--text-dim)',
+            flexShrink: 0,
+            lineHeight: '22px',
+          }}>
+            ›
+          </span>
+        )}
       </div>
     )
   }

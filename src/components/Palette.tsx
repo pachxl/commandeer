@@ -7,12 +7,26 @@ import SearchInput from './SearchInput'
 import ResultsList from './ResultsList'
 // ── Root items (the command list) ────────────────────────────────────────────
 
+// Hierarchical root view: folders first, then root scripts
 function commandsToItems(commands: Command[]): PaletteItem[] {
   return commands.map(cmd => ({
     id: cmd.id,
     label: cmd.label,
-    sublabel: cmd.description,
+    sublabel: cmd.isFolder ? undefined : cmd.description,
     icon: cmd.icon,
+    isFolder: cmd.isFolder,
+    data: cmd.id,
+  }))
+}
+
+// Flat view for cross-folder search: all scripts with folder as sublabel + searchText
+function commandsToFlatItems(commands: Command[]): PaletteItem[] {
+  return commands.map(cmd => ({
+    id: cmd.id,
+    label: cmd.label,
+    sublabel: cmd.folderName,
+    icon: cmd.icon,
+    searchText: cmd.folderName ? `${cmd.folderName} ${cmd.label}` : undefined,
     data: cmd.id,
   }))
 }
@@ -107,13 +121,21 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
     resetRef.current = () => dispatch({ type: 'RESET' })
   }, [resetRef])
 
-  // Reinitialise root items when commands list changes, last-used floats to top
+  // Reinitialise root items when commands list changes
   useEffect(() => {
     const lastId = localStorage.getItem(LAST_CMD_KEY)
-    const sorted = lastId
-      ? [...commands].sort((a, b) => (a.id === lastId ? -1 : b.id === lastId ? 1 : 0))
-      : commands
-    dispatch({ type: 'SET_ITEMS', stepId: '__root__', items: commandsToItems(sorted) })
+
+    // Hierarchical view: folders at top, then root scripts with last-used floating up
+    const folderCmds = commands.filter(c => c.isFolder)
+    const rootScripts = commands.filter(c => !c.isFolder && !c.folderName)
+    const sortedScripts = lastId
+      ? [...rootScripts].sort((a, b) => (a.id === lastId ? -1 : b.id === lastId ? 1 : 0))
+      : rootScripts
+    dispatch({ type: 'SET_ITEMS', stepId: '__root__', items: commandsToItems([...folderCmds, ...sortedScripts]) })
+
+    // Flat view: all scripts (no folder nav items) for cross-folder search
+    const allScripts = commands.filter(c => !c.isFolder)
+    dispatch({ type: 'SET_ITEMS', stepId: '__root_flat__', items: commandsToFlatItems(allScripts) })
   }, [commands])
 
   // Current step key
@@ -130,34 +152,50 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
   }, [currentStep?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Derived filtered items
-  const rawItems = state.itemCache[cacheKey] ?? []
+  // At root with a query: search the flat list (all scripts across all folders)
+  // At root without a query, or inside a step: use the current step's items
+  const rawItems = currentStep
+    ? (state.itemCache[cacheKey] ?? [])
+    : state.query
+      ? (state.itemCache['__root_flat__'] ?? [])
+      : (state.itemCache['__root__'] ?? [])
   const isInputStep = currentStep?.isInputStep ?? false
-  const visibleItems = isInputStep ? [] : fuzzyFilter(rawItems, state.query, i => i.label + ' ' + (i.sublabel ?? ''))
+  const visibleItems = isInputStep ? [] : fuzzyFilter(rawItems, state.query, i =>
+    i.searchText ?? (i.label + ' ' + (i.sublabel ?? ''))
+  )
   const clampedIndex = Math.min(state.selectedIndex, Math.max(0, visibleItems.length - 1))
 
   // Keyboard handler
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault()
+      await getCurrentWindow().hide()
+      dispatch({ type: 'RESET' })
+      return
+    }
+
+    if (e.key === 'Backspace' && !state.query) {
+      e.preventDefault()
       if (state.stepStack.length > 0) {
         dispatch({ type: 'POP_STEP' })
-      } else if (state.query) {
-        dispatch({ type: 'SET_QUERY', query: '' })
       } else {
         await getCurrentWindow().hide()
+        dispatch({ type: 'RESET' })
       }
       return
     }
 
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      dispatch({ type: 'MOVE_SELECTION', delta: 1 })
+      const next = Math.min(clampedIndex + 1, Math.max(0, visibleItems.length - 1))
+      dispatch({ type: 'MOVE_SELECTION', delta: next - state.selectedIndex })
       return
     }
 
     if (e.key === 'ArrowUp') {
       e.preventDefault()
-      dispatch({ type: 'MOVE_SELECTION', delta: -1 })
+      const next = Math.max(0, clampedIndex - 1)
+      dispatch({ type: 'MOVE_SELECTION', delta: next - state.selectedIndex })
       return
     }
 
@@ -169,8 +207,8 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
         try {
           const result = await currentStep.onCommitQuery(state.query, configRef.current)
           if (result.type === 'done') {
-            dispatch({ type: 'RESET' })
             await getCurrentWindow().hide()
+            dispatch({ type: 'RESET' })
           } else if (result.type === 'push') {
             dispatch({ type: 'PUSH_STEP', step: result.step })
           }
@@ -196,8 +234,8 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
         try {
           await cmd.action(configRef.current)
           localStorage.setItem(LAST_CMD_KEY, cmd.id)
-          dispatch({ type: 'RESET' })
           await getCurrentWindow().hide()
+          dispatch({ type: 'RESET' })
         } catch (err) {
           dispatch({ type: 'SET_ERROR', error: String(err) })
         }
@@ -213,8 +251,8 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
     try {
       const result = await currentStep.onSelect(item, configRef.current)
       if (result.type === 'done') {
-        dispatch({ type: 'RESET' })
         await getCurrentWindow().hide()
+        dispatch({ type: 'RESET' })
       } else if (result.type === 'push') {
         dispatch({ type: 'PUSH_STEP', step: result.step })
       }
@@ -235,7 +273,9 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
     if (!el) return
     const win = getCurrentWindow()
     const observer = new ResizeObserver(entries => {
-      const h = entries[0]?.contentRect.height
+      const entry = entries[0]
+      if (!entry) return
+      const h = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height
       if (h) win.setSize(new LogicalSize(726, Math.ceil(h)))
     })
     observer.observe(el)
