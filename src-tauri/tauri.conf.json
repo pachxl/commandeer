@@ -14,8 +14,8 @@
       {
         "label": "palette",
         "title": "",
-        "width": 726,
-        "height": 400,
+        "width": 669,
+        "height": 576,
         "resizable": false,
         "decorations": false,
         "transparent": true,
@@ -23,7 +23,11 @@
         "alwaysOnTop": true,
         "center": true,
         "visible": false,
-        "shadow": true
+        "shadow": true,
+        "windowEffects": {
+          "effects": ["acrylic"],
+          "state": "active"
+        }
       }
     ],
     "security": {

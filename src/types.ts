@@ -37,6 +37,8 @@ export interface Command {
   // Either run directly (scripts/shortcuts) or push a step (multi-step commands)
   action?: (config: AppConfig) => Promise<void>
   createRootStep?: (config: AppConfig) => Step
+  // If true, selecting this command won't close the palette
+  noClose?: boolean
 }
 
 export interface PaletteState {
@@ -50,7 +52,7 @@ export interface PaletteState {
 
 export type PaletteAction =
   | { type: 'SET_QUERY'; query: string }
-  | { type: 'SET_ITEMS'; stepId: string; items: PaletteItem[] }
+  | { type: 'SET_ITEMS'; stepId: string; items: PaletteItem[]; preserveSelection?: boolean }
   | { type: 'PUSH_STEP'; step: Step }
   | { type: 'POP_STEP' }
   | { type: 'MOVE_SELECTION'; delta: number }

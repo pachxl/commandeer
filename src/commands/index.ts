@@ -1,8 +1,33 @@
 import type { AppConfig, Command, Step, PaletteItem } from '../types'
-import { listScripts, runScript } from '../lib/tauri'
+import { listScripts, runScript, openUrl, type ScriptInfo } from '../lib/tauri'
 
-export async function loadScriptCommands(config: AppConfig): Promise<Command[]> {
+export const builtinCommands: Command[] = [
+  {
+    id: 'builtin:search',
+    label: 'Search',
+    icon: '🔍',
+    description: 'Search the web',
+    createRootStep: (): Step => ({
+      id: 'search-input',
+      label: 'Search',
+      placeholder: 'Type your search...',
+      isInputStep: true,
+      onSelect: async () => ({ type: 'done' }),
+      onCommitQuery: async (query) => {
+        const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`
+        await openUrl(url)
+        return { type: 'done' }
+      },
+    }),
+  },
+]
+
+export async function loadScriptCommands(config: AppConfig): Promise<{ commands: Command[]; scripts: ScriptInfo[] }> {
   const scripts = await listScripts(config.scripts_dir)
+  return { commands: scriptsToCommands(scripts), scripts }
+}
+
+export function scriptsToCommands(scripts: ScriptInfo[]): Command[] {
   const commands: Command[] = []
 
   for (const script of scripts) {
@@ -35,7 +60,6 @@ export async function loadScriptCommands(config: AppConfig): Promise<Command[]> 
       commands.push({
         id: `script:${script.path}`,
         label: script.name,
-        description: script.path,
         icon: script.icon ?? '',
         folderName: script.folder ?? undefined,
         action: async () => {

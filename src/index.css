@@ -5,16 +5,19 @@
 }
 
 :root {
-  --bg:        rgba(12, 12, 12, 0.98);
-  --bg-tab:    rgba(30, 30, 30, 0.98);
-  --bg-hover:  rgba(255, 255, 255, 0.06);
-  --bg-select: #1f3a5f;
-  --border:    rgba(255, 255, 255, 0.08);
-  --text:      #cccccc;
-  --text-dim:  #666666;
-  --accent:    #3794ff;
-  --font:      'Cascadia Code', 'Cascadia Mono', 'Consolas', monospace;
-  --font-ui:   'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --bg:         rgba(26, 27, 38, 0.85);
+  --bg-tab:     rgba(36, 40, 59, 0.9);
+  --bg-hover:   rgba(122, 162, 247, 0.08);
+  --bg-select:  rgba(122, 162, 247, 0.14);
+  --bg-select-hover: rgba(122, 162, 247, 0.20);
+  --bg-input:   transparent;
+  --border:     rgba(86, 95, 137, 0.25);
+  --border-strong: rgba(86, 95, 137, 0.45);
+  --text:       #c0caf5;
+  --text-dim:   #565f89;
+  --accent:     #7aa2f7;
+  --font:       'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-ui:    'JetBrains Mono', 'Fira Code', Consolas, monospace;
 }
 
 @keyframes spin {

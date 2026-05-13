@@ -13,21 +13,20 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 8,
-        padding: '9px 12px',
+        gap: 10,
+        padding: '8px 14px',
         borderBottom: '1px solid var(--border)',
-        background: 'var(--bg-tab)',
       }}>
         {loading ? (
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0, color: 'var(--accent)' }}>
+          <svg width="16" height="16" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0, color: 'var(--text-dim)' }}>
             <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5"
               strokeDasharray="16" strokeLinecap="round"
               style={{ animation: 'spin 0.7s linear infinite', transformOrigin: 'center' }} />
           </svg>
         ) : (
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0, color: 'var(--text-dim)' }}>
-            <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M9.5 9.5L12 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, color: 'var(--text-dim)' }}>
+            <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="2" />
+            <path d="M15.5 15.5L20 20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
         )}
         <input
@@ -42,7 +41,8 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
             border: 'none',
             outline: 'none',
             color: 'var(--text)',
-            fontSize: 13,
+            fontSize: 15,
+            fontWeight: 400,
             fontFamily: 'var(--font)',
             caretColor: 'var(--accent)',
             lineHeight: '20px',

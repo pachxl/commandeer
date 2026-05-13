@@ -13,7 +13,6 @@ export default function ResultsList({ items, selectedIndex, onSelect, onHover }:
   const listRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<HTMLDivElement>(null)
 
-  // Scroll selected item into view
   useEffect(() => {
     selectedRef.current?.scrollIntoView({ block: 'nearest' })
   }, [selectedIndex])
@@ -22,11 +21,11 @@ export default function ResultsList({ items, selectedIndex, onSelect, onHover }:
     <div
       ref={listRef}
       style={{
-        maxHeight: 280,
+        maxHeight: 360,
         overflowY: 'auto',
-        padding: 0,
+        padding: '4px 6px',
         scrollbarWidth: 'thin',
-        scrollbarColor: 'var(--border) transparent',
+        scrollbarColor: 'var(--border-strong) transparent',
       }}
     >
       {items.map((item, i) => (

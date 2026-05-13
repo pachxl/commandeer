@@ -152,11 +152,61 @@ async fn extract_lnk_icons(paths: Vec<String>) -> HashMap<String, String> {
 
     let ps_script = format!(
         r#"Add-Type -AssemblyName System.Drawing
+$shell = New-Object -ComObject WScript.Shell
 $paths = @({arr})
+
+function Resolve-IconSource($lnkPath) {{
+    try {{
+        $sc = $shell.CreateShortcut($lnkPath)
+        $iconLoc = $sc.IconLocation
+        if ($iconLoc) {{
+            $parts = $iconLoc -split ','
+            $iconPath = $parts[0].Trim()
+            if ($iconPath -and (Test-Path -LiteralPath $iconPath)) {{
+                $idx = 0
+                if ($parts.Count -gt 1) {{ [void][int]::TryParse($parts[1].Trim(), [ref]$idx) }}
+                return @{{ path = $iconPath; index = $idx }}
+            }}
+        }}
+        $tgt = $sc.TargetPath
+        if ($tgt -and (Test-Path -LiteralPath $tgt)) {{
+            return @{{ path = $tgt; index = 0 }}
+        }}
+    }} catch {{}}
+    return @{{ path = $lnkPath; index = 0 }}
+}}
+
+if (-not ([System.Management.Automation.PSTypeName]'Win32IconExtractor').Type) {{
+    Add-Type -TypeDefinition @"
+using System;
+using System.Drawing;
+using System.Runtime.InteropServices;
+public static class Win32IconExtractor {{
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    public static extern int ExtractIconEx(string lpszFile, int nIconIndex, IntPtr[] phiconLarge, IntPtr[] phiconSmall, int nIcons);
+    [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr hIcon);
+    public static Icon Get(string path, int index) {{
+        IntPtr[] large = new IntPtr[1];
+        int n = ExtractIconEx(path, index, large, null, 1);
+        if (n > 0 && large[0] != IntPtr.Zero) {{
+            Icon ico = (Icon)Icon.FromHandle(large[0]).Clone();
+            DestroyIcon(large[0]);
+            return ico;
+        }}
+        return null;
+    }}
+}}
+"@ -ReferencedAssemblies System.Drawing
+}}
+
 $result = $paths | ForEach-Object {{
     $p = $_
     try {{
-        $ico = [System.Drawing.Icon]::ExtractAssociatedIcon($p)
+        $src = Resolve-IconSource $p
+        $ico = [Win32IconExtractor]::Get($src.path, $src.index)
+        if ($ico -eq $null) {{
+            $ico = [System.Drawing.Icon]::ExtractAssociatedIcon($src.path)
+        }}
         $bmp = $ico.ToBitmap()
         $ms  = New-Object System.IO.MemoryStream
         $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)

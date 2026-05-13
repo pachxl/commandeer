@@ -5,6 +5,7 @@ import { fuzzyFilter } from '../lib/fuzzy'
 import type { AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput from './SearchInput'
 import ResultsList from './ResultsList'
+import Footer from './Footer'
 // ── Root items (the command list) ────────────────────────────────────────────
 
 // Hierarchical root view: folders first, then root scripts
@@ -54,7 +55,7 @@ function reducer(state: PaletteState, action: PaletteAction): PaletteState {
         ...state,
         itemCache: { ...state.itemCache, [action.stepId]: action.items },
         loading: false,
-        selectedIndex: 0,
+        selectedIndex: action.preserveSelection ? state.selectedIndex : 0,
       }
 
     case 'PUSH_STEP':
@@ -90,7 +91,14 @@ function reducer(state: PaletteState, action: PaletteAction): PaletteState {
       return { ...state, error: action.error, loading: false }
 
     case 'RESET':
-      return initialState({ scripts_dir: '' })
+      return {
+        ...state,
+        query: '',
+        stepStack: [],
+        selectedIndex: 0,
+        loading: false,
+        error: null,
+      }
 
     default:
       return state
@@ -106,9 +114,11 @@ interface PaletteProps {
   commands: Command[]
   onConfigChange: (config: AppConfig) => void
   resetRef: MutableRefObject<(() => void) | null>
+  gameMode: boolean
+  onToggleGameMode: () => void
 }
 
-export default function Palette({ config, commands, onConfigChange: _onConfigChange, resetRef }: PaletteProps) {
+export default function Palette({ config, commands, onConfigChange: _onConfigChange, resetRef, gameMode, onToggleGameMode }: PaletteProps) {
   const [state, dispatch] = useReducer(reducer, config, initialState)
   const inputRef = useRef<HTMLInputElement>(null)
   const configRef = useRef(config)
@@ -131,11 +141,11 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
     const sortedScripts = lastId
       ? [...rootScripts].sort((a, b) => (a.id === lastId ? -1 : b.id === lastId ? 1 : 0))
       : rootScripts
-    dispatch({ type: 'SET_ITEMS', stepId: '__root__', items: commandsToItems([...folderCmds, ...sortedScripts]) })
+    dispatch({ type: 'SET_ITEMS', stepId: '__root__', items: commandsToItems([...folderCmds, ...sortedScripts]), preserveSelection: true })
 
     // Flat view: all scripts (no folder nav items) for cross-folder search
     const allScripts = commands.filter(c => !c.isFolder)
-    dispatch({ type: 'SET_ITEMS', stepId: '__root_flat__', items: commandsToFlatItems(allScripts) })
+    dispatch({ type: 'SET_ITEMS', stepId: '__root_flat__', items: commandsToFlatItems(allScripts), preserveSelection: true })
   }, [commands])
 
   // Current step key
@@ -169,8 +179,14 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault()
-      await getCurrentWindow().hide()
       dispatch({ type: 'RESET' })
+      await getCurrentWindow().hide()
+      return
+    }
+
+    if (e.key.toLowerCase() === 'g' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      onToggleGameMode()
       return
     }
 
@@ -179,8 +195,8 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
       if (state.stepStack.length > 0) {
         dispatch({ type: 'POP_STEP' })
       } else {
-        await getCurrentWindow().hide()
         dispatch({ type: 'RESET' })
+        await getCurrentWindow().hide()
       }
       return
     }
@@ -207,8 +223,8 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
         try {
           const result = await currentStep.onCommitQuery(state.query, configRef.current)
           if (result.type === 'done') {
-            await getCurrentWindow().hide()
             dispatch({ type: 'RESET' })
+            await getCurrentWindow().hide()
           } else if (result.type === 'push') {
             dispatch({ type: 'PUSH_STEP', step: result.step })
           }
@@ -233,9 +249,10 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
       if (cmd.action) {
         try {
           await cmd.action(configRef.current)
+          if (cmd.noClose) return
           localStorage.setItem(LAST_CMD_KEY, cmd.id)
-          await getCurrentWindow().hide()
           dispatch({ type: 'RESET' })
+          await getCurrentWindow().hide()
         } catch (err) {
           dispatch({ type: 'SET_ERROR', error: String(err) })
         }
@@ -251,8 +268,8 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
     try {
       const result = await currentStep.onSelect(item, configRef.current)
       if (result.type === 'done') {
-        await getCurrentWindow().hide()
         dispatch({ type: 'RESET' })
+        await getCurrentWindow().hide()
       } else if (result.type === 'push') {
         dispatch({ type: 'PUSH_STEP', step: result.step })
       }
@@ -276,7 +293,7 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
       const entry = entries[0]
       if (!entry) return
       const h = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height
-      if (h) win.setSize(new LogicalSize(726, Math.ceil(h)))
+      if (h) win.setSize(new LogicalSize(669, Math.ceil(h)))
     })
     observer.observe(el)
     return () => observer.disconnect()
@@ -292,13 +309,16 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
       style={{
         width: '100%',
         background: 'var(--bg)',
-        backdropFilter: 'blur(60px) saturate(160%)',
-        WebkitBackdropFilter: 'blur(60px) saturate(160%)',
+        backdropFilter: 'blur(60px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(60px) saturate(180%)',
         display: 'flex',
         flexDirection: 'column',
         fontFamily: 'var(--font)',
         overflow: 'hidden',
-        border: '1px solid var(--border)',
+        border: 'none',
+        borderRadius: 0,
+        boxShadow: 'none',
+        color: 'var(--text)',
       }}
       onKeyDown={handleKeyDown}
     >
@@ -313,7 +333,7 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
       {state.error && (
         <div style={{
           padding: '4px 12px',
-          color: '#f48771',
+          color: '#f7768e',
           fontSize: 12,
           fontFamily: 'var(--font)',
           borderBottom: '1px solid var(--border)',
@@ -333,14 +353,16 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
 
       {!isInputStep && !state.loading && visibleItems.length === 0 && state.query && (
         <div style={{
-          padding: '10px 12px',
+          padding: '8px 12px',
           color: 'var(--text-dim)',
-          fontSize: 13,
+          fontSize: 12,
           fontFamily: 'var(--font)',
         }}>
           No commands matching '{state.query}'
         </div>
       )}
+
+      <Footer gameMode={gameMode} onToggleGameMode={onToggleGameMode} />
     </div>
   )
 }

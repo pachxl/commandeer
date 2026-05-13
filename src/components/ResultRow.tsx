@@ -11,9 +11,15 @@ interface ResultRowProps {
 const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
   ({ item, selected, onSelect, onHover }, ref) => {
     const [hovered, setHovered] = useState(false)
+    const active = selected || hovered
+
     const isDataUrl = item.icon.startsWith('data:')
     const hasIcon = item.icon.length > 0
-    const active = selected || hovered
+    const bg = active
+      ? (selected ? 'var(--accent)' : 'var(--bg-select)')
+      : 'transparent'
+    const fg = selected ? '#ffffff' : 'var(--text)'
+    const subFg = selected ? 'rgba(255,255,255,0.78)' : 'var(--text-dim)'
 
     return (
       <div
@@ -25,9 +31,10 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          padding: '3px 10px',
+          padding: '4px 10px',
+          borderRadius: 5,
           cursor: 'pointer',
-          background: selected ? 'var(--bg-select)' : hovered ? 'var(--bg-hover)' : 'transparent',
+          background: bg,
           userSelect: 'none',
         }}
       >
@@ -39,11 +46,11 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0,
-            fontSize: 12,
-            color: active ? '#fff' : 'var(--text-dim)',
+            fontSize: 14,
+            color: subFg,
           }}>
             {isDataUrl
-              ? <img src={item.icon} width={16} height={16} style={{ objectFit: 'contain' }} />
+              ? <img src={item.icon} width={18} height={18} style={{ objectFit: 'contain' }} />
               : item.icon
             }
           </div>
@@ -53,11 +60,12 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
           flex: 1,
           fontSize: 13,
           fontFamily: 'var(--font)',
-          color: active ? '#fff' : 'var(--text)',
+          color: fg,
+          fontWeight: 400,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
-          lineHeight: '22px',
+          lineHeight: '18px',
         }}>
           {item.label}
         </span>
@@ -66,7 +74,7 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
           <span style={{
             fontSize: 11,
             fontFamily: 'var(--font-ui)',
-            color: 'var(--text-dim)',
+            color: subFg,
             whiteSpace: 'nowrap',
             flexShrink: 0,
           }}>
@@ -77,9 +85,9 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
         {item.isFolder && (
           <span style={{
             fontSize: 13,
-            color: active ? 'rgba(255,255,255,0.5)' : 'var(--text-dim)',
+            color: subFg,
             flexShrink: 0,
-            lineHeight: '22px',
+            lineHeight: '18px',
           }}>
             ›
           </span>

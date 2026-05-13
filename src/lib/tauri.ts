@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { openUrl as tauriOpenUrl } from '@tauri-apps/plugin-opener'
 import type { AppConfig } from '../types'
 
 export interface ScriptInfo {
@@ -21,3 +22,9 @@ export const listScripts = (scriptsDir: string) =>
 
 export const runScript = (path: string) =>
   invoke<void>('run_script', { path })
+
+export const setGameMode = (enabled: boolean) =>
+  invoke<void>('set_game_mode', { enabled })
+
+export const openUrl = (url: string) =>
+  tauriOpenUrl(url)
