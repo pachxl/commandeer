@@ -76,6 +76,7 @@ pub fn run() {
             commands::config::write_config,
             commands::fs::list_scripts,
             commands::fs::run_script,
+            commands::claude::claude_usage,
             set_game_mode,
         ])
         .run(tauri::generate_context!())
