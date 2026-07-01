@@ -6,6 +6,7 @@ import { fuzzyFilter } from '../lib/fuzzy'
 import type { AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput from './SearchInput'
 import ResultsList from './ResultsList'
+import ClaudeUsage from './ClaudeUsage'
 import Footer from './Footer'
 // ── Root items (the command list) ────────────────────────────────────────────
 
@@ -122,9 +123,20 @@ interface PaletteProps {
   resetRef: MutableRefObject<(() => void) | null>
   gameMode: boolean
   onToggleGameMode: () => void
+  claudeUsageVisible: boolean
+  onToggleClaudeUsage: () => void
 }
 
-export default function Palette({ config, commands, onConfigChange: _onConfigChange, resetRef, gameMode, onToggleGameMode }: PaletteProps) {
+export default function Palette({
+  config,
+  commands,
+  onConfigChange: _onConfigChange,
+  resetRef,
+  gameMode,
+  onToggleGameMode,
+  claudeUsageVisible,
+  onToggleClaudeUsage,
+}: PaletteProps) {
   const [state, dispatch] = useReducer(reducer, config, initialState)
   const inputRef = useRef<HTMLInputElement>(null)
   const configRef = useRef(config)
@@ -394,7 +406,13 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
         </div>
       )}
 
-      <Footer gameMode={gameMode} onToggleGameMode={onToggleGameMode} />
+      {claudeUsageVisible && <ClaudeUsage />}
+      <Footer
+        gameMode={gameMode}
+        onToggleGameMode={onToggleGameMode}
+        claudeUsageVisible={claudeUsageVisible}
+        onToggleClaudeUsage={onToggleClaudeUsage}
+      />
     </div>
   )
 }

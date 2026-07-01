@@ -9,6 +9,7 @@ import Palette from './components/Palette'
 // scripts_dir) is loaded from the backend.
 const EMPTY_CONFIG: AppConfig = { scripts_dir: '' }
 const GAME_MODE_KEY = 'commandeer:gamemode'
+const CLAUDE_USAGE_KEY = 'commandeer:claude-usage-visible'
 const SCRIPTS_CACHE_KEY = 'commandeer:scripts'
 
 function loadCachedScripts(): ScriptInfo[] {
@@ -25,6 +26,9 @@ export default function App() {
   const [commands, setCommands] = useState<Command[]>(() => [...scriptsToCommands(loadCachedScripts()), ...builtinCommands])
   const [gameModeEnabled, setGameModeEnabled] = useState(
     () => localStorage.getItem(GAME_MODE_KEY) === 'true'
+  )
+  const [claudeUsageVisible, setClaudeUsageVisible] = useState(
+    () => localStorage.getItem(CLAUDE_USAGE_KEY) === 'true'
   )
   const resetRef = useRef<(() => void) | null>(null)
   const configRef = useRef<AppConfig>(EMPTY_CONFIG)
@@ -76,6 +80,12 @@ export default function App() {
     await setGameMode(next)
   }
 
+  function toggleClaudeUsage() {
+    const next = !claudeUsageVisible
+    setClaudeUsageVisible(next)
+    localStorage.setItem(CLAUDE_USAGE_KEY, String(next))
+  }
+
   return (
     <Palette
       config={config}
@@ -84,6 +94,8 @@ export default function App() {
       resetRef={resetRef}
       gameMode={gameModeEnabled}
       onToggleGameMode={toggleGameMode}
+      claudeUsageVisible={claudeUsageVisible}
+      onToggleClaudeUsage={toggleClaudeUsage}
     />
   )
 }

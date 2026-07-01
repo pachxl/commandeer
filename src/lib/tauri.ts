@@ -26,5 +26,20 @@ export const runScript = (path: string) =>
 export const setGameMode = (enabled: boolean) =>
   invoke<void>('set_game_mode', { enabled })
 
+export interface ClaudeLimit {
+  kind: string // 'session' | 'weekly_all' | 'weekly_scoped'
+  percent: number
+  severity: string // 'normal' | 'warning' | ...
+  resets_at: string
+  scope: { model?: { display_name?: string | null } | null } | null
+}
+
+export interface ClaudeUsageData {
+  limits?: ClaudeLimit[]
+}
+
+export const claudeUsage = () =>
+  invoke<ClaudeUsageData>('claude_usage')
+
 export const openUrl = (url: string) =>
   tauriOpenUrl(url)
