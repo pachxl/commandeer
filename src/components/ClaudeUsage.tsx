@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { claudeUsage, type ClaudeLimit } from '../lib/tauri'
 
 const CACHE_KEY = 'commandeer:claude-usage'
-const MIN_REFRESH_MS = 60_000
 
 const KIND_ORDER = ['session', 'weekly_all', 'weekly_scoped']
 
@@ -43,13 +42,10 @@ export default function ClaudeUsage() {
   const [limits, setLimits] = useState<ClaudeLimit[] | null>(loadCached)
   const [loading, setLoading] = useState(limits === null)
   const [error, setError] = useState<string | null>(null)
-  const lastFetch = useRef(0)
 
-  const refresh = useCallback(async (force = false) => {
-    if (!force && Date.now() - lastFetch.current < MIN_REFRESH_MS) return
+  const refresh = useCallback(async () => {
     setLoading(true)
     setError(null)
-    lastFetch.current = Date.now()
     try {
       const data = await claudeUsage()
       const sorted = (data.limits ?? [])
@@ -74,12 +70,6 @@ export default function ClaudeUsage() {
     return () => { unlisten.then(fn => fn()) }
   }, [refresh])
 
-  const spinner = (
-    <svg style={spinStyle} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-    </svg>
-  )
-
   return (
     <div style={{
       display: 'flex',
@@ -96,32 +86,11 @@ export default function ClaudeUsage() {
         justifyContent: 'space-between',
       }}>
         <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 600 }}>Claude usage</span>
-        <button
-          onClick={() => refresh(true)}
-          disabled={loading}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--text-dim)',
-            fontSize: 10,
-            fontFamily: 'var(--font-ui)',
-            cursor: loading ? 'wait' : 'pointer',
-            padding: '2px 4px',
-            borderRadius: 3,
-            opacity: loading ? 0.7 : 1,
-          }}
-          title="Refresh now"
-        >
-          {loading ? spinner : (
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3" />
-            </svg>
-          )}
-          <span>{loading ? 'loading…' : 'refresh'}</span>
-        </button>
+        {loading && (
+          <svg style={{ animation: 'spin 1s linear infinite' }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+        )}
       </div>
 
       {error && (
@@ -188,8 +157,4 @@ export default function ClaudeUsage() {
       )}
     </div>
   )
-}
-
-const spinStyle: React.CSSProperties = {
-  animation: 'spin 1s linear infinite',
 }
