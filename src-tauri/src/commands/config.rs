@@ -25,14 +25,31 @@ fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(data_dir.join("config.json"))
 }
 
+/// Where to look for scripts when the user hasn't configured a directory.
+/// `<home>/commandeer/commands`, created on demand so there's always a place
+/// to drop scripts. Stored with forward slashes for cross-platform consistency.
+fn default_scripts_dir(app: &tauri::AppHandle) -> String {
+    let dir = match app.path().home_dir() {
+        Ok(home) => home.join("commandeer").join("commands"),
+        Err(_) => return String::new(),
+    };
+    let _ = fs::create_dir_all(&dir);
+    dir.to_string_lossy().replace('\\', "/")
+}
+
 #[tauri::command]
 pub async fn read_config(app: tauri::AppHandle) -> Result<AppConfig, String> {
     let path = config_path(&app)?;
-    if !path.exists() {
-        return Ok(AppConfig::default());
+    let mut config = if path.exists() {
+        let raw = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&raw).map_err(|e| e.to_string())?
+    } else {
+        AppConfig::default()
+    };
+    if config.scripts_dir.is_empty() {
+        config.scripts_dir = default_scripts_dir(&app);
     }
-    let raw = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&raw).map_err(|e| e.to_string())
+    Ok(config)
 }
 
 #[tauri::command]

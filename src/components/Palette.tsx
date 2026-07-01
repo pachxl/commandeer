@@ -1,4 +1,5 @@
 import { useReducer, useEffect, useRef, useCallback, MutableRefObject } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import { fuzzyFilter } from '../lib/fuzzy'
@@ -108,6 +109,11 @@ function reducer(state: PaletteState, action: PaletteAction): PaletteState {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const LAST_CMD_KEY = 'commandeer:last'
+
+// On Linux the palette is a wlr-layer-shell surface (set up in the Rust backend),
+// which can be resized in place; a plain setSize is enough. On Windows we also
+// lock min == max so the user can't drag-resize it.
+const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
 
 interface PaletteProps {
   config: AppConfig
@@ -283,21 +289,50 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
     inputRef.current?.focus()
   })
 
-  // Auto-resize window to match content height
+  // Keep the window sized to its content.
+  //
+  // Windows: setSize shrinks/grows the window to the content height; min == max
+  // also stops the user resizing it. Re-asserted on focus because a size set
+  // while hidden isn't always honoured.
+  //
+  // Linux/Wayland (cosmic-comp): a mapped window can't be resized at all, so we
+  // don't try — the window is a fixed, tall, border/shadow-less transparent
+  // surface and only this content panel is opaque, so it *looks* content-sized
+  // with no OS resize (and therefore no flicker). Nothing to do here.
   const containerRef = useRef<HTMLDivElement>(null)
+  const applySize = useCallback(async () => {
+    const el = containerRef.current
+    if (!el) return
+    const h = Math.ceil(el.getBoundingClientRect().height)
+    if (!h) return
+    if (IS_LINUX) {
+      // Layer-shell surface: the compositor keeps it centered (no anchors) and
+      // resizes it in place (no flicker). Its size comes from the GTK size
+      // request, so go through the backend rather than setSize.
+      await invoke('resize_palette', { height: h })
+      return
+    }
+    const win = getCurrentWindow()
+    const sz = new LogicalSize(669, h)
+    // Release the previous max first so min can move past it in either direction.
+    await win.setMaxSize(new LogicalSize(669, 4000))
+    await win.setMinSize(sz)
+    await win.setMaxSize(sz)
+    await win.setSize(sz)
+    await win.center()
+  }, [])
+
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const win = getCurrentWindow()
-    const observer = new ResizeObserver(entries => {
-      const entry = entries[0]
-      if (!entry) return
-      const h = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height
-      if (h) win.setSize(new LogicalSize(669, Math.ceil(h)))
-    })
+    const observer = new ResizeObserver(() => { void applySize() })
     observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
+    let unlisten: (() => void) | undefined
+    getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => { if (focused) void applySize() })
+      .then(fn => { unlisten = fn })
+    return () => { observer.disconnect(); unlisten?.() }
+  }, [applySize])
 
   const placeholder = isInputStep
     ? (currentStep?.placeholder ?? 'Enter value...')
@@ -315,9 +350,6 @@ export default function Palette({ config, commands, onConfigChange: _onConfigCha
         flexDirection: 'column',
         fontFamily: 'var(--font)',
         overflow: 'hidden',
-        border: 'none',
-        borderRadius: 0,
-        boxShadow: 'none',
         color: 'var(--text)',
       }}
       onKeyDown={handleKeyDown}

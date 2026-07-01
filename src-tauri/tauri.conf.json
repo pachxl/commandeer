@@ -15,15 +15,15 @@
         "label": "palette",
         "title": "",
         "width": 669,
-        "height": 576,
-        "resizable": false,
+        "height": 300,
+        "resizable": true,
         "decorations": false,
         "transparent": true,
         "skipTaskbar": true,
         "alwaysOnTop": true,
         "center": true,
         "visible": false,
-        "shadow": true,
+        "shadow": false,
         "windowEffects": {
           "effects": ["acrylic"],
           "state": "active"

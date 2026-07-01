@@ -3,35 +3,142 @@ mod commands;
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
+/// Distance (logical px) from the top of the screen to the top of the palette on
+/// Wayland. The surface is anchored to the top edge, so this stays fixed while
+/// the height grows downward.
+#[cfg(not(target_os = "windows"))]
+const PALETTE_TOP_MARGIN: i32 = 150;
+
+/// Resize the palette to `height` logical px. On the Wayland layer-shell surface
+/// the size is taken from the GTK window's size request (it has no anchors), and
+/// changing it reconfigures the surface in place — no unmap, no flicker. On
+/// Windows the frontend resizes via setSize instead, so this is a no-op there.
+#[tauri::command]
+fn resize_palette(app: tauri::AppHandle, height: i32) {
+    #[cfg(not(target_os = "windows"))]
+    {
+        use gtk::prelude::*;
+        if let Some(win) = app.get_webview_window("palette") {
+            if let Ok(gtk_win) = win.gtk_window() {
+                gtk_win.set_size_request(669, height.max(1));
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    let _ = (&app, height);
+}
+
+/// Show the palette if hidden, hide it if visible.
+fn toggle_palette(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("palette") {
+        let visible = win.is_visible().unwrap_or(false);
+        if visible {
+            let _ = win.hide();
+        } else {
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+    }
+}
+
+/// On Linux the X11 global shortcut is unreliable under Wayland, so the working
+/// trigger is a COSMIC custom keybinding that re-launches the binary (single
+/// instance, which toggles the palette). We manage that binding here so it
+/// mirrors the Windows shortcut: Ctrl+Space normally, Alt+Space in game mode.
+/// Only our own entry is touched; any other custom shortcuts are preserved.
+#[cfg(not(target_os = "windows"))]
+fn update_cosmic_shortcut(game_mode: bool) {
+    let home = match std::env::var_os("HOME") {
+        Some(h) => h,
+        None => return,
+    };
+    let dir = std::path::Path::new(&home)
+        .join(".config/cosmic/com.system76.CosmicSettings.Shortcuts/v1");
+    let file = dir.join("custom");
+
+    let exe = match std::env::current_exe() {
+        Ok(p) => p.to_string_lossy().into_owned(),
+        Err(_) => return,
+    };
+
+    let modifier = if game_mode { "Alt" } else { "Ctrl" };
+    let our_line = format!(
+        "    (modifiers: [{modifier}], key: \"space\", description: Some(\"Toggle Commandeer\")): Spawn(\"{exe}\"),"
+    );
+
+    // Preserve unrelated custom shortcuts; replace only our binding (any modifier).
+    let mut kept: Vec<String> = Vec::new();
+    if let Ok(existing) = std::fs::read_to_string(&file) {
+        for line in existing.lines() {
+            let trimmed = line.trim();
+            if trimmed == "{" || trimmed == "}" || trimmed.is_empty() {
+                continue;
+            }
+            if line.contains(&exe) {
+                continue;
+            }
+            kept.push(line.to_string());
+        }
+    }
+
+    let mut out = String::from("{\n");
+    out.push_str(&our_line);
+    out.push('\n');
+    for line in kept {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out.push_str("}\n");
+
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(&file, out);
+}
+
 #[tauri::command]
 fn set_game_mode(enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
     let ctrl_space = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
     let alt_space = Shortcut::new(Some(Modifiers::ALT), Code::Space);
-    if enabled {
-        let _ = app.global_shortcut().unregister(ctrl_space);
-        app.global_shortcut().register(alt_space).map_err(|e| e.to_string())?;
-    } else {
-        let _ = app.global_shortcut().unregister(alt_space);
-        app.global_shortcut().register(ctrl_space).map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        if enabled {
+            let _ = app.global_shortcut().unregister(ctrl_space);
+            app.global_shortcut().register(alt_space).map_err(|e| e.to_string())?;
+        } else {
+            let _ = app.global_shortcut().unregister(alt_space);
+            app.global_shortcut().register(ctrl_space).map_err(|e| e.to_string())?;
+        }
     }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Best-effort X11 registration (works on X11 sessions, no-op under Wayland);
+        // the COSMIC binding below is the reliable Wayland path.
+        if enabled {
+            let _ = app.global_shortcut().unregister(ctrl_space);
+            let _ = app.global_shortcut().register(alt_space);
+        } else {
+            let _ = app.global_shortcut().unregister(alt_space);
+            let _ = app.global_shortcut().register(ctrl_space);
+        }
+        update_cosmic_shortcut(enabled);
+    }
+
     Ok(())
 }
 
 pub fn run() {
     tauri::Builder::default()
+        // Must be registered first: a second launch toggles the running palette
+        // (the reliable trigger on Wayland, where the X11 global shortcut may not fire).
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            toggle_palette(app);
+        }))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
-                        if let Some(win) = app.get_webview_window("palette") {
-                            let visible = win.is_visible().unwrap_or(false);
-                            if visible {
-                                let _ = win.hide();
-                            } else {
-                                let _ = win.show();
-                                let _ = win.set_focus();
-                            }
-                        }
+                        toggle_palette(app);
                     }
                 })
                 .build(),
@@ -40,13 +147,72 @@ pub fn run() {
         .on_window_event(|win, event| {
             if win.label() == "palette" {
                 if let WindowEvent::Focused(false) = event {
-                    let _ = win.hide();
+                    // Auto-hide when focus is lost (click-away to dismiss).
+                    // Set COMMANDEER_NO_AUTOHIDE=1 to disable (useful for debugging
+                    // or on compositors with unusual focus behaviour).
+                    if std::env::var_os("COMMANDEER_NO_AUTOHIDE").is_none() {
+                        let _ = win.hide();
+                    }
                 }
             }
         })
         .setup(|app| {
-            // Default: Ctrl+Space only. Game mode (Alt+Space) enabled dynamically via set_game_mode.
+            // Default trigger: Ctrl+Space. Game mode (Alt+Space) is applied via set_game_mode.
+            #[cfg(target_os = "windows")]
             app.global_shortcut().register(Shortcut::new(Some(Modifiers::CONTROL), Code::Space))?;
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                // Best-effort on X11; harmless no-op under Wayland.
+                let _ = app
+                    .global_shortcut()
+                    .register(Shortcut::new(Some(Modifiers::CONTROL), Code::Space));
+                // Ensure a working default COSMIC binding even before the frontend
+                // calls set_game_mode; the frontend then refines it for game mode.
+                update_cosmic_shortcut(false);
+
+                // Turn the palette into a wlr-layer-shell surface (must happen
+                // before it is first shown/mapped). As an overlay it renders
+                // transparent areas invisibly (no toplevel border/tint) and can
+                // be resized in place without the unmap "flash" a normal toplevel
+                // needs on Wayland.
+                if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+                    use gtk_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
+                    if let Some(win) = app.get_webview_window("palette") {
+                        if let Ok(gtk_win) = win.gtk_window() {
+                            use gtk::prelude::*;
+                            // init_layer_shell must run before the window is
+                            // realized (it isn't yet — the window is created
+                            // hidden); unrealize defensively in case that changes.
+                            if gtk_win.is_realized() {
+                                gtk_win.unrealize();
+                            }
+                            gtk_win.init_layer_shell();
+                            gtk_win.set_layer(Layer::Overlay);
+                            gtk_win.set_namespace("commandeer");
+                            // OnDemand: focusable when clicked, but click-away
+                            // still moves focus so our auto-hide fires.
+                            gtk_win.set_keyboard_mode(KeyboardMode::OnDemand);
+                            // Anchor the TOP edge only: the top stays a fixed
+                            // distance below the screen top and the surface grows
+                            // downward as its height changes (anchoring a single
+                            // edge leaves the perpendicular axis centered, so it
+                            // stays horizontally centered). Anchoring to one edge
+                            // does NOT stretch the surface — its size still comes
+                            // from the size request below.
+                            gtk_win.set_anchor(Edge::Top, true);
+                            // set_layer_shell_margin (not set_margin) — the trait
+                            // renames it to avoid clashing with GTK's
+                            // Widget::set_margin from gtk::prelude.
+                            gtk_win.set_layer_shell_margin(Edge::Top, PALETTE_TOP_MARGIN);
+                            // Force a concrete initial size so the surface isn't
+                            // mapped at 0; the frontend then sets the real height
+                            // via resize_palette.
+                            gtk_win.set_size_request(669, 300);
+                        }
+                    }
+                }
+            }
 
             #[cfg(target_os = "windows")]
             {
@@ -77,6 +243,7 @@ pub fn run() {
             commands::fs::list_scripts,
             commands::fs::run_script,
             set_game_mode,
+            resize_palette,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

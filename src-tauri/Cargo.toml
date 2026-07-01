@@ -14,6 +14,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 walkdir = "2"
@@ -21,3 +22,11 @@ tokio = { version = "1", features = ["full"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
+
+[target.'cfg(not(windows))'.dependencies]
+# Render the palette as a wlr-layer-shell surface on Linux/Wayland: lets the
+# compositor center it and makes transparent regions truly invisible (no
+# toplevel border/tint), and allows in-place resize without an unmap flash.
+gtk = "0.18"
+# v0_6 enables set_keyboard_mode (KeyboardMode::OnDemand); our system lib is 0.10.
+gtk-layer-shell = { version = "0.8", features = ["v0_6"] }

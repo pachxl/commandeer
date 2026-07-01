@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { loadScriptCommands, scriptsToCommands, builtinCommands } from './commands'
-import { setGameMode, type ScriptInfo } from './lib/tauri'
+import { readConfig, setGameMode, type ScriptInfo } from './lib/tauri'
 import type { AppConfig, Command } from './types'
 import Palette from './components/Palette'
 
-const SCRIPTS_DIR = 'C:/dev/commandeer/commands'
-const EMPTY_CONFIG: AppConfig = { scripts_dir: SCRIPTS_DIR }
+// Fallback used only until the real config (with a platform-appropriate
+// scripts_dir) is loaded from the backend.
+const EMPTY_CONFIG: AppConfig = { scripts_dir: '' }
 const GAME_MODE_KEY = 'commandeer:gamemode'
 const SCRIPTS_CACHE_KEY = 'commandeer:scripts'
 
@@ -20,15 +21,17 @@ function loadCachedScripts(): ScriptInfo[] {
 }
 
 export default function App() {
+  const [config, setConfig] = useState<AppConfig>(EMPTY_CONFIG)
   const [commands, setCommands] = useState<Command[]>(() => [...scriptsToCommands(loadCachedScripts()), ...builtinCommands])
   const [gameModeEnabled, setGameModeEnabled] = useState(
     () => localStorage.getItem(GAME_MODE_KEY) === 'true'
   )
   const resetRef = useRef<(() => void) | null>(null)
+  const configRef = useRef<AppConfig>(EMPTY_CONFIG)
 
   async function refresh() {
     try {
-      const { commands: cmds, scripts } = await loadScriptCommands(EMPTY_CONFIG)
+      const { commands: cmds, scripts } = await loadScriptCommands(configRef.current)
       localStorage.setItem(SCRIPTS_CACHE_KEY, JSON.stringify(scripts))
       setCommands([...cmds, ...builtinCommands])
     } catch (err) {
@@ -37,17 +40,33 @@ export default function App() {
   }
 
   useEffect(() => {
-    refresh()
-    setGameMode(gameModeEnabled).catch(console.error)
-    const win = getCurrentWindow()
-    const unlisten = win.onFocusChanged(({ payload: focused }) => {
-      if (focused) {
-        refresh()
-      } else {
-        resetRef.current?.()
+    let disposed = false
+    let unlisten: (() => void) | undefined
+
+    ;(async () => {
+      try {
+        const cfg = await readConfig()
+        configRef.current = cfg
+        if (!disposed) setConfig(cfg)
+      } catch (err) {
+        console.error(err)
       }
-    })
-    return () => { unlisten.then(fn => fn()) }
+
+      await refresh()
+      setGameMode(gameModeEnabled).catch(console.error)
+
+      const win = getCurrentWindow()
+      unlisten = await win.onFocusChanged(({ payload: focused }) => {
+        if (focused) {
+          refresh()
+        } else {
+          resetRef.current?.()
+        }
+      })
+      if (disposed) unlisten?.()
+    })()
+
+    return () => { disposed = true; unlisten?.() }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function toggleGameMode() {
@@ -59,7 +78,7 @@ export default function App() {
 
   return (
     <Palette
-      config={EMPTY_CONFIG}
+      config={config}
       commands={commands}
       onConfigChange={() => {}}
       resetRef={resetRef}
