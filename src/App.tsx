@@ -102,6 +102,14 @@ export default function App() {
       unlisten = await win.onFocusChanged(({ payload: focused }) => {
         if (focused) {
           refresh()
+          // Re-assert the saved transparency every time the launcher is shown.
+          // The window is reused across hide/show, but layered-window alpha can
+          // be dropped by the OS (and a value set while hidden at startup never
+          // sticks), so reapply to keep every open consistent.
+          const transparency = configRef.current.transparency
+          if (transparency !== undefined) {
+            setWindowTransparency(transparency).catch(console.error)
+          }
         } else {
           resetRef.current?.()
         }
