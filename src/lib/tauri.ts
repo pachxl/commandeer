@@ -70,6 +70,26 @@ export const readQuicklinks = () =>
 export const writeQuicklinks = (quicklinks: Quicklink[]) =>
   invoke<void>('write_quicklinks', { quicklinks })
 
+export interface ClipboardItem {
+  id: string
+  text: string
+  copied_at: string
+}
+
+export const readClipboardHistory = () =>
+  invoke<ClipboardItem[]>('read_clipboard_history')
+
+export const clearClipboardHistory = () =>
+  invoke<void>('clear_clipboard_history')
+
+export const writeClipboardText = (text: string) =>
+  invoke<void>('write_clipboard_text', { text })
+
+// Daily-cached FX rates for calculator currency conversions. Refreshes at most
+// once per day on the Rust side and serves a stale cache when offline.
+export const getRates = () =>
+  invoke<import('./math').CurrencyRates>('get_rates')
+
 // Per-command user overrides (alias, pinned, hotkey), keyed by command id
 export interface CommandOverride {
   alias?: string

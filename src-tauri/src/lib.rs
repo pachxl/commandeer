@@ -204,6 +204,12 @@ pub fn run() {
             app.manage(file_index);
             commands::file_index::start_index_manager(app.app_handle().clone(), file_index_clone);
 
+            // Encrypted SQLite clipboard history. The monitor needs the db, so
+            // create it first and keep a managed clone for commands.
+            let clipboard_db = commands::clipboard::ClipboardDb::new(app.app_handle())?;
+            app.manage(clipboard_db.clone());
+            commands::clipboard::start_monitor(app.app_handle().clone(), clipboard_db);
+
             // Default trigger: Ctrl+Space. Game mode (Alt+Space) is applied via set_game_mode.
             #[cfg(target_os = "windows")]
             app.global_shortcut().register(Shortcut::new(Some(Modifiers::CONTROL), Code::Space))?;
@@ -299,6 +305,10 @@ pub fn run() {
             commands::store::write_overrides,
             commands::store::read_themes,
             commands::paste::paste_to_previous,
+            commands::clipboard::read_clipboard_history,
+            commands::clipboard::clear_clipboard_history,
+            commands::clipboard::write_clipboard_text,
+            commands::rates::get_rates,
             commands::explorer::explorer_location,
             commands::explorer::list_files_recursive,
             commands::search::search_files,

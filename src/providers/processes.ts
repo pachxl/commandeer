@@ -78,6 +78,7 @@ export const killProcessCommand: Command = {
   description: 'Terminate a running process',
   icon: 'trash',
   source: 'system',
+  folderName: 'Tools',
   keywords: ['kill', 'process', 'task', 'terminate', 'end'],
   createRootStep: () => killProcessStep(),
 }

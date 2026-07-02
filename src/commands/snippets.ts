@@ -9,9 +9,9 @@ function snippetCommand(snippet: Snippet): Command {
     description: snippet.text.slice(0, 80).replace(/\n/g, ' '),
     icon: 'snippet',
     source: 'snippet',
+    folderName: 'Snippets',
     keywords: [snippet.text],
     actionLabel: 'Paste to active app',
-    searchOnly: true,
     data: snippet,
     action: async () => {
       await pasteToPrevious(snippet.text)
@@ -81,6 +81,9 @@ function removeSnippetStep(): Step {
   }
 }
 
+// All snippet commands live in the Snippets virtual folder: Add, Remove, then
+// the saved snippets themselves. The folder keeps them out of the root browse
+// list; the flat search still finds every one.
 export async function loadSnippetCommands(): Promise<Command[]> {
   const snippets = await readSnippets()
   return [
@@ -89,6 +92,7 @@ export async function loadSnippetCommands(): Promise<Command[]> {
       label: 'Add Snippet',
       description: 'Save a new text snippet',
       icon: 'plus',
+      folderName: 'Snippets',
       keywords: ['snippet', 'add', 'expand'],
       actionLabel: 'Add Snippet',
       createRootStep: addSnippetStep,
@@ -99,9 +103,9 @@ export async function loadSnippetCommands(): Promise<Command[]> {
           label: 'Remove Snippet',
           description: 'Delete a saved snippet',
           icon: 'trash',
+          folderName: 'Snippets',
           keywords: ['snippet', 'remove', 'delete'],
           actionLabel: 'Open',
-          searchOnly: true,
           createRootStep: removeSnippetStep,
         } satisfies Command]
       : []),

@@ -5,6 +5,7 @@ import { loadSnippetCommands } from './commands/snippets'
 import { settingsCommand } from './commands/settings'
 import { loadProviderCommands } from './providers'
 import { killProcessCommand } from './providers/processes'
+import { toolsFolderCommand, virtualFolderCommand } from './providers/tools'
 import { appEvents } from './lib/appEvents'
 import { applyThemeByName } from './lib/themes'
 import { readConfig, setGameMode, setWindowTransparency, type ScriptInfo } from './lib/tauri'
@@ -69,8 +70,13 @@ export default function App() {
         console.error(err)
         return [] as Command[]
       })
+      // Commands tagged with a folderName group under virtual folders (like
+      // script folders): hidden from root browse, still in the flat search
+      const toolsChildren = providerCmds.filter(c => c.folderName === 'Tools')
       setCommands([
         ...cmds,
+        ...(toolsChildren.length > 0 ? [toolsFolderCommand(toolsChildren)] : []),
+        ...(snippetCmds.length > 0 ? [virtualFolderCommand('Snippets', snippetCmds)] : []),
         ...snippetCmds,
         ...(isWebSearchVisible() ? [webSearchCommand] : []),
         ...providerCmds,

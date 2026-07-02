@@ -9,7 +9,7 @@ import { SETTINGS_COMMAND_ID } from '../commands/settings'
 import { loadActiveFolderItems, openFileItem } from '../commands/fileSearch'
 import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
-import { openPath, readSnippets, writeSnippets, type Snippet } from '../lib/tauri'
+import { openPath, pasteToPrevious, readSnippets, writeClipboardText, writeSnippets, type ClipboardItem, type Snippet } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
@@ -23,10 +23,11 @@ import SystemStatsPanel from './SystemStats'
 import Footer from './Footer'
 // ── Root items (the command list) ────────────────────────────────────────────
 
-// Extra search terms (folder name, keywords) folded into the fuzzy-match text
+// Extra search terms (folder name, keywords, aliases) folded into the
+// fuzzy-match text
 function searchTextFor(cmd: Command, prefix?: string): string | undefined {
-  if (!prefix && !cmd.keywords?.length) return undefined
-  return [prefix, cmd.label, cmd.description, ...(cmd.keywords ?? [])].filter(Boolean).join(' ')
+  if (!prefix && !cmd.keywords?.length && !cmd.aliases?.length) return undefined
+  return [prefix, cmd.label, cmd.description, ...(cmd.keywords ?? []), ...(cmd.aliases ?? [])].filter(Boolean).join(' ')
 }
 
 function commandToItem(cmd: Command): PaletteItem {
@@ -481,6 +482,10 @@ export default function Palette({
     ? selectedItem.data
     : null
 
+  // Forward ref so buildActions (defined before handleSelect) can trigger the
+  // normal selection path for step rows
+  const handleSelectRef = useRef<((item: PaletteItem) => Promise<void>) | null>(null)
+
   // Ctrl+K action panel: secondary actions for the highlighted item, keyed off
   // its provider source
   const buildActions = useCallback((item: PaletteItem): ActionItem[] => {
@@ -512,6 +517,10 @@ export default function Palette({
             if (!cmd.noClose) await getCurrentWindow().hide()
           } else if (cmd?.createRootStep) {
             dispatch({ type: 'PUSH_STEP', step: cmd.createRootStep(configRef.current) })
+          } else {
+            // Step rows aren't commands — fall back to the normal selection
+            // path so the step's onSelect runs
+            await handleSelectRef.current?.(item)
           }
         },
       })
@@ -545,6 +554,41 @@ export default function Palette({
         })
         break
       }
+      case 'clipboard': {
+        const clip = item.data as ClipboardItem
+        if (clip && typeof clip === 'object' && 'text' in clip) {
+          actions.push({
+            id: 'paste',
+            label: 'Paste to active app',
+            shortcut: '↵',
+            handler: async () => {
+              try {
+                await pasteToPrevious(clip.text)
+              } catch (err) {
+                toast('Failed to paste', 'error')
+                throw err
+              }
+            },
+          })
+          actions.push({
+            id: 'copy',
+            label: 'Copy to clipboard',
+            shortcut: 'C',
+            icon: 'copy',
+            handler: async () => {
+              await writeClipboardText(clip.text)
+              toast('Copied to clipboard', 'success')
+              await getCurrentWindow().hide()
+            },
+          })
+        } else {
+          runPrimary('open', 'Open')
+        }
+        break
+      }
+      case 'calculator':
+        pushCopy('Copy result', item.label, 'C')
+        break
       case 'script':
         runPrimary('run', 'Run script')
         break
@@ -798,6 +842,7 @@ export default function Palette({
       dispatch({ type: 'SET_ERROR', error: String(err) })
     }
   }, [currentStep])
+  handleSelectRef.current = handleSelect
 
   // Focus input whenever visible (the container on slider steps, so
   // Escape/Backspace keep working without a text input). Form steps own
