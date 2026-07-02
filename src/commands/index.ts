@@ -1,8 +1,5 @@
 import type { AppConfig, Command, Step, PaletteItem } from '../types'
 import { listScripts, runScript, type ScriptInfo } from '../lib/tauri'
-import { searchFolderCommand } from './fileSearch'
-
-export const builtinCommands: Command[] = [searchFolderCommand]
 
 export async function loadScriptCommands(config: AppConfig): Promise<{ commands: Command[]; scripts: ScriptInfo[] }> {
   const scripts = await listScripts(config.scripts_dir)

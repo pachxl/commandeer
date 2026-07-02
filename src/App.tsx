@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { loadScriptCommands, scriptsToCommands, builtinCommands } from './commands'
+import { loadScriptCommands, scriptsToCommands } from './commands'
+import { searchFolderCommand } from './commands/fileSearch'
 import { loadSnippetCommands } from './commands/snippets'
 import { settingsCommand } from './commands/settings'
 import { appEvents } from './lib/appEvents'
 import { applyThemeByName } from './lib/themes'
-import { readConfig, setGameMode, setWindowTransparency, type ScriptInfo } from './lib/tauri'
+import { explorerLocation, readConfig, setGameMode, setWindowTransparency, type ScriptInfo } from './lib/tauri'
 import type { AppConfig, Command } from './types'
 import Palette from './components/Palette'
 
@@ -31,7 +32,7 @@ export default function App() {
   // in place (Object.assign) so writes stay visible without re-creating commands.
   const configRef = useRef<AppConfig>({ ...EMPTY_CONFIG })
   const [commands, setCommands] = useState<Command[]>(
-    () => [...scriptsToCommands(loadCachedScripts()), ...builtinCommands, settingsCommand(configRef.current)]
+    () => [...scriptsToCommands(loadCachedScripts()), settingsCommand(configRef.current)]
   )
   const [gameModeEnabled, setGameModeEnabled] = useState(
     () => localStorage.getItem(GAME_MODE_KEY) === 'true'
@@ -49,7 +50,15 @@ export default function App() {
         console.error(err)
         return [] as Command[]
       })
-      setCommands([...cmds, ...snippetCmds, ...builtinCommands, settingsCommand(configRef.current)])
+      // Search Folder only makes sense when a File Explorer folder was
+      // focused when the palette opened (refresh runs on every focus gain)
+      const explorerFolder = await explorerLocation().catch(() => null)
+      setCommands([
+        ...cmds,
+        ...snippetCmds,
+        ...(explorerFolder ? [searchFolderCommand] : []),
+        settingsCommand(configRef.current),
+      ])
     } catch (err) {
       console.error(err)
     }
