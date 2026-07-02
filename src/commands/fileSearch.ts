@@ -1,4 +1,4 @@
-// "search:" prefix search over the folder open in the previously-focused File
+// "@search" prefix search over the folder open in the previously-focused File
 // Explorer window. The whole tree is loaded once (parallel walk in Rust,
 // capped), then every keystroke filters client-side — no IPC while typing.
 import type { PaletteItem } from '../types'

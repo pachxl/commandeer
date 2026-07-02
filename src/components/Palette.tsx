@@ -10,7 +10,7 @@ import { SETTINGS_COMMAND_ID } from '../commands/settings'
 import { loadActiveFolderItems, openFileItem } from '../commands/fileSearch'
 import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
-import { openPath, pasteToPrevious, readSnippets, setCommandHotkey, writeClipboardText, writeSnippets, type ClipboardItem, type CommandOverride, type Snippet } from '../lib/tauri'
+import { openPath, openUrl, pasteToPrevious, readSnippets, setCommandHotkey, writeClipboardText, writeSnippets, type ClipboardItem, type CommandOverride, type Snippet } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
@@ -238,13 +238,16 @@ function reducer(state: PaletteState, action: PaletteAction): PaletteState {
 
 const LAST_CMD_KEY = 'commandeer:last'
 
-// Root-level query prefix that switches the palette to file search in the
-// active Explorer folder
-const SEARCH_PREFIX = 'search:'
-
-// Root-level query prefix for the global file search (FTS5 index → Everything
-// → walkdir on the Rust side, fzf-based ranking client-side)
-const FIND_PREFIX = 'find:'
+// Root-level @ prefixes. Typing '@' (or a partial token) lists these as
+// suggestions; a completed token followed by a space activates the mode.
+//   @find   → global file search (FTS5 index → Everything → walkdir)
+//   @search → file search in the focused Explorer folder
+//   @web    → web search in the browser
+const AT_PREFIXES = [
+  { token: '@find', icon: 'file', description: 'Find files across your computer' },
+  { token: '@search', icon: 'folder', description: 'Search the focused Explorer folder' },
+  { token: '@web', icon: 'search', description: 'Search the web' },
+]
 
 // Debounce between keystrokes and the global-search IPC round trip
 const FIND_DEBOUNCE_MS = 120
@@ -406,11 +409,20 @@ export default function Palette({
   const currentStep = state.stepStack[state.stepStack.length - 1] ?? null
   const cacheKey = currentStep?.id ?? '__root__'
 
-  // "search:" prefix at root → file search in the active Explorer folder.
-  // The file list is fetched once per palette show (walked in parallel on the
-  // Rust side) and cached; keystrokes then filter it client-side.
-  const folderMode = !currentStep && state.query.toLowerCase().startsWith(SEARCH_PREFIX)
-  const folderQuery = folderMode ? state.query.slice(SEARCH_PREFIX.length).trimStart() : ''
+  // Parse an @-prefixed root query: '@'/'@fi' → suggestion mode; '@find rest'
+  // (completed token + space) → the corresponding mode with `rest` as query.
+  const atRaw = !currentStep && state.query.startsWith('@') ? state.query : null
+  const atSpaceIdx = atRaw?.indexOf(' ') ?? -1
+  const atToken = atRaw ? (atSpaceIdx >= 0 ? atRaw.slice(0, atSpaceIdx) : atRaw).toLowerCase() : null
+  const atRest = atRaw && atSpaceIdx >= 0 ? atRaw.slice(atSpaceIdx + 1) : ''
+  const atComplete = atToken !== null && atSpaceIdx >= 0 && AT_PREFIXES.some(p => p.token === atToken)
+  const atSuggestMode = atRaw !== null && !atComplete
+
+  // "@search" → file search in the active Explorer folder. The file list is
+  // fetched once per palette show (walked in parallel on the Rust side) and
+  // cached; keystrokes then filter it client-side.
+  const folderMode = atComplete && atToken === '@search'
+  const folderQuery = folderMode ? atRest.trimStart() : ''
   const folderLoad = useRef({ token: 0, loaded: false, loading: false })
 
   useEffect(() => {
@@ -433,12 +445,16 @@ export default function Palette({
       .finally(() => { folderLoad.current.loading = false })
   }, [folderMode])
 
-  // "find:" prefix at root → global file search. Unlike the folder search this
-  // hits the backend per (debounced) keystroke — the index does the narrowing —
-  // and results arrive pre-ranked by the fzf scorer + relevance multipliers.
-  const findMode = !currentStep && state.query.toLowerCase().startsWith(FIND_PREFIX)
-  const findQuery = findMode ? state.query.slice(FIND_PREFIX.length).trimStart() : ''
+  // "@find" → global file search. Unlike the folder search this hits the
+  // backend per (debounced) keystroke — the index does the narrowing — and
+  // results arrive pre-ranked by the fzf scorer + relevance multipliers.
+  const findMode = atComplete && atToken === '@find'
+  const findQuery = findMode ? atRest.trimStart() : ''
   const findToken = useRef(0)
+
+  // "@web" → a single row that opens the browser search
+  const webMode = atComplete && atToken === '@web'
+  const webQuery = webMode ? atRest.trim() : ''
 
   useEffect(() => {
     if (!findMode) return
@@ -463,12 +479,12 @@ export default function Palette({
   }, [findMode, findQuery])
 
   // Debounced provider search: dynamic per-query results (kill <name>,
-  // calculator, apps, …) surfaced inline at root. Skipped inside steps and in
-  // the find:/search: prefix modes, which own the whole result list.
+  // calculator, …) surfaced inline at root. Skipped inside steps and for any
+  // @-prefixed query, whose mode owns the whole result list.
   useEffect(() => {
     const requestId = ++providerRequestRef.current
     if (providerTimeoutRef.current) window.clearTimeout(providerTimeoutRef.current)
-    if (currentStep || folderMode || findMode || !state.query.trim()) {
+    if (currentStep || atRaw !== null || !state.query.trim()) {
       setProviderCommands([])
       return
     }
@@ -483,7 +499,7 @@ export default function Palette({
     return () => {
       if (providerTimeoutRef.current) window.clearTimeout(providerTimeoutRef.current)
     }
-  }, [state.query, currentStep, folderMode, findMode])
+  }, [state.query, currentStep, atRaw])
 
   // Close the action panel when the selection, query, or step changes
   useEffect(() => {
@@ -553,6 +569,30 @@ export default function Palette({
   let matchedItems: PaletteItem[]
   if (isInputStep || isSliderStep || isFormStep) {
     matchedItems = []
+  } else if (atSuggestMode) {
+    // '@' or a partial token: list the available @ commands; selecting one
+    // inserts it into the query instead of executing
+    matchedItems = AT_PREFIXES
+      .filter(p => p.token.startsWith(atToken ?? '@'))
+      .map(p => ({
+        id: `at:${p.token}`,
+        label: p.token,
+        sublabel: p.description,
+        icon: p.icon,
+        data: p.token,
+        actionLabel: 'Use',
+      }))
+  } else if (webMode) {
+    matchedItems = webQuery
+      ? [{
+          id: `web:${webQuery}`,
+          label: `Search the web for "${webQuery}"`,
+          sublabel: 'Opens your browser',
+          icon: 'search',
+          data: webQuery,
+          actionLabel: 'Search',
+        }]
+      : []
   } else if (findMode) {
     // Global results are already ranked for this query (fzf + relevance
     // multipliers in globalFileSearch) — re-filtering would fight the ranker
@@ -579,7 +619,7 @@ export default function Palette({
   const noMatches = matchedItems.length === 0
 
   // The Settings row is always the last item at root, query or not
-  const settingsCmd = !currentStep && !isInputStep && !findMode && !folderMode
+  const settingsCmd = !currentStep && !isInputStep && atRaw === null
     ? commands.find(c => c.id === SETTINGS_COMMAND_ID)
     : undefined
   const visibleItems = settingsCmd
@@ -975,7 +1015,23 @@ export default function Palette({
   const handleSelect = useCallback(async (item: PaletteItem) => {
     // Root level: find command and either run action or push step
     if (!currentStep) {
-      // search:/find: prefix results are files, not commands
+      // @ suggestion: insert the prefix into the query, stay open
+      if (item.id.startsWith('at:')) {
+        dispatch({ type: 'SET_QUERY', query: `${item.data as string} ` })
+        return
+      }
+      // @web row: open the browser search
+      if (item.id.startsWith('web:')) {
+        try {
+          await openUrl(`https://www.google.com/search?q=${encodeURIComponent(item.data as string)}`)
+          dispatch({ type: 'RESET' })
+          await getCurrentWindow().hide()
+        } catch (err) {
+          dispatch({ type: 'SET_ERROR', error: String(err) })
+        }
+        return
+      }
+      // @search/@find results are files, not commands
       if (item.id.startsWith('file:')) {
         try {
           await openFileItem(item)
@@ -1150,7 +1206,8 @@ export default function Palette({
         </div>
       )}
 
-      {!isInputStep && !isSliderStep && !state.loading && noMatches && state.query && !(findMode && !findQuery.trim()) && (
+      {!isInputStep && !isSliderStep && !state.loading && noMatches && state.query
+        && !(findMode && !findQuery.trim()) && !(webMode && !webQuery) && (
         <div style={{
           padding: '8px 12px',
           color: 'var(--text-dim)',

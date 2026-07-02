@@ -1,4 +1,4 @@
-// "find:" prefix search across the whole machine. Each (debounced) keystroke
+// "@find" prefix search across the whole machine. Each (debounced) keystroke
 // asks the backend for candidates — self-hosted FTS5 index first, then the
 // Everything index, then a walkdir fallback — and the fzf-based ranking plus
 // relevance multipliers below decide the final order.
