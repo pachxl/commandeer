@@ -7,6 +7,7 @@ export const builtinCommands: Command[] = [
     label: 'Search',
     icon: '🔍',
     description: 'Search the web',
+    actionLabel: 'Open',
     createRootStep: (): Step => ({
       id: 'search-input',
       label: 'Search',

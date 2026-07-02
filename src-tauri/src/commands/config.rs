@@ -6,12 +6,25 @@ use tauri::Manager;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub scripts_dir: String,
+    /// Used by the testing-branch build (file search); round-tripped here so
+    /// switching between builds doesn't drop it from config.json.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search_paths: Option<Vec<String>>,
+    /// Theme name ('Tokyo Night', 'Light', …); legacy values 'dark'/'light' still resolve
+    #[serde(default)]
+    pub theme: Option<String>,
+    /// Window transparency: 0.0 (fully opaque) to 1.0 (fully transparent)
+    #[serde(default)]
+    pub transparency: Option<f64>,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
             scripts_dir: String::new(),
+            search_paths: None,
+            theme: None,
+            transparency: None,
         }
     }
 }

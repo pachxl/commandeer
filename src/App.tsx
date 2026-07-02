@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { loadScriptCommands, scriptsToCommands, builtinCommands } from './commands'
-import { readConfig, setGameMode, type ScriptInfo } from './lib/tauri'
+import { loadSnippetCommands } from './commands/snippets'
+import { settingsCommand } from './commands/settings'
+import { appEvents } from './lib/appEvents'
+import { applyThemeByName } from './lib/themes'
+import { readConfig, setGameMode, setWindowTransparency, type ScriptInfo } from './lib/tauri'
 import type { AppConfig, Command } from './types'
 import Palette from './components/Palette'
 
@@ -23,7 +27,12 @@ function loadCachedScripts(): ScriptInfo[] {
 
 export default function App() {
   const [config, setConfig] = useState<AppConfig>(EMPTY_CONFIG)
-  const [commands, setCommands] = useState<Command[]>(() => [...scriptsToCommands(loadCachedScripts()), ...builtinCommands])
+  // Single mutable config object shared with settings steps: they update it
+  // in place (Object.assign) so writes stay visible without re-creating commands.
+  const configRef = useRef<AppConfig>({ ...EMPTY_CONFIG })
+  const [commands, setCommands] = useState<Command[]>(
+    () => [...scriptsToCommands(loadCachedScripts()), ...builtinCommands, settingsCommand(configRef.current)]
+  )
   const [gameModeEnabled, setGameModeEnabled] = useState(
     () => localStorage.getItem(GAME_MODE_KEY) === 'true'
   )
@@ -31,13 +40,16 @@ export default function App() {
     () => localStorage.getItem(CLAUDE_USAGE_KEY) === 'true'
   )
   const resetRef = useRef<(() => void) | null>(null)
-  const configRef = useRef<AppConfig>(EMPTY_CONFIG)
 
   async function refresh() {
     try {
       const { commands: cmds, scripts } = await loadScriptCommands(configRef.current)
       localStorage.setItem(SCRIPTS_CACHE_KEY, JSON.stringify(scripts))
-      setCommands([...cmds, ...builtinCommands])
+      const snippetCmds = await loadSnippetCommands().catch(err => {
+        console.error(err)
+        return [] as Command[]
+      })
+      setCommands([...cmds, ...snippetCmds, ...builtinCommands, settingsCommand(configRef.current)])
     } catch (err) {
       console.error(err)
     }
@@ -50,8 +62,14 @@ export default function App() {
     ;(async () => {
       try {
         const cfg = await readConfig()
-        configRef.current = cfg
-        if (!disposed) setConfig(cfg)
+        // Merge into the shared mutable object so settings steps and the
+        // Palette always see the same, current config.
+        Object.assign(configRef.current, cfg)
+        if (!disposed) setConfig(configRef.current)
+        applyThemeByName(cfg.theme).catch(console.error)
+        if (cfg.transparency !== undefined) {
+          setWindowTransparency(cfg.transparency).catch(console.error)
+        }
       } catch (err) {
         console.error(err)
       }
@@ -86,16 +104,20 @@ export default function App() {
     localStorage.setItem(CLAUDE_USAGE_KEY, String(next))
   }
 
+  // Keep the bridge fresh each render so settings commands see current state
+  appEvents.toggleGameMode = () => { void toggleGameMode() }
+  appEvents.toggleClaudeUsage = toggleClaudeUsage
+  appEvents.isGameMode = () => gameModeEnabled
+  appEvents.isClaudeUsageVisible = () => claudeUsageVisible
+
   return (
     <Palette
       config={config}
       commands={commands}
       onConfigChange={() => {}}
       resetRef={resetRef}
-      gameMode={gameModeEnabled}
       onToggleGameMode={toggleGameMode}
       claudeUsageVisible={claudeUsageVisible}
-      onToggleClaudeUsage={toggleClaudeUsage}
     />
   )
 }

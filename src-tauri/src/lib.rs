@@ -35,6 +35,8 @@ fn toggle_palette(app: &tauri::AppHandle) {
         if visible {
             let _ = win.hide();
         } else {
+            // Remember where the user was so paste-style actions can return there.
+            commands::paste::capture_foreground();
             let _ = win.show();
             let _ = win.set_focus();
         }
@@ -243,6 +245,12 @@ pub fn run() {
             commands::fs::list_scripts,
             commands::fs::run_script,
             commands::claude::claude_usage,
+            commands::store::data_dir,
+            commands::store::read_snippets,
+            commands::store::write_snippets,
+            commands::store::read_themes,
+            commands::paste::paste_to_previous,
+            commands::window::set_window_transparency,
             set_game_mode,
             resize_palette,
         ])

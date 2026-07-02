@@ -1,14 +1,21 @@
-import { useReducer, useEffect, useRef, useCallback, MutableRefObject } from 'react'
+import { useReducer, useEffect, useRef, useState, useCallback, MutableRefObject } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import { fuzzyFilter } from '../lib/fuzzy'
+import { SETTINGS_COMMAND_ID } from '../commands/settings'
 import type { AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
-import SearchInput from './SearchInput'
+import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
 import ClaudeUsage from './ClaudeUsage'
 import Footer from './Footer'
 // ── Root items (the command list) ────────────────────────────────────────────
+
+// Extra search terms (folder name, keywords) folded into the fuzzy-match text
+function searchTextFor(cmd: Command, prefix?: string): string | undefined {
+  if (!prefix && !cmd.keywords?.length) return undefined
+  return [prefix, cmd.label, cmd.description, ...(cmd.keywords ?? [])].filter(Boolean).join(' ')
+}
 
 // Hierarchical root view: folders first, then root scripts
 function commandsToItems(commands: Command[]): PaletteItem[] {
@@ -18,6 +25,8 @@ function commandsToItems(commands: Command[]): PaletteItem[] {
     sublabel: cmd.isFolder ? undefined : cmd.description,
     icon: cmd.icon,
     isFolder: cmd.isFolder,
+    actionLabel: cmd.actionLabel,
+    searchText: searchTextFor(cmd),
     data: cmd.id,
   }))
 }
@@ -29,7 +38,8 @@ function commandsToFlatItems(commands: Command[]): PaletteItem[] {
     label: cmd.label,
     sublabel: cmd.folderName,
     icon: cmd.icon,
-    searchText: cmd.folderName ? `${cmd.folderName} ${cmd.label}` : undefined,
+    actionLabel: cmd.actionLabel,
+    searchText: searchTextFor(cmd, cmd.folderName),
     data: cmd.id,
   }))
 }
@@ -80,6 +90,16 @@ function reducer(state: PaletteState, action: PaletteAction): PaletteState {
         error: null,
       }
 
+    case 'REPLACE_STEP':
+      return {
+        ...state,
+        stepStack: [...state.stepStack.slice(0, -1), action.step],
+        query: '',
+        selectedIndex: 0,
+        loading: false,
+        error: null,
+      }
+
     case 'MOVE_SELECTION':
       return {
         ...state,
@@ -121,10 +141,8 @@ interface PaletteProps {
   commands: Command[]
   onConfigChange: (config: AppConfig) => void
   resetRef: MutableRefObject<(() => void) | null>
-  gameMode: boolean
   onToggleGameMode: () => void
   claudeUsageVisible: boolean
-  onToggleClaudeUsage: () => void
 }
 
 export default function Palette({
@@ -132,12 +150,11 @@ export default function Palette({
   commands,
   onConfigChange: _onConfigChange,
   resetRef,
-  gameMode,
   onToggleGameMode,
   claudeUsageVisible,
-  onToggleClaudeUsage,
 }: PaletteProps) {
   const [state, dispatch] = useReducer(reducer, config, initialState)
+  const [sliderValue, setSliderValue] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const configRef = useRef(config)
   const commandsRef = useRef(commands)
@@ -149,20 +166,21 @@ export default function Palette({
     resetRef.current = () => dispatch({ type: 'RESET' })
   }, [resetRef])
 
-  // Reinitialise root items when commands list changes
+  // Reinitialise root items when commands list changes. The Settings command is
+  // kept out of both lists — it's appended as the always-last row below.
   useEffect(() => {
     const lastId = localStorage.getItem(LAST_CMD_KEY)
 
     // Hierarchical view: folders at top, then root scripts with last-used floating up
     const folderCmds = commands.filter(c => c.isFolder)
-    const rootScripts = commands.filter(c => !c.isFolder && !c.folderName)
+    const rootScripts = commands.filter(c => !c.isFolder && !c.folderName && c.id !== SETTINGS_COMMAND_ID)
     const sortedScripts = lastId
       ? [...rootScripts].sort((a, b) => (a.id === lastId ? -1 : b.id === lastId ? 1 : 0))
       : rootScripts
     dispatch({ type: 'SET_ITEMS', stepId: '__root__', items: commandsToItems([...folderCmds, ...sortedScripts]), preserveSelection: true })
 
     // Flat view: all scripts (no folder nav items) for cross-folder search
-    const allScripts = commands.filter(c => !c.isFolder)
+    const allScripts = commands.filter(c => !c.isFolder && c.id !== SETTINGS_COMMAND_ID)
     dispatch({ type: 'SET_ITEMS', stepId: '__root_flat__', items: commandsToFlatItems(allScripts), preserveSelection: true })
   }, [commands])
 
@@ -170,14 +188,27 @@ export default function Palette({
   const currentStep = state.stepStack[state.stepStack.length - 1] ?? null
   const cacheKey = currentStep?.id ?? '__root__'
 
-  // Load items when a new step is pushed
+  // Load items when a new step is pushed or replaced. Keyed on the step object
+  // (not its id) so a REPLACE_STEP with the same id still reloads.
   useEffect(() => {
     if (!currentStep?.load) return
     dispatch({ type: 'SET_LOADING', loading: true })
     currentStep.load(configRef.current)
       .then(items => dispatch({ type: 'SET_ITEMS', stepId: currentStep.id, items }))
       .catch(err => dispatch({ type: 'SET_ERROR', error: String(err) }))
-  }, [currentStep?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentStep]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Initialize slider position when a slider step is pushed. Transparency is
+  // stored cubically eased ((percent/100)^3), so invert with a cube root.
+  useEffect(() => {
+    if (!currentStep?.isSliderStep) return
+    if (currentStep.id === 'settings:transparency') {
+      const transparency = configRef.current.transparency ?? 0
+      setSliderValue(Math.round(Math.cbrt(transparency) * 100))
+    } else {
+      setSliderValue(currentStep.minValue ?? 0)
+    }
+  }, [currentStep])
 
   // Derived filtered items
   // At root with a query: search the flat list (all scripts across all folders)
@@ -188,10 +219,27 @@ export default function Palette({
       ? (state.itemCache['__root_flat__'] ?? [])
       : (state.itemCache['__root__'] ?? [])
   const isInputStep = currentStep?.isInputStep ?? false
-  const visibleItems = isInputStep ? [] : fuzzyFilter(rawItems, state.query, i =>
+  const isSliderStep = currentStep?.isSliderStep ?? false
+  const matchedItems = (isInputStep || isSliderStep) ? [] : fuzzyFilter(rawItems, state.query, i =>
     i.searchText ?? (i.label + ' ' + (i.sublabel ?? ''))
   )
+  const noMatches = matchedItems.length === 0
+
+  // The Settings row is always the last item at root, query or not
+  const settingsCmd = !currentStep && !isInputStep
+    ? commands.find(c => c.id === SETTINGS_COMMAND_ID)
+    : undefined
+  const visibleItems = settingsCmd
+    ? [...matchedItems.slice(0, 50), ...commandsToItems([settingsCmd])]
+    : matchedItems.slice(0, 50)
   const clampedIndex = Math.min(state.selectedIndex, Math.max(0, visibleItems.length - 1))
+  const selectedItem = visibleItems[clampedIndex] ?? null
+  const primaryAction = selectedItem
+    ? (selectedItem.actionLabel
+      ?? (selectedItem.isFolder
+        ? 'Open Folder'
+        : selectedItem.id.startsWith('script:') ? 'Run Script' : 'Select'))
+    : null
 
   // Keyboard handler
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
@@ -245,6 +293,10 @@ export default function Palette({
             await getCurrentWindow().hide()
           } else if (result.type === 'push') {
             dispatch({ type: 'PUSH_STEP', step: result.step })
+          } else if (result.type === 'replace') {
+            dispatch({ type: 'REPLACE_STEP', step: result.step })
+          } else if (result.type === 'pop') {
+            dispatch({ type: 'POP_STEP' })
           }
         } catch (err) {
           dispatch({ type: 'SET_ERROR', error: String(err) })
@@ -290,15 +342,21 @@ export default function Palette({
         await getCurrentWindow().hide()
       } else if (result.type === 'push') {
         dispatch({ type: 'PUSH_STEP', step: result.step })
+      } else if (result.type === 'replace') {
+        dispatch({ type: 'REPLACE_STEP', step: result.step })
+      } else if (result.type === 'pop') {
+        dispatch({ type: 'POP_STEP' })
       }
     } catch (err) {
       dispatch({ type: 'SET_ERROR', error: String(err) })
     }
   }, [currentStep])
 
-  // Focus input whenever visible
+  // Focus input whenever visible (the container on slider steps, so
+  // Escape/Backspace keep working without a text input)
   useEffect(() => {
-    inputRef.current?.focus()
+    if (isSliderStep) containerRef.current?.focus()
+    else inputRef.current?.focus()
   })
 
   // Keep the window sized to its content.
@@ -353,7 +411,9 @@ export default function Palette({
   return (
     <div
       ref={containerRef}
+      tabIndex={-1}
       style={{
+        outline: 'none',
         width: '100%',
         background: 'var(--bg)',
         backdropFilter: 'blur(60px) saturate(180%)',
@@ -366,13 +426,28 @@ export default function Palette({
       }}
       onKeyDown={handleKeyDown}
     >
-      <SearchInput
-        ref={inputRef}
-        value={state.query}
-        placeholder={placeholder}
-        loading={state.loading}
-        onChange={q => dispatch({ type: 'SET_QUERY', query: q })}
-      />
+      {isSliderStep && currentStep ? (
+        <SliderInput
+          value={sliderValue}
+          min={currentStep.minValue ?? 0}
+          max={currentStep.maxValue ?? 100}
+          step={currentStep.stepValue ?? 1}
+          onChange={value => {
+            setSliderValue(value)
+            currentStep.onSliderChange?.(value, configRef.current).catch(err => {
+              dispatch({ type: 'SET_ERROR', error: String(err) })
+            })
+          }}
+        />
+      ) : (
+        <SearchInput
+          ref={inputRef}
+          value={state.query}
+          placeholder={placeholder}
+          loading={state.loading}
+          onChange={q => dispatch({ type: 'SET_QUERY', query: q })}
+        />
+      )}
 
       {state.error && (
         <div style={{
@@ -386,16 +461,7 @@ export default function Palette({
         </div>
       )}
 
-      {!isInputStep && visibleItems.length > 0 && (
-        <ResultsList
-          items={visibleItems.slice(0, 50)}
-          selectedIndex={clampedIndex}
-          onSelect={handleSelect}
-          onHover={i => dispatch({ type: 'MOVE_SELECTION', delta: i - clampedIndex })}
-        />
-      )}
-
-      {!isInputStep && !state.loading && visibleItems.length === 0 && state.query && (
+      {!isInputStep && !isSliderStep && !state.loading && noMatches && state.query && (
         <div style={{
           padding: '8px 12px',
           color: 'var(--text-dim)',
@@ -406,13 +472,17 @@ export default function Palette({
         </div>
       )}
 
+      {!isInputStep && !isSliderStep && visibleItems.length > 0 && (
+        <ResultsList
+          items={visibleItems}
+          selectedIndex={clampedIndex}
+          onSelect={handleSelect}
+          onHover={i => dispatch({ type: 'MOVE_SELECTION', delta: i - clampedIndex })}
+        />
+      )}
+
       {claudeUsageVisible && <ClaudeUsage />}
-      <Footer
-        gameMode={gameMode}
-        onToggleGameMode={onToggleGameMode}
-        claudeUsageVisible={claudeUsageVisible}
-        onToggleClaudeUsage={onToggleClaudeUsage}
-      />
+      <Footer selectedItem={selectedItem} primaryAction={primaryAction} />
     </div>
   )
 }
