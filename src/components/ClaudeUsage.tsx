@@ -21,10 +21,12 @@ function limitLabel(limit: ClaudeLimit): string {
   return model ? `Current week (${model})` : 'Current week'
 }
 
+// Fixed traffic-light palette (blue → yellow → red) so usage reads the same
+// in every theme, rather than following the accent color.
 function barColor(limit: ClaudeLimit): string {
-  if (limit.severity === 'error' || limit.severity === 'exceeded' || limit.percent >= 90) return '#f7768e'
-  if (limit.severity === 'warning' || limit.percent >= 75) return '#e0af68'
-  return 'var(--accent)'
+  if (limit.severity === 'error' || limit.severity === 'exceeded' || limit.percent >= 90) return '#f7484f'
+  if (limit.severity === 'warning' || limit.percent >= 75) return '#f5c542'
+  return '#4a9eff'
 }
 
 function pad(n: number): string {

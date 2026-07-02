@@ -1,6 +1,5 @@
 import type { Command, CommandProvider, PaletteItem, Step } from '../types'
 import { clearClipboardHistory, pasteToPrevious, readClipboardHistory, type ClipboardItem } from '../lib/tauri'
-import { fuzzyFilter } from '../lib/fuzzy'
 
 function clipboardType(text: string): string {
   if (/^https?:\/\//i.test(text)) return 'link'
@@ -55,6 +54,7 @@ export const clipboardProvider: CommandProvider = {
       description: 'View recently copied items',
       icon: 'snippet',
       source: 'clipboard',
+      folderName: 'Tools',
       aliases: ['clipboard', 'history'],
       keywords: ['clipboard', 'history', 'paste'],
       createRootStep: clipboardHistoryStep,
@@ -72,26 +72,6 @@ export const clipboardProvider: CommandProvider = {
       },
     },
   ],
-  search: async (query: string): Promise<Command[]> => {
-    const q = query.trim()
-    if (q.length < 2) return []
-    const items = await readClipboardHistory()
-    // Rank the whole history before truncating, so the best fuzzy match still
-    // surfaces even when it sits deep in the list.
-    return fuzzyFilter(items, q, item => item.text)
-      .slice(0, 5)
-      .map(item => ({
-        id: `clipboard:${item.id}`,
-        label: item.text.slice(0, 80).replace(/\n/g, ' '),
-        description: 'Paste to active app',
-        icon: 'snippet',
-        source: 'clipboard',
-        data: item,
-        accessories: [{ text: clipboardType(item.text) }],
-        metadata: clipboardMetadata(item),
-        action: async () => {
-          await pasteToPrevious(item.text)
-        },
-      }))
-  },
+  // No search(): clipboard contents must not surface in root search results —
+  // history is only reachable through the Clipboard History step.
 }

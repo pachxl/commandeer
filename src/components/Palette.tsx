@@ -126,7 +126,14 @@ function buildQueryResults(items: PaletteItem[], query: string, overrides: Overr
       score += frecencyBonus(item.id)
       if (ov?.pinned) score += 10
 
-      return { item, score, aliasRank: aliasPrefixRank(query, ov) }
+      return {
+        item,
+        score,
+        aliasRank: aliasPrefixRank(query, ov),
+        // Scripts/shortcuts from the commands folder always sort above
+        // provider results (calculator, kill, …)
+        scriptTier: item.source === 'script' ? 0 : 1,
+      }
     })
     .filter((r): r is NonNullable<typeof r> => r !== null)
   ranked.sort((a, b) => {
@@ -136,6 +143,7 @@ function buildQueryResults(items: PaletteItem[], query: string, overrides: Overr
     }
     if (a.aliasRank) return -1
     if (b.aliasRank) return 1
+    if (a.scriptTier !== b.scriptTier) return a.scriptTier - b.scriptTier
     return b.score - a.score
   })
   return ranked.map(r => r.item)

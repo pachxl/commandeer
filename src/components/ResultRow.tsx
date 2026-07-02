@@ -58,7 +58,9 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
       : 'transparent'
     const fg = selected ? '#ffffff' : 'var(--text)'
     const subFg = selected ? 'rgba(255,255,255,0.78)' : 'var(--text-dim)'
-    const iconColor = selected ? '#ffffff' : subFg
+    // An explicit item color overrides the theme icon tint (e.g. the Claude
+    // orange or game-mode green in Settings)
+    const iconColor = item.color ?? (selected ? '#ffffff' : subFg)
 
     return (
       <div

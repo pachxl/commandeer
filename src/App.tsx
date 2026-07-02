@@ -75,13 +75,14 @@ export default function App() {
       })
       // Commands tagged with a folderName group under virtual folders (like
       // script folders): hidden from root browse, still in the flat search
-      const toolsChildren = providerCmds.filter(c => c.folderName === 'Tools')
+      const webSearchCmds = isWebSearchVisible() ? [webSearchCommand] : []
+      const toolsChildren = [...providerCmds, ...webSearchCmds].filter(c => c.folderName === 'Tools')
       setCommands([
         ...cmds,
         ...(toolsChildren.length > 0 ? [toolsFolderCommand(toolsChildren)] : []),
         ...(snippetCmds.length > 0 ? [virtualFolderCommand('Snippets', snippetCmds)] : []),
         ...snippetCmds,
-        ...(isWebSearchVisible() ? [webSearchCommand] : []),
+        ...webSearchCmds,
         ...providerCmds,
         settingsCommand(configRef.current),
       ])

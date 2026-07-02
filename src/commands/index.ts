@@ -7,6 +7,7 @@ export const webSearchCommand: Command = {
   label: 'Search',
   icon: 'search',
   description: 'Search the web',
+  folderName: 'Tools',
   actionLabel: 'Open',
   createRootStep: (): Step => ({
     id: 'search-input',

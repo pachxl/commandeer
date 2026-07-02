@@ -68,6 +68,9 @@ export type StepResult =
   | { type: 'push'; step: Step }
   | { type: 'replace'; step: Step }
   | { type: 'pop' }
+  // Keep the palette open on the current step, untouched (e.g. calculator
+  // commit: copy the result and stay put)
+  | { type: 'stay' }
 
 export interface FormFieldOption {
   label: string

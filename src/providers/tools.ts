@@ -28,7 +28,8 @@ function calculatorStep(): Step {
       if (!result) throw new Error(`Could not evaluate '${trimmed}'`)
       await navigator.clipboard.writeText(result.copy)
       appEvents.toast?.(`${result.display} — copied`, 'success')
-      return { type: 'done' }
+      // Stay open so the user can keep calculating (or tweak the expression)
+      return { type: 'stay' }
     },
   }
 }
