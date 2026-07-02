@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { systemStats, type SystemStats } from '../lib/tauri'
 
-const POLL_MS = 1500
+// The backend poll is a few syscalls (~µs); 1s matches Task Manager's cadence
+const POLL_MS = 1000
 
 function barColor(pct: number): string {
   if (pct >= 90) return '#f7768e'
