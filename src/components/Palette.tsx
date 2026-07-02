@@ -362,20 +362,25 @@ export default function Palette({
 
   // Keep the window sized to its content.
   //
-  // Windows: setSize shrinks/grows the window to the content height; min == max
-  // also stops the user resizing it. Re-asserted on focus because a size set
-  // while hidden isn't always honoured.
+  // Windows: a single setSize per height change — the window is positioned
+  // once per show (Rust side, top fixed at ~20% of the monitor), so resizes
+  // only move the bottom edge and typing stays smooth. A small dead-band
+  // skips sub-2px churn; user resizing is prevented by resizable: false in
+  // tauri.conf.json. Re-asserted on focus because a size set while hidden
+  // isn't always honoured.
   //
   // Linux/Wayland (cosmic-comp): a mapped window can't be resized at all, so we
   // don't try — the window is a fixed, tall, border/shadow-less transparent
   // surface and only this content panel is opaque, so it *looks* content-sized
   // with no OS resize (and therefore no flicker). Nothing to do here.
   const containerRef = useRef<HTMLDivElement>(null)
+  const lastHeightRef = useRef(0)
   const applySize = useCallback(async () => {
     const el = containerRef.current
     if (!el) return
     const h = Math.ceil(el.getBoundingClientRect().height)
-    if (!h) return
+    if (!h || Math.abs(h - lastHeightRef.current) < 2) return
+    lastHeightRef.current = h
     if (IS_LINUX) {
       // Layer-shell surface: the compositor keeps it centered (no anchors) and
       // resizes it in place (no flicker). Its size comes from the GTK size
@@ -383,14 +388,7 @@ export default function Palette({
       await invoke('resize_palette', { height: h })
       return
     }
-    const win = getCurrentWindow()
-    const sz = new LogicalSize(669, h)
-    // Release the previous max first so min can move past it in either direction.
-    await win.setMaxSize(new LogicalSize(669, 4000))
-    await win.setMinSize(sz)
-    await win.setMaxSize(sz)
-    await win.setSize(sz)
-    await win.center()
+    await getCurrentWindow().setSize(new LogicalSize(669, h))
   }, [])
 
   useEffect(() => {
@@ -400,7 +398,13 @@ export default function Palette({
     observer.observe(el)
     let unlisten: (() => void) | undefined
     getCurrentWindow()
-      .onFocusChanged(({ payload: focused }) => { if (focused) void applySize() })
+      .onFocusChanged(({ payload: focused }) => {
+        if (focused) {
+          // Force a re-apply even if the height didn't change while hidden
+          lastHeightRef.current = 0
+          void applySize()
+        }
+      })
       .then(fn => { unlisten = fn })
     return () => { observer.disconnect(); unlisten?.() }
   }, [applySize])

@@ -28,6 +28,40 @@ fn resize_palette(app: tauri::AppHandle, height: i32) {
     let _ = (&app, height);
 }
 
+/// Center the palette horizontally on the monitor under the mouse cursor,
+/// with its top at ~20% of that monitor's height (Raycast opens where you
+/// are working, not on the primary display). Positioning happens once per
+/// show — resizes afterwards only move the bottom edge, which keeps typing
+/// smooth.
+#[cfg(target_os = "windows")]
+fn position_on_cursor_monitor(win: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+    unsafe {
+        let mut pt = POINT::default();
+        if GetCursorPos(&mut pt).is_err() {
+            return;
+        }
+        let monitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return;
+        }
+        let work = info.rcWork;
+        let width = win.outer_size().map(|s| s.width as i32).unwrap_or(669);
+        let x = work.left + (work.right - work.left - width) / 2;
+        let y = work.top + (work.bottom - work.top) / 5;
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+}
+
 /// Show the palette if hidden, hide it if visible.
 fn toggle_palette(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("palette") {
@@ -37,6 +71,8 @@ fn toggle_palette(app: &tauri::AppHandle) {
         } else {
             // Remember where the user was so paste-style actions can return there.
             commands::paste::capture_foreground();
+            #[cfg(target_os = "windows")]
+            position_on_cursor_monitor(&win);
             let _ = win.show();
             let _ = win.set_focus();
         }

@@ -16,7 +16,7 @@
         "title": "",
         "width": 669,
         "height": 300,
-        "resizable": true,
+        "resizable": false,
         "decorations": false,
         "transparent": true,
         "skipTaskbar": true,
