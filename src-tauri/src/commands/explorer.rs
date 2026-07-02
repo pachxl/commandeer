@@ -4,6 +4,7 @@
 //! recursively for the palette to filter client-side.
 
 use serde::Serialize;
+use std::sync::Mutex;
 
 #[derive(Serialize)]
 pub struct FileEntry {
@@ -75,25 +76,37 @@ fn location_for_hwnd(target: isize) -> Option<String> {
     }
 }
 
-/// Folder open in the File Explorer window that was focused when the palette
-/// was shown, or None if that window isn't an Explorer folder view.
-#[tauri::command]
-pub async fn explorer_location() -> Option<String> {
+/// Folder resolved at the moment the palette was shown (see
+/// `capture_location`); None until the resolve lands or when the previous
+/// window wasn't an Explorer folder view.
+static LAST_LOCATION: Mutex<Option<String>> = Mutex::new(None);
+
+/// Called right before the palette is shown (after `capture_foreground`).
+/// Clears the snapshot synchronously — so readers can never see a stale
+/// folder from the previous show — then resolves the new one on a worker
+/// thread (COM enumeration, typically ~ms, lands well before the frontend
+/// asks).
+pub fn capture_location() {
+    *LAST_LOCATION.lock().unwrap() = None;
+
     #[cfg(target_os = "windows")]
     {
         let hwnd = super::paste::previous_foreground();
         if hwnd == 0 {
-            return None;
+            return;
         }
-        // COM enumeration off the async runtime thread
-        tokio::task::spawn_blocking(move || location_for_hwnd(hwnd))
-            .await
-            .ok()
-            .flatten()
+        std::thread::spawn(move || {
+            let loc = location_for_hwnd(hwnd);
+            *LAST_LOCATION.lock().unwrap() = loc;
+        });
     }
+}
 
-    #[cfg(not(target_os = "windows"))]
-    None
+/// Folder open in the File Explorer window that was focused when the palette
+/// was shown. Instant: returns the snapshot taken at show time.
+#[tauri::command]
+pub fn explorer_location() -> Option<String> {
+    LAST_LOCATION.lock().unwrap().clone()
 }
 
 /// Dependency/VCS/cache directories that are never worth searching. Pruned at

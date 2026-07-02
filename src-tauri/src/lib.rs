@@ -71,6 +71,9 @@ fn toggle_palette(app: &tauri::AppHandle) {
         } else {
             // Remember where the user was so paste-style actions can return there.
             commands::paste::capture_foreground();
+            // Snapshot the focused Explorer folder now (resolves on a worker
+            // thread) so the frontend's Search Folder check is instant.
+            commands::explorer::capture_location();
             #[cfg(target_os = "windows")]
             position_on_cursor_monitor(&win);
             let _ = win.show();
