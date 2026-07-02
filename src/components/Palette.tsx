@@ -171,9 +171,10 @@ export default function Palette({
   useEffect(() => {
     const lastId = localStorage.getItem(LAST_CMD_KEY)
 
-    // Hierarchical view: folders at top, then root scripts with last-used floating up
+    // Hierarchical view: folders at top, then root scripts with last-used floating up.
+    // searchOnly commands are excluded here but stay in the flat search list.
     const folderCmds = commands.filter(c => c.isFolder)
-    const rootScripts = commands.filter(c => !c.isFolder && !c.folderName && c.id !== SETTINGS_COMMAND_ID)
+    const rootScripts = commands.filter(c => !c.isFolder && !c.folderName && !c.searchOnly && c.id !== SETTINGS_COMMAND_ID)
     const sortedScripts = lastId
       ? [...rootScripts].sort((a, b) => (a.id === lastId ? -1 : b.id === lastId ? 1 : 0))
       : rootScripts

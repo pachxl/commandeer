@@ -54,6 +54,8 @@ export interface Command {
   keywords?: string[]
   // Label of the primary (Enter) action, shown in the footer
   actionLabel?: string
+  // If true, hidden from the browse list — only findable by typing a query
+  searchOnly?: boolean
   // Either run directly (scripts/shortcuts) or push a step (multi-step commands)
   action?: (config: AppConfig) => Promise<void>
   createRootStep?: (config: AppConfig) => Step

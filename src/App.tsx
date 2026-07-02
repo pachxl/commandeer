@@ -109,6 +109,7 @@ export default function App() {
   appEvents.toggleClaudeUsage = toggleClaudeUsage
   appEvents.isGameMode = () => gameModeEnabled
   appEvents.isClaudeUsageVisible = () => claudeUsageVisible
+  appEvents.refreshCommands = () => { void refresh() }
 
   return (
     <Palette

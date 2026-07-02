@@ -1,4 +1,5 @@
 import type { Command, PaletteItem, Step, StepResult } from '../types'
+import { appEvents } from '../lib/appEvents'
 import { pasteToPrevious, readSnippets, writeSnippets, type Snippet } from '../lib/tauri'
 
 function snippetCommand(snippet: Snippet): Command {
@@ -9,6 +10,7 @@ function snippetCommand(snippet: Snippet): Command {
     icon: 'snippet',
     keywords: [snippet.text],
     actionLabel: 'Paste to active app',
+    searchOnly: true,
     action: async () => {
       await pasteToPrevious(snippet.text)
     },
@@ -43,6 +45,7 @@ function addSnippetStep(): Step {
               text: trimmed,
             }
             await writeSnippets([...all, next])
+            appEvents.refreshCommands?.()
             return { type: 'done' }
           },
         },
@@ -70,6 +73,7 @@ function removeSnippetStep(): Step {
     onSelect: async (item): Promise<StepResult> => {
       const all = await readSnippets()
       await writeSnippets(all.filter(s => s.id !== item.data))
+      appEvents.refreshCommands?.()
       return { type: 'replace', step: removeSnippetStep() }
     },
   }
@@ -95,6 +99,7 @@ export async function loadSnippetCommands(): Promise<Command[]> {
           icon: 'trash',
           keywords: ['snippet', 'remove', 'delete'],
           actionLabel: 'Open',
+          searchOnly: true,
           createRootStep: removeSnippetStep,
         } satisfies Command]
       : []),
