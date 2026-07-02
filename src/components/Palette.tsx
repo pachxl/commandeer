@@ -92,11 +92,13 @@ function reducer(state: PaletteState, action: PaletteAction): PaletteState {
       }
 
     case 'REPLACE_STEP':
+      // preserveSelection: same-id replaces (toggles, theme apply) keep the
+      // query and highlighted row instead of jumping back to the top
       return {
         ...state,
         stepStack: [...state.stepStack.slice(0, -1), action.step],
-        query: '',
-        selectedIndex: 0,
+        query: action.preserveSelection ? state.query : '',
+        selectedIndex: action.preserveSelection ? state.selectedIndex : 0,
         loading: false,
         error: null,
       }
@@ -227,9 +229,17 @@ export default function Palette({
     if (!currentStep?.load) return
     dispatch({ type: 'SET_LOADING', loading: true })
     currentStep.load(configRef.current)
-      .then(items => dispatch({ type: 'SET_ITEMS', stepId: currentStep.id, items }))
+      // preserveSelection: PUSH/POP already reset the index to 0; same-id
+      // REPLACEs deliberately keep the highlighted row across the reload
+      .then(items => dispatch({ type: 'SET_ITEMS', stepId: currentStep.id, items, preserveSelection: true }))
       .catch(err => dispatch({ type: 'SET_ERROR', error: String(err) }))
   }, [currentStep]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Notify the step when it leaves the top of the stack (pop, replace,
+  // reset/hide) so uncommitted previews can be undone
+  useEffect(() => {
+    return () => { currentStep?.onExit?.() }
+  }, [currentStep])
 
   // Initialize slider position when a slider step is pushed. Transparency is
   // stored cubically eased ((percent/100)^3), so invert with a cube root.
@@ -275,6 +285,20 @@ export default function Palette({
         ? 'Open Folder'
         : selectedItem.id.startsWith('script:') ? 'Run Script' : 'Select'))
     : null
+
+  // Live preview on highlight change (arrow keys or hover). The first
+  // highlight after a step mounts/reloads is skipped — it's the default
+  // selection, not the user moving.
+  const highlightReady = useRef(false)
+  useEffect(() => { highlightReady.current = false }, [currentStep])
+  useEffect(() => {
+    if (!currentStep?.onHighlight || !selectedItem) return
+    if (!highlightReady.current) {
+      highlightReady.current = true
+      return
+    }
+    currentStep.onHighlight(selectedItem)
+  }, [selectedItem]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard handler
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
@@ -389,7 +413,8 @@ export default function Palette({
       } else if (result.type === 'push') {
         dispatch({ type: 'PUSH_STEP', step: result.step })
       } else if (result.type === 'replace') {
-        dispatch({ type: 'REPLACE_STEP', step: result.step })
+        // Same-id replace = the step refreshing itself; keep the user's spot
+        dispatch({ type: 'REPLACE_STEP', step: result.step, preserveSelection: result.step.id === currentStep.id })
       } else if (result.type === 'pop') {
         dispatch({ type: 'POP_STEP' })
       }

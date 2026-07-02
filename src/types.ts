@@ -32,6 +32,12 @@ export interface Step {
   placeholder: string
   load?: (config: AppConfig) => Promise<PaletteItem[]>
   onSelect: (item: PaletteItem, config: AppConfig) => Promise<StepResult>
+  // Called when the highlighted item changes (arrow keys or hover) — used
+  // for live previews (e.g. themes). Not called for the initial selection.
+  onHighlight?: (item: PaletteItem) => void
+  // Called when the step leaves the top of the stack (pop, replace, reset).
+  // Pair with onHighlight to undo an uncommitted preview.
+  onExit?: () => void
   // If true, pressing Enter with no selection confirms the raw query text
   isInputStep?: boolean
   onCommitQuery?: (query: string, config: AppConfig) => Promise<StepResult>
@@ -77,7 +83,7 @@ export type PaletteAction =
   | { type: 'SET_ITEMS'; stepId: string; items: PaletteItem[]; preserveSelection?: boolean }
   | { type: 'PUSH_STEP'; step: Step }
   | { type: 'POP_STEP' }
-  | { type: 'REPLACE_STEP'; step: Step }
+  | { type: 'REPLACE_STEP'; step: Step; preserveSelection?: boolean }
   | { type: 'MOVE_SELECTION'; delta: number }
   | { type: 'SET_LOADING'; loading: boolean }
   | { type: 'SET_ERROR'; error: string | null }

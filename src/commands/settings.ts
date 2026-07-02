@@ -1,7 +1,7 @@
 import type { AppConfig, Command, PaletteItem, Step, StepResult } from '../types'
 import { dataDir, openPath, setWindowTransparency, writeConfig } from '../lib/tauri'
 import { appEvents } from '../lib/appEvents'
-import { applyTheme, getAllThemes, type Theme } from '../lib/themes'
+import { applyTheme, applyThemeByName, getAllThemes, type Theme } from '../lib/themes'
 
 function settingsStep(config: AppConfig): Step {
   const transparencyPercent = Math.round((config.transparency ?? 0) * 100)
@@ -110,6 +110,11 @@ function chooseThemeStep(config: AppConfig): Step {
         actionLabel: 'Apply Theme',
       }))
     },
+    // Live preview while browsing; onExit re-applies the saved theme, which
+    // undoes an uncommitted preview (and is a visual no-op after a commit,
+    // since config.theme is updated before the step is replaced)
+    onHighlight: item => applyTheme(item.data as Theme),
+    onExit: () => { applyThemeByName(config.theme).catch(console.error) },
     onSelect: async (item): Promise<StepResult> => {
       const theme = item.data as Theme
       applyTheme(theme)
