@@ -16,6 +16,12 @@ pub struct AppConfig {
     /// Window transparency: 0.0 (fully opaque) to 1.0 (fully transparent)
     #[serde(default)]
     pub transparency: Option<f64>,
+    /// Global hotkey that toggles the palette (e.g. "Ctrl+Space")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global_hotkey: Option<String>,
+    /// Alternate global hotkey used in game mode (e.g. "Alt+Space")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global_hotkey_game: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -25,6 +31,8 @@ impl Default for AppConfig {
             search_paths: None,
             theme: None,
             transparency: None,
+            global_hotkey: None,
+            global_hotkey_game: None,
         }
     }
 }

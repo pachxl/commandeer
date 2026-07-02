@@ -1,7 +1,7 @@
 mod commands;
 
-use tauri::{Manager, WindowEvent};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri::{Emitter, Manager, WindowEvent};
+use tauri_plugin_global_shortcut::ShortcutState;
 
 /// Distance (logical px) from the top of the screen to the top of the palette on
 /// Wayland. The surface is anchored to the top edge, so this stays fixed while
@@ -82,6 +82,90 @@ fn toggle_palette(app: &tauri::AppHandle) {
     }
 }
 
+/// Show and focus the palette (idempotent; unlike `toggle_palette` it never
+/// hides). Used by deep links, where "open" should always surface the palette.
+pub(crate) fn show_palette(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("palette") {
+        commands::paste::capture_foreground();
+        commands::explorer::capture_location();
+        #[cfg(target_os = "windows")]
+        position_on_cursor_monitor(&win);
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
+
+#[tauri::command]
+fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    if enabled {
+        manager.enable().map_err(|e| e.to_string())
+    } else {
+        manager.disable().map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().map_err(|e| e.to_string())
+}
+
+/// Tray icon with Show / Start at Login / Quit — the only way to quit or
+/// rediscover the app once the palette is hidden. Windows-only for now; the
+/// Linux build would need libappindicator and is untested there.
+#[cfg(target_os = "windows")]
+fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{CheckMenuItem, MenuBuilder, MenuItem};
+    use tauri::tray::TrayIconBuilder;
+    use tauri_plugin_autostart::ManagerExt;
+
+    let autostart_on = app.autolaunch().is_enabled().unwrap_or(false);
+    let show = MenuItem::with_id(app, "show", "Show Palette", true, None::<&str>)?;
+    let autostart = CheckMenuItem::with_id(
+        app,
+        "autostart",
+        "Start at Login",
+        true,
+        autostart_on,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Commandeer", true, None::<&str>)?;
+    let menu = MenuBuilder::new(app)
+        .item(&show)
+        .item(&autostart)
+        .separator()
+        .item(&quit)
+        .build()?;
+
+    let autostart_item = autostart.clone();
+    let mut tray = TrayIconBuilder::with_id("main")
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .tooltip("Commandeer")
+        .on_menu_event(move |app, event| match event.id.as_ref() {
+            "show" => toggle_palette(app),
+            "autostart" => {
+                use tauri_plugin_autostart::ManagerExt;
+                let manager = app.autolaunch();
+                if manager.is_enabled().unwrap_or(false) {
+                    let _ = manager.disable();
+                } else {
+                    let _ = manager.enable();
+                }
+                let _ = autostart_item.set_checked(manager.is_enabled().unwrap_or(false));
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+    Ok(())
+}
+
 /// On Linux the X11 global shortcut is unreliable under Wayland, so the working
 /// trigger is a COSMIC custom keybinding that re-launches the binary (single
 /// instance, which toggles the palette). We manage that binding here so it
@@ -137,31 +221,11 @@ fn update_cosmic_shortcut(game_mode: bool) {
 
 #[tauri::command]
 fn set_game_mode(enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
-    let ctrl_space = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
-    let alt_space = Shortcut::new(Some(Modifiers::ALT), Code::Space);
-
-    #[cfg(target_os = "windows")]
-    {
-        if enabled {
-            let _ = app.global_shortcut().unregister(ctrl_space);
-            app.global_shortcut().register(alt_space).map_err(|e| e.to_string())?;
-        } else {
-            let _ = app.global_shortcut().unregister(alt_space);
-            app.global_shortcut().register(ctrl_space).map_err(|e| e.to_string())?;
-        }
-    }
+    // Re-register the configured hotkeys (game hotkey when enabled).
+    commands::shortcuts::reload_shortcuts(&app, enabled)?;
 
     #[cfg(not(target_os = "windows"))]
     {
-        // Best-effort X11 registration (works on X11 sessions, no-op under Wayland);
-        // the COSMIC binding below is the reliable Wayland path.
-        if enabled {
-            let _ = app.global_shortcut().unregister(ctrl_space);
-            let _ = app.global_shortcut().register(alt_space);
-        } else {
-            let _ = app.global_shortcut().unregister(alt_space);
-            let _ = app.global_shortcut().register(ctrl_space);
-        }
         update_cosmic_shortcut(enabled);
     }
 
@@ -172,19 +236,35 @@ pub fn run() {
     tauri::Builder::default()
         // Must be registered first: a second launch toggles the running palette
         // (the reliable trigger on Wayland, where the X11 global shortcut may not fire).
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // A second launch carrying a commandeer:// URL is a deep link: route
+            // it instead of toggling. Otherwise it's the "toggle" hotkey path.
+            if commands::deeplink::handle_args(app, args.into_iter()) {
+                return;
+            }
             toggle_palette(app);
         }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
-                    if event.state() == ShortcutState::Pressed {
-                        toggle_palette(app);
+                .with_handler(|app, shortcut, event| {
+                    if event.state() != ShortcutState::Pressed {
+                        return;
                     }
+                    // Per-command shortcuts take precedence over the toggle.
+                    if let Some(command_id) = commands::shortcuts::is_command_hotkey(*shortcut) {
+                        let _ = app.emit("command-hotkey", command_id);
+                        return;
+                    }
+                    toggle_palette(app);
                 })
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .on_window_event(|win, event| {
             if win.label() == "palette" {
                 if let WindowEvent::Focused(false) = event {
@@ -210,16 +290,30 @@ pub fn run() {
             app.manage(clipboard_db.clone());
             commands::clipboard::start_monitor(app.app_handle().clone(), clipboard_db);
 
-            // Default trigger: Ctrl+Space. Game mode (Alt+Space) is applied via set_game_mode.
+            // commandeer:// deep links. Register the URI scheme at runtime so
+            // dev/portable runs work without an installer, and route any URL the
+            // OS hands us. Second-launch URLs are handled in the single-instance
+            // callback above; this covers same-process (on_open_url) delivery.
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let _ = app.deep_link().register("commandeer");
+                let handle = app.app_handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        commands::deeplink::handle_url(&handle, url.as_str());
+                    }
+                });
+            }
+
             #[cfg(target_os = "windows")]
-            app.global_shortcut().register(Shortcut::new(Some(Modifiers::CONTROL), Code::Space))?;
+            setup_tray(app)?;
+
+            // Configurable base hotkey (default Ctrl+Space; game mode applied
+            // later via set_game_mode) plus any per-command shortcuts.
+            commands::shortcuts::setup_shortcuts(app.app_handle())?;
 
             #[cfg(not(target_os = "windows"))]
             {
-                // Best-effort on X11; harmless no-op under Wayland.
-                let _ = app
-                    .global_shortcut()
-                    .register(Shortcut::new(Some(Modifiers::CONTROL), Code::Space));
                 // Ensure a working default COSMIC binding even before the frontend
                 // calls set_game_mode; the frontend then refines it for game mode.
                 update_cosmic_shortcut(false);
@@ -319,6 +413,11 @@ pub fn run() {
             commands::process::kill_process,
             commands::stats::system_stats,
             commands::window::set_window_transparency,
+            commands::shortcuts::set_global_hotkey,
+            commands::shortcuts::set_command_hotkey,
+            commands::shortcuts::get_command_hotkey,
+            set_autostart,
+            get_autostart,
             set_game_mode,
             resize_palette,
         ])

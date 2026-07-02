@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { openPath as tauriOpenPath, openUrl as tauriOpenUrl } from '@tauri-apps/plugin-opener'
 import type { AppConfig } from '../types'
@@ -102,6 +103,27 @@ export const readOverrides = () =>
 
 export const writeOverrides = (overrides: Record<string, CommandOverride>) =>
   invoke<void>('write_overrides', { overrides })
+
+// Configurable global hotkeys (base + game mode) and per-command shortcuts
+export const setGlobalHotkey = (hotkey: string, gameHotkey: string | null, gameMode: boolean) =>
+  invoke<void>('set_global_hotkey', { update: { hotkey, game_hotkey: gameHotkey }, gameMode })
+
+export const setCommandHotkey = (commandId: string, hotkey: string | null) =>
+  invoke<void>('set_command_hotkey', { commandId, hotkey })
+
+export const getCommandHotkey = (commandId: string) =>
+  invoke<string | null>('get_command_hotkey', { commandId })
+
+export const setAutostart = (enabled: boolean) =>
+  invoke<void>('set_autostart', { enabled })
+
+export const getAutostart = () =>
+  invoke<boolean>('get_autostart')
+
+// A registered per-command global shortcut (or a commandeer://command/<id>
+// deep link) fired; payload is the command id
+export const onCommandHotkey = (callback: (commandId: string) => void) =>
+  listen<string>('command-hotkey', event => callback(event.payload))
 
 export const readSnippets = () =>
   invoke<Snippet[]>('read_snippets')

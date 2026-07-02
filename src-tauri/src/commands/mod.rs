@@ -1,6 +1,7 @@
 pub mod claude;
 pub mod clipboard;
 pub mod config;
+pub mod deeplink;
 pub mod explorer;
 pub mod file_index;
 pub mod fs;
@@ -8,6 +9,7 @@ pub mod icons;
 pub mod process;
 pub mod rates;
 pub mod search;
+pub mod shortcuts;
 pub mod paste;
 pub mod stats;
 pub mod store;

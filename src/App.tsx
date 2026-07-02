@@ -8,7 +8,7 @@ import { killProcessCommand } from './providers/processes'
 import { toolsFolderCommand, virtualFolderCommand } from './providers/tools'
 import { appEvents } from './lib/appEvents'
 import { applyThemeByName } from './lib/themes'
-import { readConfig, setGameMode, setWindowTransparency, type ScriptInfo } from './lib/tauri'
+import { onCommandHotkey, readConfig, setGameMode, setWindowTransparency, type ScriptInfo } from './lib/tauri'
 import type { AppConfig, Command } from './types'
 import Palette from './components/Palette'
 
@@ -57,6 +57,9 @@ export default function App() {
     () => localStorage.getItem(SYSTEM_STATS_KEY) !== 'false'
   )
   const resetRef = useRef<(() => void) | null>(null)
+  // Palette registers its per-command hotkey handler here; the Rust side fires
+  // 'command-hotkey' events for registered shortcuts and deep links
+  const commandHotkeyRef = useRef<((commandId: string) => void) | null>(null)
 
   async function refresh() {
     try {
@@ -90,6 +93,7 @@ export default function App() {
   useEffect(() => {
     let disposed = false
     let unlisten: (() => void) | undefined
+    let unlistenHotkey: (() => void) | undefined
 
     ;(async () => {
       try {
@@ -109,6 +113,8 @@ export default function App() {
       await refresh()
       setGameMode(gameModeEnabled).catch(console.error)
 
+      unlistenHotkey = await onCommandHotkey(id => commandHotkeyRef.current?.(id))
+
       const win = getCurrentWindow()
       unlisten = await win.onFocusChanged(({ payload: focused }) => {
         if (focused) {
@@ -125,10 +131,10 @@ export default function App() {
           resetRef.current?.()
         }
       })
-      if (disposed) unlisten?.()
+      if (disposed) { unlisten?.(); unlistenHotkey?.() }
     })()
 
-    return () => { disposed = true; unlisten?.() }
+    return () => { disposed = true; unlisten?.(); unlistenHotkey?.() }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function toggleGameMode() {
@@ -172,6 +178,7 @@ export default function App() {
       commands={commands}
       onConfigChange={() => {}}
       resetRef={resetRef}
+      commandHotkeyRef={commandHotkeyRef}
       onToggleGameMode={toggleGameMode}
       claudeUsageVisible={claudeUsageVisible}
       systemStatsVisible={systemStatsVisible}

@@ -1,5 +1,5 @@
 import type { AppConfig, Command, PaletteItem, Step, StepResult } from '../types'
-import { dataDir, openPath, setWindowTransparency, writeConfig } from '../lib/tauri'
+import { dataDir, getAutostart, openPath, setAutostart, setGlobalHotkey, setWindowTransparency, writeConfig } from '../lib/tauri'
 import { appEvents } from '../lib/appEvents'
 import { applyTheme, applyThemeByName, getAllThemes, type Theme } from '../lib/themes'
 
@@ -26,9 +26,30 @@ function settingsStep(config: AppConfig): Step {
         actionLabel: 'Open',
       },
       {
+        id: 'settings:hotkey',
+        label: 'Global Hotkey',
+        sublabel: `Current: ${config.global_hotkey ?? 'Ctrl+Space'}`,
+        icon: 'keyboard',
+        actionLabel: 'Change',
+      },
+      {
+        id: 'settings:hotkey-game',
+        label: 'Game Mode Hotkey',
+        sublabel: `Current: ${config.global_hotkey_game ?? 'Alt+Space'}`,
+        icon: 'keyboard',
+        actionLabel: 'Change',
+      },
+      {
+        id: 'settings:autostart',
+        label: 'Start at Login',
+        sublabel: (await getAutostart().catch(() => false)) ? 'On' : 'Off',
+        icon: 'power',
+        actionLabel: 'Toggle',
+      },
+      {
         id: 'settings:toggle-game-mode',
         label: 'Game Mode',
-        sublabel: `${appEvents.isGameMode?.() ? 'On' : 'Off'} — hotkey ${appEvents.isGameMode?.() ? 'Alt' : 'Ctrl'}+Space (Ctrl+G)`,
+        sublabel: `${appEvents.isGameMode?.() ? 'On' : 'Off'} — uses the game hotkey (Ctrl+G)`,
         icon: 'gamepad',
         actionLabel: 'Toggle',
       },
@@ -74,6 +95,17 @@ function settingsStep(config: AppConfig): Step {
       }
       if (item.id === 'settings:transparency') {
         return { type: 'push', step: transparencyStep(config) }
+      }
+      if (item.id === 'settings:hotkey') {
+        return { type: 'push', step: hotkeyStep(config, false) }
+      }
+      if (item.id === 'settings:hotkey-game') {
+        return { type: 'push', step: hotkeyStep(config, true) }
+      }
+      if (item.id === 'settings:autostart') {
+        const current = await getAutostart().catch(() => false)
+        await setAutostart(!current)
+        return { type: 'replace', step: settingsStep(config) }
       }
       if (item.id === 'settings:toggle-game-mode') {
         appEvents.toggleGameMode?.()
@@ -134,6 +166,35 @@ function chooseThemeStep(config: AppConfig): Step {
       Object.assign(config, next)
       // Replace so the "Current" marker updates while the user previews themes
       return { type: 'replace', step: chooseThemeStep(next) }
+    },
+  }
+}
+
+// Change the base or game-mode palette hotkey (e.g. "Ctrl+Space",
+// "Alt+Shift+P"). The Rust side persists it to config.json and re-registers.
+function hotkeyStep(config: AppConfig, game: boolean): Step {
+  const current = game
+    ? (config.global_hotkey_game ?? 'Alt+Space')
+    : (config.global_hotkey ?? 'Ctrl+Space')
+  return {
+    id: game ? 'settings:hotkey-game' : 'settings:hotkey',
+    label: game ? 'Game Mode Hotkey' : 'Global Hotkey',
+    placeholder: `e.g. Ctrl+Space, Alt+Shift+P (current: ${current})…`,
+    isInputStep: true,
+    onSelect: async () => ({ type: 'done' }),
+    onCommitQuery: async (query): Promise<StepResult> => {
+      const hotkey = query.trim()
+      if (!hotkey) return { type: 'pop' }
+      const base = config.global_hotkey ?? 'Ctrl+Space'
+      if (game) {
+        await setGlobalHotkey(base, hotkey, appEvents.isGameMode?.() ?? false)
+        Object.assign(config, { global_hotkey: base, global_hotkey_game: hotkey })
+      } else {
+        await setGlobalHotkey(hotkey, null, appEvents.isGameMode?.() ?? false)
+        Object.assign(config, { global_hotkey: hotkey })
+      }
+      appEvents.toast?.(`Hotkey set to ${hotkey}`, 'success')
+      return { type: 'pop' }
     },
   }
 }

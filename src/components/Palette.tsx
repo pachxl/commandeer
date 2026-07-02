@@ -5,11 +5,12 @@ import { LogicalSize } from '@tauri-apps/api/dpi'
 import { fuzzyFilter, fuzzyScoreFieldsBatch } from '../lib/fuzzy'
 import { frecencyBonus, recordUse } from '../lib/frecency'
 import { appEvents } from '../lib/appEvents'
+import { getOverrides, invalidateOverridesCache, setOverride } from '../lib/overrides'
 import { SETTINGS_COMMAND_ID } from '../commands/settings'
 import { loadActiveFolderItems, openFileItem } from '../commands/fileSearch'
 import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
-import { openPath, pasteToPrevious, readSnippets, writeClipboardText, writeSnippets, type ClipboardItem, type Snippet } from '../lib/tauri'
+import { openPath, pasteToPrevious, readSnippets, setCommandHotkey, writeClipboardText, writeSnippets, type ClipboardItem, type CommandOverride, type Snippet } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
@@ -63,6 +64,29 @@ function commandsToFlatItems(commands: Command[]): PaletteItem[] {
   }))
 }
 
+// ── Overrides (aliases & pins) ────────────────────────────────────────────────
+
+type Overrides = Record<string, CommandOverride>
+
+// Fold a user alias into the item's search text and display metadata
+function applyOverride(item: PaletteItem, ov?: CommandOverride): PaletteItem {
+  if (!ov?.alias) return item
+  return {
+    ...item,
+    searchText: `${item.searchText ?? item.label} ${ov.alias}`,
+  }
+}
+
+// Alias-prefix matches sort above everything else; shorter aliases win ties.
+function aliasPrefixRank(query: string, ov?: CommandOverride): { tier: number; len: number } | null {
+  if (!ov?.alias) return null
+  const alias = ov.alias.toLowerCase()
+  const q = query.trim().toLowerCase()
+  if (alias === q) return { tier: 0, len: alias.length }
+  if (alias.startsWith(q)) return { tier: 1, len: alias.length }
+  return null
+}
+
 // ── Query ranking ─────────────────────────────────────────────────────────────
 
 // Weighted fields for multi-field fuzzy scoring: label is the strongest signal,
@@ -75,9 +99,10 @@ const RANK_FIELDS = [
 ]
 
 // Root query results: scripts and provider results ranked together by weighted
-// fuzzy score, hard bonuses for exact/prefix label matches, and frecency.
+// fuzzy score, hard bonuses for exact/prefix label matches, alias matches,
+// pins, and frecency. Alias-prefix matches are hoisted above everything.
 // Array.sort is stable, so ties preserve input order (no row flicker).
-function buildQueryResults(items: PaletteItem[], query: string): PaletteItem[] {
+function buildQueryResults(items: PaletteItem[], query: string, overrides: Overrides): PaletteItem[] {
   const q = query.trim().toLowerCase()
   const baseScores = fuzzyScoreFieldsBatch(items, query, RANK_FIELDS)
   const ranked = items
@@ -89,11 +114,30 @@ function buildQueryResults(items: PaletteItem[], query: string): PaletteItem[] {
       if (label === q) score += 300
       else if (label.startsWith(q)) score += 120
       else if (label.includes(q)) score += 40
+
+      const ov = overrides[item.id]
+      const alias = ov?.alias?.toLowerCase()
+      if (alias) {
+        if (alias === q) score += 200
+        else if (alias.startsWith(q)) score += 80
+        else if (alias.includes(q)) score += 25
+      }
+
       score += frecencyBonus(item.id)
-      return { item, score }
+      if (ov?.pinned) score += 10
+
+      return { item, score, aliasRank: aliasPrefixRank(query, ov) }
     })
     .filter((r): r is NonNullable<typeof r> => r !== null)
-  ranked.sort((a, b) => b.score - a.score)
+  ranked.sort((a, b) => {
+    if (a.aliasRank && b.aliasRank) {
+      if (a.aliasRank.tier !== b.aliasRank.tier) return a.aliasRank.tier - b.aliasRank.tier
+      return a.aliasRank.len - b.aliasRank.len
+    }
+    if (a.aliasRank) return -1
+    if (b.aliasRank) return 1
+    return b.score - a.score
+  })
   return ranked.map(r => r.item)
 }
 
@@ -211,6 +255,7 @@ interface PaletteProps {
   commands: Command[]
   onConfigChange: (config: AppConfig) => void
   resetRef: MutableRefObject<(() => void) | null>
+  commandHotkeyRef?: MutableRefObject<((commandId: string) => void) | null>
   onToggleGameMode: () => void
   claudeUsageVisible: boolean
   systemStatsVisible: boolean
@@ -221,6 +266,7 @@ export default function Palette({
   commands,
   onConfigChange: _onConfigChange,
   resetRef,
+  commandHotkeyRef,
   onToggleGameMode,
   claudeUsageVisible,
   systemStatsVisible,
@@ -265,10 +311,63 @@ export default function Palette({
       ?? providerCommandsRef.current.find(c => c.id === id)
   }, [])
 
-  // Reinitialise root items when commands list changes. The Settings command is
-  // kept out of both lists — it's appended as the always-last row below.
+  // Per-command user overrides (alias, pin, hotkey) from overrides.json
+  const [overrides, setOverrides] = useState<Overrides>({})
+  const overridesRef = useRef(overrides)
+  overridesRef.current = overrides
+
+  useEffect(() => {
+    getOverrides().then(setOverrides).catch(console.error)
+  }, [])
+
+  const refreshOverrides = useCallback(async () => {
+    setOverrides(await getOverrides())
+  }, [])
+
+  // Global per-command shortcut (or deep link) fired: show the palette and run
+  // the command's action or push its root step
+  const handleCommandHotkey = useCallback(async (commandId: string) => {
+    const win = getCurrentWindow()
+    await win.show()
+    await win.setFocus()
+
+    const cmd = resolveCommand(commandId)
+    if (!cmd) return
+
+    if (cmd.action) {
+      try {
+        await cmd.action(configRef.current)
+        recordUse(cmd.id)
+        if (!cmd.noClose) {
+          dispatch({ type: 'RESET' })
+          await win.hide()
+        }
+      } catch (err) {
+        dispatch({ type: 'SET_ERROR', error: String(err) })
+      }
+      return
+    }
+
+    if (cmd.createRootStep) {
+      recordUse(cmd.id)
+      dispatch({ type: 'RESET' })
+      dispatch({ type: 'PUSH_STEP', step: cmd.createRootStep(configRef.current) })
+    }
+  }, [resolveCommand])
+
+  useEffect(() => {
+    if (!commandHotkeyRef) return
+    commandHotkeyRef.current = handleCommandHotkey
+    return () => { commandHotkeyRef.current = null }
+  }, [commandHotkeyRef, handleCommandHotkey])
+
+  // Reinitialise root items when the commands list or overrides change. The
+  // Settings command is kept out of both lists — it's appended as the
+  // always-last row below.
   useEffect(() => {
     const lastId = localStorage.getItem(LAST_CMD_KEY)
+    const withOverrides = (items: PaletteItem[]) =>
+      items.map(i => applyOverride(i, overrides[i.id]))
 
     // Hierarchical view: folders at top, then root scripts with last-used floating up.
     // searchOnly commands are excluded here but stay in the flat search list.
@@ -277,12 +376,12 @@ export default function Palette({
     const sortedScripts = lastId
       ? [...rootScripts].sort((a, b) => (a.id === lastId ? -1 : b.id === lastId ? 1 : 0))
       : rootScripts
-    dispatch({ type: 'SET_ITEMS', stepId: '__root__', items: commandsToItems([...folderCmds, ...sortedScripts]), preserveSelection: true })
+    dispatch({ type: 'SET_ITEMS', stepId: '__root__', items: withOverrides(commandsToItems([...folderCmds, ...sortedScripts])), preserveSelection: true })
 
     // Flat view: all scripts (no folder nav items) for cross-folder search
     const allScripts = commands.filter(c => !c.isFolder && c.id !== SETTINGS_COMMAND_ID)
-    dispatch({ type: 'SET_ITEMS', stepId: '__root_flat__', items: commandsToFlatItems(allScripts), preserveSelection: true })
-  }, [commands])
+    dispatch({ type: 'SET_ITEMS', stepId: '__root_flat__', items: withOverrides(commandsToFlatItems(allScripts)), preserveSelection: true })
+  }, [commands, overrides])
 
   // Current step key
   const currentStep = state.stepStack[state.stepStack.length - 1] ?? null
@@ -446,10 +545,13 @@ export default function Palette({
   } else if (state.query) {
     // Root query: scripts and provider search results (which can share ids —
     // keep the first occurrence) ranked together by fuzzy score + frecency
-    const merged = [...rawItems, ...providerCommands.map(commandToItem)]
+    const merged = [
+      ...rawItems,
+      ...providerCommands.map(c => applyOverride(commandToItem(c), overrides[c.id])),
+    ]
     const seen = new Set<string>()
     const deduped = merged.filter(i => (seen.has(i.id) ? false : (seen.add(i.id), true)))
-    matchedItems = buildQueryResults(deduped, state.query)
+    matchedItems = buildQueryResults(deduped, state.query, overrides)
   } else {
     // Root browse: folders first, then scripts with last-used floating up —
     // exactly as assembled in the __root__ cache
@@ -600,8 +702,72 @@ export default function Palette({
         pushCopy('Copy name', item.label, 'C')
     }
 
+    // Alias, pin & hotkey actions for persistent root commands (not for
+    // dynamic step/search rows, whose ids never appear in the root list)
+    if (commandsRef.current.some(c => c.id === item.id)) {
+      const ov = overridesRef.current[item.id]
+      actions.push({
+        id: 'pin',
+        label: ov?.pinned ? 'Unpin' : 'Pin',
+        icon: 'pin',
+        handler: async () => {
+          const pinned = !ov?.pinned
+          await setOverride(item.id, { pinned })
+          await refreshOverrides()
+          toast(pinned ? 'Pinned — boosts search rank' : 'Unpinned', 'success')
+        },
+      })
+      actions.push({
+        id: 'alias',
+        label: ov?.alias ? `Change Alias (${ov.alias})` : 'Set Alias…',
+        icon: 'edit',
+        handler: async () => {
+          dispatch({
+            type: 'PUSH_STEP',
+            step: {
+              id: `overrides:alias:${item.id}`,
+              label: `Alias: ${item.label}`,
+              placeholder: 'Type an alias (leave empty to clear)…',
+              isInputStep: true,
+              onSelect: async () => ({ type: 'done' }),
+              onCommitQuery: async (query) => {
+                await setOverride(item.id, { alias: query.trim() || undefined })
+                await refreshOverrides()
+                return { type: 'pop' }
+              },
+            },
+          })
+        },
+      })
+      actions.push({
+        id: 'hotkey',
+        label: ov?.hotkey ? `Change Hotkey (${ov.hotkey})` : 'Set Global Hotkey…',
+        icon: 'keyboard',
+        handler: async () => {
+          dispatch({
+            type: 'PUSH_STEP',
+            step: {
+              id: `overrides:hotkey:${item.id}`,
+              label: `Hotkey: ${item.label}`,
+              placeholder: 'e.g. Ctrl+Alt+L (leave empty to clear)…',
+              isInputStep: true,
+              onSelect: async () => ({ type: 'done' }),
+              onCommitQuery: async (query) => {
+                await setCommandHotkey(item.id, query.trim() || null)
+                // The backend wrote overrides.json directly — drop the cache
+                // so the action label reflects the new hotkey immediately
+                invalidateOverridesCache()
+                await refreshOverrides()
+                return { type: 'pop' }
+              },
+            },
+          })
+        },
+      })
+    }
+
     return actions
-  }, [resolveCommand, toast])
+  }, [resolveCommand, toast, refreshOverrides])
 
   const actionItems = selectedItem && !isInputStep && !isSliderStep && !isFormStep
     ? buildActions(selectedItem)
