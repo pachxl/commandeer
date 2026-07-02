@@ -7,6 +7,7 @@ const CACHE_TTL_MS = 60_000
 const RATE_LIMIT_KEY = 'commandeer:claude-rate-limit'
 
 const KIND_ORDER = ['session', 'weekly_all', 'weekly_scoped']
+const CLAUDE_ORANGE = '#D97757'
 
 interface CachedUsage {
   limits: ClaudeLimit[]
@@ -26,13 +27,26 @@ function barColor(limit: ClaudeLimit): string {
   return 'var(--accent)'
 }
 
-function formatReset(iso: string): string {
+function pad(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
+function formatReset(iso: string, now: number): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return ''
-  const withinDay = d.getTime() - Date.now() < 24 * 60 * 60 * 1000
-  const text = withinDay
-    ? d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-    : d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+  const diff = d.getTime() - now
+  if (diff <= 0) return 'resets now'
+
+  const withinDay = diff < 24 * 60 * 60 * 1000
+  if (withinDay) {
+    const totalSeconds = Math.ceil(diff / 1000)
+    const h = Math.floor(totalSeconds / 3600)
+    const m = Math.floor((totalSeconds % 3600) / 60)
+    const s = totalSeconds % 60
+    return `resets in ${h}:${pad(m)} (${h}:${pad(m)}:${pad(s)})`
+  }
+
+  const text = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
   return `resets ${text.toLowerCase()}`
 }
 
@@ -160,7 +174,9 @@ export default function ClaudeUsage() {
         alignItems: 'center',
         justifyContent: 'space-between',
       }}>
-        <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 600 }}>Claude usage</span>
+        <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 600 }}>
+          <span style={{ color: CLAUDE_ORANGE }}>Claude</span>
+        </span>
         {loading && (
           <svg style={{ animation: 'spin 1s linear infinite' }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12a9 9 0 1 1-6.219-8.56" />
@@ -210,7 +226,9 @@ export default function ClaudeUsage() {
                   <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>
                     <span style={{ color: pct >= 75 ? color : 'var(--text)' }}>{pct}% used</span>
                     <span style={{ opacity: 0.5, margin: '0 4px' }}>·</span>
-                    {formatReset(limit.resets_at)}
+                    <span style={{ color: 'var(--text)', opacity: 0.9, fontVariantNumeric: 'tabular-nums' }}>
+                      {formatReset(limit.resets_at, now)}
+                    </span>
                   </span>
                 </div>
                 <div style={{

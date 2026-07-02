@@ -1,3 +1,5 @@
+const CLAUDE_ORANGE = '#D97757'
+
 interface FooterProps {
   gameMode: boolean
   onToggleGameMode: () => void
@@ -40,7 +42,7 @@ export default function Footer({
             gap: 5,
             background: 'transparent',
             border: 'none',
-            color: claudeUsageVisible ? 'var(--accent)' : 'var(--text-dim)',
+            color: claudeUsageVisible ? CLAUDE_ORANGE : 'var(--text-dim)',
             fontSize: 11,
             fontFamily: 'var(--font-ui)',
             cursor: 'pointer',
