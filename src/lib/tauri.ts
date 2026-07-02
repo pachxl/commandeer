@@ -119,6 +119,7 @@ export interface ProcessInfo {
   pid: number
   name: string
   memory_bytes: number
+  exe_path: string | null
 }
 
 export const listProcesses = () =>

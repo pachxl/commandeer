@@ -7,6 +7,7 @@ export interface ProcessGroup {
   name: string
   pids: number[]
   memory: number
+  exePath: string | null
 }
 
 function formatMemory(bytes: number): string {
@@ -19,9 +20,10 @@ export async function loadProcessGroups(): Promise<ProcessGroup[]> {
   const groups = new Map<string, ProcessGroup>()
   for (const p of procs) {
     const key = p.name.toLowerCase()
-    const group = groups.get(key) ?? { name: p.name, pids: [], memory: 0 }
+    const group = groups.get(key) ?? { name: p.name, pids: [], memory: 0, exePath: null }
     group.pids.push(p.pid)
     group.memory += p.memory_bytes
+    group.exePath ??= p.exe_path
     groups.set(key, group)
   }
   return [...groups.values()].sort((a, b) => b.memory - a.memory)
@@ -33,6 +35,7 @@ export function processGroupToItem(g: ProcessGroup): PaletteItem {
     label: g.name,
     sublabel: `${g.pids.length > 1 ? `${g.pids.length} processes · ` : ''}${formatMemory(g.memory)}`,
     icon: 'trash',
+    iconPath: g.exePath ?? undefined,
     data: g,
     actionLabel: 'Kill',
   }
@@ -46,6 +49,7 @@ export function killShortcutItem(g: ProcessGroup): PaletteItem {
     label: `Kill ${g.name}`,
     sublabel: `${g.pids.length > 1 ? `${g.pids.length} processes · ` : ''}${formatMemory(g.memory)}`,
     icon: 'trash',
+    iconPath: g.exePath ?? undefined,
     searchText: g.name,
     data: g,
     actionLabel: 'Kill',

@@ -15,15 +15,23 @@ pub struct FileResult {
 /// Shell icon for a single path, resolved lazily by the frontend (folder
 /// search returns up to 50k entries — inlining a data URL per entry would
 /// balloon the IPC payload, so rows fetch icons on demand and cache them
-/// per extension client-side).
+/// per extension client-side). Executables and shortcuts carry their own
+/// embedded icon, so they resolve per file instead of per extension.
 #[tauri::command]
 pub async fn path_icon(path: String) -> Option<String> {
     #[cfg(target_os = "windows")]
     {
-        tokio::task::spawn_blocking(move || crate::commands::icons::icon_for_path(&path))
-            .await
-            .ok()
-            .flatten()
+        tokio::task::spawn_blocking(move || {
+            let lower = path.to_lowercase();
+            if lower.ends_with(".exe") || lower.ends_with(".lnk") {
+                crate::commands::icons::icon_for_file(&path)
+            } else {
+                crate::commands::icons::icon_for_path(&path)
+            }
+        })
+        .await
+        .ok()
+        .flatten()
     }
     #[cfg(not(target_os = "windows"))]
     {

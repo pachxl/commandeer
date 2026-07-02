@@ -5,6 +5,8 @@ pub struct ProcessInfo {
     pub pid: u32,
     pub name: String,
     pub memory_bytes: u64,
+    /// Full path to the executable, for resolving the app icon
+    pub exe_path: Option<String>,
 }
 
 #[tauri::command]
@@ -17,8 +19,10 @@ pub async fn list_processes() -> Result<Vec<ProcessInfo>, String> {
                 EnumProcesses, K32GetModuleBaseNameW, K32GetProcessMemoryInfo,
                 PROCESS_MEMORY_COUNTERS,
             };
+            use windows::core::PWSTR;
             use windows::Win32::System::Threading::{
-                OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+                OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+                PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
             };
 
             let mut pids = vec![0u32; 8192];
@@ -51,6 +55,19 @@ pub async fn list_processes() -> Result<Vec<ProcessInfo>, String> {
                         ..Default::default()
                     };
                     let _ = K32GetProcessMemoryInfo(handle, &mut mem, mem.cb);
+                    let mut path_buf = [0u16; 1024];
+                    let mut path_len = path_buf.len() as u32;
+                    let exe_path = QueryFullProcessImageNameW(
+                        handle,
+                        PROCESS_NAME_WIN32,
+                        PWSTR(path_buf.as_mut_ptr()),
+                        &mut path_len,
+                    )
+                    .ok()
+                    .filter(|_| path_len > 0)
+                    .map(|_| {
+                        String::from_utf16_lossy(&path_buf[..path_len as usize]).replace('\\', "/")
+                    });
                     let _ = CloseHandle(handle);
                     if len == 0 {
                         continue;
@@ -59,6 +76,7 @@ pub async fn list_processes() -> Result<Vec<ProcessInfo>, String> {
                         pid,
                         name: String::from_utf16_lossy(&name_buf[..len as usize]),
                         memory_bytes: mem.WorkingSetSize as u64,
+                        exe_path,
                     });
                 }
             }
