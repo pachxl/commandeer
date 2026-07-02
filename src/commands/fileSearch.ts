@@ -1,7 +1,7 @@
-// Search files/folders in the folder open in the previously-focused File
+// "find:" prefix search over the folder open in the previously-focused File
 // Explorer window. The whole tree is loaded once (parallel walk in Rust,
 // capped), then every keystroke filters client-side — no IPC while typing.
-import type { Command, PaletteItem, Step } from '../types'
+import type { PaletteItem } from '../types'
 import { explorerLocation, listFilesRecursive, openPath, type FileEntry } from '../lib/tauri'
 
 // Enough for any normal folder; keeps the one-time IPC payload small enough
@@ -30,23 +30,4 @@ export async function loadActiveFolderItems(): Promise<PaletteItem[]> {
 
 export async function openFileItem(item: PaletteItem): Promise<void> {
   await openPath(item.data as string)
-}
-
-export const searchFolderCommand: Command = {
-  id: 'builtin:find',
-  label: 'Search Folder',
-  description: 'Find files in the active Explorer folder',
-  icon: 'search',
-  keywords: ['find', 'file', 'search', 'folder', 'explorer'],
-  actionLabel: 'Search',
-  createRootStep: (): Step => ({
-    id: 'find-step',
-    label: 'Search Folder',
-    placeholder: 'Search files in this folder...',
-    load: async (): Promise<PaletteItem[]> => loadActiveFolderItems(),
-    onSelect: async item => {
-      await openFileItem(item)
-      return { type: 'done' }
-    },
-  }),
 }

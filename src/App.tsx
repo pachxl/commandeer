@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { loadScriptCommands, scriptsToCommands, webSearchCommand } from './commands'
-import { searchFolderCommand } from './commands/fileSearch'
 import { loadSnippetCommands } from './commands/snippets'
-import { settingsCommand, SETTINGS_COMMAND_ID } from './commands/settings'
+import { settingsCommand } from './commands/settings'
 import { appEvents } from './lib/appEvents'
 import { applyThemeByName } from './lib/themes'
-import { explorerLocation, readConfig, setGameMode, setWindowTransparency, type ScriptInfo } from './lib/tauri'
+import { readConfig, setGameMode, setWindowTransparency, type ScriptInfo } from './lib/tauri'
 import type { AppConfig, Command } from './types'
 import Palette from './components/Palette'
 
@@ -54,21 +53,6 @@ export default function App() {
     () => localStorage.getItem(SYSTEM_STATS_KEY) !== 'false'
   )
   const resetRef = useRef<(() => void) | null>(null)
-  // Bumped on every focus change so a slow explorer lookup from a previous
-  // show can't apply out of order
-  const focusGenRef = useRef(0)
-
-  // Search Folder visibility is driven purely by focus/blur (instant), never
-  // by refresh(): show-time lookup adds it, blur strips it synchronously.
-  function applyExplorerFolder(folder: string | null) {
-    setCommands(prev => {
-      const without = prev.filter(c => c.id !== searchFolderCommand.id)
-      if (!folder) return without
-      const idx = without.findIndex(c => c.id === SETTINGS_COMMAND_ID)
-      const at = idx === -1 ? without.length : idx
-      return [...without.slice(0, at), searchFolderCommand, ...without.slice(at)]
-    })
-  }
 
   async function refresh() {
     try {
@@ -78,11 +62,9 @@ export default function App() {
         console.error(err)
         return [] as Command[]
       })
-      // Preserve the current Search Folder state — the focus handler owns it
-      setCommands(prev => [
+      setCommands([
         ...cmds,
         ...snippetCmds,
-        ...(prev.some(c => c.id === searchFolderCommand.id) ? [searchFolderCommand] : []),
         ...(isWebSearchVisible() ? [webSearchCommand] : []),
         settingsCommand(configRef.current),
       ])
@@ -115,16 +97,10 @@ export default function App() {
 
       const win = getCurrentWindow()
       unlisten = await win.onFocusChanged(({ payload: focused }) => {
-        const gen = ++focusGenRef.current
         if (focused) {
-          // Near-instant: the backend snapshotted the folder at show time
-          explorerLocation()
-            .then(folder => { if (focusGenRef.current === gen) applyExplorerFolder(folder) })
-            .catch(console.error)
           refresh()
         } else {
           resetRef.current?.()
-          applyExplorerFolder(null)
         }
       })
       if (disposed) unlisten?.()
