@@ -17,6 +17,7 @@ function fileToItem(f: FileEntry): PaletteItem {
     icon: f.is_dir ? 'folder' : 'file',
     // Swap in the real shell icon once a row becomes visible (cached per ext)
     iconPath: f.path,
+    source: 'file',
     searchText: f.rel,
     data: f.path,
     actionLabel: 'Open',

@@ -40,6 +40,7 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
         <input
           ref={ref}
           type="text"
+          data-palette-search
           value={value}
           placeholder={placeholder}
           onChange={e => onChange(e.target.value)}

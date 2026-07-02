@@ -2,15 +2,22 @@ import { useReducer, useEffect, useRef, useState, useCallback, MutableRefObject 
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
-import { fuzzyFilter } from '../lib/fuzzy'
+import { fuzzyFilter, fuzzyScoreFieldsBatch } from '../lib/fuzzy'
+import { frecencyBonus, recordUse } from '../lib/frecency'
+import { appEvents } from '../lib/appEvents'
 import { SETTINGS_COMMAND_ID } from '../commands/settings'
 import { loadActiveFolderItems, openFileItem } from '../commands/fileSearch'
 import { loadGlobalFileResults } from '../commands/globalFileSearch'
-import { killAll, killShortcutItem, loadProcessGroups, type ProcessGroup } from '../commands/processes'
-import type { AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
+import { searchAllProviders } from '../providers'
+import { openPath, readSnippets, writeSnippets, type Snippet } from '../lib/tauri'
+import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
+import ResultsGrid from './ResultsGrid'
+import FormView from './FormView'
+import ActionPanel from './ActionPanel'
 import DetailPane, { isImagePath } from './DetailPane'
+import { ToastContainer, type ToastKind, type ToastMessage } from './Toast'
 import ClaudeUsage from './ClaudeUsage'
 import SystemStatsPanel from './SystemStats'
 import Footer from './Footer'
@@ -22,31 +29,71 @@ function searchTextFor(cmd: Command, prefix?: string): string | undefined {
   return [prefix, cmd.label, cmd.description, ...(cmd.keywords ?? [])].filter(Boolean).join(' ')
 }
 
-// Hierarchical root view: folders first, then root scripts
-function commandsToItems(commands: Command[]): PaletteItem[] {
-  return commands.map(cmd => ({
+function commandToItem(cmd: Command): PaletteItem {
+  return {
     id: cmd.id,
     label: cmd.label,
     sublabel: cmd.isFolder ? undefined : cmd.description,
     icon: cmd.icon,
+    iconPath: cmd.iconPath,
     isFolder: cmd.isFolder,
+    source: cmd.source,
     actionLabel: cmd.actionLabel,
     searchText: searchTextFor(cmd),
-    data: cmd.id,
-  }))
+    keywords: cmd.keywords,
+    data: cmd.data ?? cmd.id,
+    color: cmd.color,
+    accessories: cmd.accessories,
+    metadata: cmd.metadata,
+  }
+}
+
+// Hierarchical root view: folders first, then root scripts
+function commandsToItems(commands: Command[]): PaletteItem[] {
+  return commands.map(commandToItem)
 }
 
 // Flat view for cross-folder search: all scripts with folder as sublabel + searchText
 function commandsToFlatItems(commands: Command[]): PaletteItem[] {
   return commands.map(cmd => ({
-    id: cmd.id,
-    label: cmd.label,
+    ...commandToItem(cmd),
     sublabel: cmd.folderName,
-    icon: cmd.icon,
-    actionLabel: cmd.actionLabel,
     searchText: searchTextFor(cmd, cmd.folderName),
-    data: cmd.id,
   }))
+}
+
+// ── Query ranking ─────────────────────────────────────────────────────────────
+
+// Weighted fields for multi-field fuzzy scoring: label is the strongest signal,
+// sublabel weaker, and the full search text (description, folder, keywords)
+// weakest — enough to surface a match without outranking label hits.
+const RANK_FIELDS = [
+  { text: (item: PaletteItem) => item.label, weight: 1.0 },
+  { text: (item: PaletteItem) => item.sublabel, weight: 0.5 },
+  { text: (item: PaletteItem) => item.searchText, weight: 0.35 },
+]
+
+// Root query results: scripts and provider results ranked together by weighted
+// fuzzy score, hard bonuses for exact/prefix label matches, and frecency.
+// Array.sort is stable, so ties preserve input order (no row flicker).
+function buildQueryResults(items: PaletteItem[], query: string): PaletteItem[] {
+  const q = query.trim().toLowerCase()
+  const baseScores = fuzzyScoreFieldsBatch(items, query, RANK_FIELDS)
+  const ranked = items
+    .map(item => {
+      const baseScore = baseScores.get(item)
+      if (baseScore === undefined) return null
+      let score = baseScore
+      const label = item.label.toLowerCase()
+      if (label === q) score += 300
+      else if (label.startsWith(q)) score += 120
+      else if (label.includes(q)) score += 40
+      score += frecencyBonus(item.id)
+      return { item, score }
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null)
+  ranked.sort((a, b) => b.score - a.score)
+  return ranked.map(r => r.item)
 }
 
 // ── Reducer ───────────────────────────────────────────────────────────────────
@@ -149,8 +196,9 @@ const FIND_PREFIX = 'find:'
 // Debounce between keystrokes and the global-search IPC round trip
 const FIND_DEBOUNCE_MS = 120
 
-// "kill <name>" at root surfaces matching processes directly in the results
-const KILL_RE = /^kill\s+(.{2,})$/i
+// Debounce between keystrokes and the provider search fan-out (kill <name>,
+// calculator, apps, …)
+const PROVIDER_DEBOUNCE_MS = 150
 
 // On Linux the palette is a wlr-layer-shell surface (set up in the Rust backend),
 // which can be resized in place; a plain setSize is enough. On Windows we also
@@ -178,16 +226,43 @@ export default function Palette({
 }: PaletteProps) {
   const [state, dispatch] = useReducer(reducer, config, initialState)
   const [sliderValue, setSliderValue] = useState(0)
+  const [providerCommands, setProviderCommands] = useState<Command[]>([])
+  const [actionPanelOpen, setActionPanelOpen] = useState(false)
+  const [actionPanelIndex, setActionPanelIndex] = useState(0)
+  const [formValues, setFormValues] = useState<Record<string, unknown>>({})
+  const [toasts, setToasts] = useState<ToastMessage[]>([])
+  const toastIdRef = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const configRef = useRef(config)
   const commandsRef = useRef(commands)
+  const providerCommandsRef = useRef(providerCommands)
+  const providerRequestRef = useRef(0)
+  const providerTimeoutRef = useRef<number | null>(null)
   configRef.current = config
   commandsRef.current = commands
+  providerCommandsRef.current = providerCommands
 
-  // Expose reset function to App
+  const toast = useCallback((message: string, kind: ToastKind = 'info') => {
+    const id = ++toastIdRef.current
+    setToasts(prev => [...prev, { id, message, kind }])
+    window.setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id))
+    }, 2000)
+  }, [])
+
+  // Expose reset function to App and the toast helper to the rest of the app
   useEffect(() => {
     resetRef.current = () => dispatch({ type: 'RESET' })
-  }, [resetRef])
+    appEvents.toast = toast
+    return () => { appEvents.toast = undefined }
+  }, [resetRef, toast])
+
+  // Commands can come from the static list (scripts, snippets, settings) or
+  // from a provider's per-query search results
+  const resolveCommand = useCallback((id: string): Command | undefined => {
+    return commandsRef.current.find(c => c.id === id)
+      ?? providerCommandsRef.current.find(c => c.id === id)
+  }, [])
 
   // Reinitialise root items when commands list changes. The Settings command is
   // kept out of both lists — it's appended as the always-last row below.
@@ -268,35 +343,47 @@ export default function Palette({
     return () => clearTimeout(timer)
   }, [findMode, findQuery])
 
-  // "kill <name>" at root → matching processes inline. The process list is
-  // fetched once per activation; the needle then filters it client-side.
-  const killMatch = !currentStep ? KILL_RE.exec(state.query.trim()) : null
-  const killMode = killMatch !== null
-  const killNeedle = killMatch?.[1] ?? ''
-  const killLoad = useRef({ token: 0, loaded: false, loading: false })
-
+  // Debounced provider search: dynamic per-query results (kill <name>,
+  // calculator, apps, …) surfaced inline at root. Skipped inside steps and in
+  // the find:/search: prefix modes, which own the whole result list.
   useEffect(() => {
-    if (!killMode) {
-      // Re-fetch on the next activation so memory numbers stay current
-      killLoad.current = { token: killLoad.current.token + 1, loaded: false, loading: false }
+    const requestId = ++providerRequestRef.current
+    if (providerTimeoutRef.current) window.clearTimeout(providerTimeoutRef.current)
+    if (currentStep || folderMode || findMode || !state.query.trim()) {
+      setProviderCommands([])
       return
     }
-    const kl = killLoad.current
-    if (kl.loaded || kl.loading) return
-    kl.loading = true
-    const token = kl.token
-    loadProcessGroups()
-      .then(groups => {
-        if (killLoad.current.token !== token) return
-        killLoad.current.loaded = true
-        dispatch({ type: 'SET_ITEMS', stepId: '__kill__', items: groups.map(killShortcutItem) })
-      })
-      .catch(err => {
-        if (killLoad.current.token !== token) return
-        dispatch({ type: 'SET_ERROR', error: String(err) })
-      })
-      .finally(() => { killLoad.current.loading = false })
-  }, [killMode])
+    providerTimeoutRef.current = window.setTimeout(async () => {
+      try {
+        const cmds = await searchAllProviders(state.query, configRef.current)
+        if (requestId === providerRequestRef.current) setProviderCommands(cmds)
+      } catch (err) {
+        console.error(err)
+      }
+    }, PROVIDER_DEBOUNCE_MS)
+    return () => {
+      if (providerTimeoutRef.current) window.clearTimeout(providerTimeoutRef.current)
+    }
+  }, [state.query, currentStep, folderMode, findMode])
+
+  // Close the action panel when the selection, query, or step changes
+  useEffect(() => {
+    setActionPanelOpen(false)
+    setActionPanelIndex(0)
+  }, [state.selectedIndex, state.query, currentStep])
+
+  // Initialize form field defaults when a form step is pushed
+  useEffect(() => {
+    if (!currentStep?.isFormStep) return
+    const defaults: Record<string, unknown> = {}
+    for (const field of currentStep.fields ?? []) {
+      if (field.defaultValue !== undefined) defaults[field.id] = field.defaultValue
+      else if (field.type === 'checkbox') defaults[field.id] = false
+      else if (field.type === 'dropdown' && field.options?.length) defaults[field.id] = field.options[0].value
+      else defaults[field.id] = ''
+    }
+    setFormValues(defaults)
+  }, [currentStep])
 
   // Load items when a new step is pushed or replaced. Keyed on the step object
   // (not its id) so a REPLACE_STEP with the same id still reloads.
@@ -342,29 +429,40 @@ export default function Palette({
           : (state.itemCache['__root__'] ?? [])
   const isInputStep = currentStep?.isInputStep ?? false
   const isSliderStep = currentStep?.isSliderStep ?? false
-  const matchedItems = (isInputStep || isSliderStep)
-    ? []
-    : findMode
-      // Global results are already ranked for this query (fzf + relevance
-      // multipliers in globalFileSearch) — re-filtering would fight the ranker
-      ? rawItems
-      : fuzzyFilter(rawItems, folderMode ? folderQuery : state.query, i =>
-        i.searchText ?? (i.label + ' ' + (i.sublabel ?? ''))
-      )
-  // "kill <name>": matching processes surface above the command matches
-  const killItems = killMode
-    ? fuzzyFilter(state.itemCache['__kill__'] ?? [], killNeedle, i => i.searchText ?? i.label)
-    : []
-  const mergedItems = killItems.length > 0 ? [...killItems, ...matchedItems] : matchedItems
-  const noMatches = mergedItems.length === 0
+  const isFormStep = currentStep?.isFormStep ?? false
+  const isGridStep = currentStep?.isGridStep ?? false
+  let matchedItems: PaletteItem[]
+  if (isInputStep || isSliderStep || isFormStep) {
+    matchedItems = []
+  } else if (findMode) {
+    // Global results are already ranked for this query (fzf + relevance
+    // multipliers in globalFileSearch) — re-filtering would fight the ranker
+    matchedItems = rawItems
+  } else if (currentStep || folderMode) {
+    matchedItems = fuzzyFilter(rawItems, folderMode ? folderQuery : state.query, i =>
+      i.searchText ?? (i.label + ' ' + (i.sublabel ?? ''))
+    )
+  } else if (state.query) {
+    // Root query: scripts and provider search results (which can share ids —
+    // keep the first occurrence) ranked together by fuzzy score + frecency
+    const merged = [...rawItems, ...providerCommands.map(commandToItem)]
+    const seen = new Set<string>()
+    const deduped = merged.filter(i => (seen.has(i.id) ? false : (seen.add(i.id), true)))
+    matchedItems = buildQueryResults(deduped, state.query)
+  } else {
+    // Root browse: folders first, then scripts with last-used floating up —
+    // exactly as assembled in the __root__ cache
+    matchedItems = rawItems
+  }
+  const noMatches = matchedItems.length === 0
 
   // The Settings row is always the last item at root, query or not
   const settingsCmd = !currentStep && !isInputStep && !findMode && !folderMode
     ? commands.find(c => c.id === SETTINGS_COMMAND_ID)
     : undefined
   const visibleItems = settingsCmd
-    ? [...mergedItems.slice(0, 50), ...commandsToItems([settingsCmd])]
-    : mergedItems.slice(0, 50)
+    ? [...matchedItems.slice(0, 50), ...commandsToItems([settingsCmd])]
+    : matchedItems.slice(0, 50)
   const clampedIndex = Math.min(state.selectedIndex, Math.max(0, visibleItems.length - 1))
   const selectedItem = visibleItems[clampedIndex] ?? null
   const primaryAction = selectedItem
@@ -383,6 +481,108 @@ export default function Palette({
     ? selectedItem.data
     : null
 
+  // Ctrl+K action panel: secondary actions for the highlighted item, keyed off
+  // its provider source
+  const buildActions = useCallback((item: PaletteItem): ActionItem[] => {
+    const actions: ActionItem[] = []
+    const cmd = resolveCommand(item.id)
+
+    const pushCopy = (label: string, value: string, shortcut?: string) => {
+      actions.push({
+        id: 'copy',
+        label,
+        shortcut,
+        icon: 'copy',
+        handler: async () => {
+          await navigator.clipboard.writeText(value)
+          toast('Copied to clipboard', 'success')
+          await getCurrentWindow().hide()
+        },
+      })
+    }
+
+    const runPrimary = (id: string, label: string) => {
+      actions.push({
+        id,
+        label,
+        shortcut: '↵',
+        handler: async () => {
+          if (cmd?.action) {
+            await cmd.action(configRef.current)
+            if (!cmd.noClose) await getCurrentWindow().hide()
+          } else if (cmd?.createRootStep) {
+            dispatch({ type: 'PUSH_STEP', step: cmd.createRootStep(configRef.current) })
+          }
+        },
+      })
+    }
+
+    switch (item.source) {
+      case 'file':
+        actions.push({
+          id: 'open',
+          label: 'Open file',
+          shortcut: '↵',
+          handler: async () => { await openPath(item.data as string); await getCurrentWindow().hide() },
+        })
+        pushCopy('Copy path', item.data as string, 'C')
+        break
+      case 'snippet': {
+        const snippet = item.data as Snippet
+        runPrimary('paste', 'Paste to active app')
+        pushCopy('Copy snippet', snippet.text, 'C')
+        actions.push({
+          id: 'delete',
+          label: 'Delete snippet',
+          shortcut: '⌫',
+          icon: 'trash',
+          handler: async () => {
+            const all = await readSnippets()
+            await writeSnippets(all.filter(s => s.id !== snippet.id))
+            appEvents.refreshCommands?.()
+            toast('Snippet deleted', 'success')
+          },
+        })
+        break
+      }
+      case 'script':
+        runPrimary('run', 'Run script')
+        break
+      case 'system':
+        runPrimary('run', 'Run command')
+        break
+      default:
+        runPrimary('open', 'Open')
+        pushCopy('Copy name', item.label, 'C')
+    }
+
+    return actions
+  }, [resolveCommand, toast])
+
+  const actionItems = selectedItem && !isInputStep && !isSliderStep && !isFormStep
+    ? buildActions(selectedItem)
+    : []
+  const actionPanelClampedIndex = Math.min(actionPanelIndex, Math.max(0, actionItems.length - 1))
+
+  const handleFormSubmit = useCallback(async () => {
+    if (!currentStep?.isFormStep || !currentStep.onSubmit) return
+    try {
+      const result = await currentStep.onSubmit(formValues, configRef.current)
+      if (result.type === 'done') {
+        dispatch({ type: 'RESET' })
+        await getCurrentWindow().hide()
+      } else if (result.type === 'push') {
+        dispatch({ type: 'PUSH_STEP', step: result.step })
+      } else if (result.type === 'replace') {
+        dispatch({ type: 'REPLACE_STEP', step: result.step })
+      } else if (result.type === 'pop') {
+        dispatch({ type: 'POP_STEP' })
+      }
+    } catch (err) {
+      dispatch({ type: 'SET_ERROR', error: String(err) })
+    }
+  }, [currentStep, formValues])
+
   // Live preview on highlight change (arrow keys or hover). The first
   // highlight after a step mounts/reloads is skipped — it's the default
   // selection, not the user moving.
@@ -399,6 +599,58 @@ export default function Palette({
 
   // Keyboard handler
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
+    // Action panel mode: it owns the keyboard until closed
+    if (actionPanelOpen) {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setActionPanelOpen(false)
+        setActionPanelIndex(0)
+        return
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setActionPanelIndex(i => Math.min(i + 1, Math.max(0, actionItems.length - 1)))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setActionPanelIndex(i => Math.max(0, i - 1))
+        return
+      }
+
+      const runAction = async (action: ActionItem) => {
+        if (selectedItem) recordUse(selectedItem.id)
+        try { await action.handler() } catch (err) { dispatch({ type: 'SET_ERROR', error: String(err) }) }
+        setActionPanelOpen(false)
+        setActionPanelIndex(0)
+      }
+
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        const action = actionItems[actionPanelClampedIndex]
+        if (action) await runAction(action)
+        else { setActionPanelOpen(false); setActionPanelIndex(0) }
+        return
+      }
+      // Number shortcuts 1-9
+      const digit = parseInt(e.key, 10)
+      if (!Number.isNaN(digit) && digit >= 1 && digit <= actionItems.length) {
+        e.preventDefault()
+        await runAction(actionItems[digit - 1])
+        return
+      }
+      // Letter shortcut matching action.shortcut
+      if (/^[a-z]$/i.test(e.key)) {
+        const action = actionItems.find(a => a.shortcut?.toLowerCase() === e.key.toLowerCase())
+        if (action) {
+          e.preventDefault()
+          await runAction(action)
+          return
+        }
+      }
+      return
+    }
+
     if (e.key === 'Escape') {
       e.preventDefault()
       dispatch({ type: 'RESET' })
@@ -406,9 +658,33 @@ export default function Palette({
       return
     }
 
+    // Let native form inputs handle their own keystrokes (Enter to move/submit,
+    // arrows to navigate fields). The main search input is exempt: nav keys
+    // must drive the results list from here.
+    const target = e.target as HTMLElement
+    const isSearchInput =
+      target instanceof HTMLInputElement && target.dataset.paletteSearch !== undefined
+    if (
+      !isSearchInput &&
+      (target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement)
+    ) {
+      return
+    }
+
     if (e.key.toLowerCase() === 'g' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
       onToggleGameMode()
+      return
+    }
+
+    if (e.key.toLowerCase() === 'k' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      if (selectedItem && actionItems.length > 0) {
+        setActionPanelOpen(true)
+        setActionPanelIndex(0)
+      }
       return
     }
 
@@ -465,26 +741,16 @@ export default function Palette({
       await handleSelect(selected)
       return
     }
-  }, [state, currentStep, isInputStep, visibleItems, clampedIndex]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state, currentStep, isInputStep, visibleItems, clampedIndex, actionPanelOpen, actionItems, actionPanelClampedIndex, selectedItem]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSelect = useCallback(async (item: PaletteItem) => {
     // Root level: find command and either run action or push step
     if (!currentStep) {
-      // "kill <name>" inline results
-      if (item.id.startsWith('process:kill:')) {
-        try {
-          await killAll((item.data as ProcessGroup).pids)
-          dispatch({ type: 'RESET' })
-          await getCurrentWindow().hide()
-        } catch (err) {
-          dispatch({ type: 'SET_ERROR', error: String(err) })
-        }
-        return
-      }
       // search:/find: prefix results are files, not commands
       if (item.id.startsWith('file:')) {
         try {
           await openFileItem(item)
+          recordUse(item.id)
           dispatch({ type: 'RESET' })
           await getCurrentWindow().hide()
         } catch (err) {
@@ -492,11 +758,12 @@ export default function Palette({
         }
         return
       }
-      const cmd = commandsRef.current.find(c => c.id === item.id)
+      const cmd = resolveCommand(item.id)
       if (!cmd) return
       if (cmd.action) {
         try {
           await cmd.action(configRef.current)
+          recordUse(cmd.id)
           if (cmd.noClose) return
           localStorage.setItem(LAST_CMD_KEY, cmd.id)
           dispatch({ type: 'RESET' })
@@ -507,6 +774,7 @@ export default function Palette({
         return
       }
       if (cmd.createRootStep) {
+        recordUse(cmd.id)
         const step = cmd.createRootStep(configRef.current)
         dispatch({ type: 'PUSH_STEP', step })
       }
@@ -532,10 +800,11 @@ export default function Palette({
   }, [currentStep])
 
   // Focus input whenever visible (the container on slider steps, so
-  // Escape/Backspace keep working without a text input)
+  // Escape/Backspace keep working without a text input). Form steps own
+  // their own field focus.
   useEffect(() => {
     if (isSliderStep) containerRef.current?.focus()
-    else inputRef.current?.focus()
+    else if (!isFormStep) inputRef.current?.focus()
   })
 
   // Keep the window sized to its content.
@@ -601,6 +870,7 @@ export default function Palette({
       tabIndex={-1}
       style={{
         outline: 'none',
+        position: 'relative',
         width: '100%',
         background: 'var(--bg)',
         backdropFilter: 'blur(60px) saturate(180%)',
@@ -613,6 +883,8 @@ export default function Palette({
       }}
       onKeyDown={handleKeyDown}
     >
+      <ToastContainer toasts={toasts} />
+
       {isSliderStep && currentStep ? (
         <SliderInput
           value={sliderValue}
@@ -626,7 +898,7 @@ export default function Palette({
             })
           }}
         />
-      ) : (
+      ) : isFormStep ? null : (
         <SearchInput
           ref={inputRef}
           value={state.query}
@@ -661,20 +933,54 @@ export default function Palette({
         </div>
       )}
 
-      {!isInputStep && !isSliderStep && visibleItems.length > 0 && (
+      {!isInputStep && !isSliderStep && !isFormStep && visibleItems.length > 0 && (
         <div style={{ display: 'flex', minHeight: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <ResultsList
-              items={visibleItems}
-              selectedIndex={clampedIndex}
-              onSelect={handleSelect}
-              onHover={i => dispatch({ type: 'MOVE_SELECTION', delta: i - clampedIndex })}
-            />
+            {isGridStep ? (
+              <ResultsGrid
+                items={visibleItems}
+                selectedIndex={clampedIndex}
+                query={state.query}
+                columns={currentStep?.gridColumns}
+                onSelect={handleSelect}
+                onHover={i => dispatch({ type: 'MOVE_SELECTION', delta: i - clampedIndex })}
+              />
+            ) : (
+              <ResultsList
+                items={visibleItems}
+                selectedIndex={clampedIndex}
+                onSelect={handleSelect}
+                onHover={i => dispatch({ type: 'MOVE_SELECTION', delta: i - clampedIndex })}
+              />
+            )}
           </div>
           {previewPath && selectedItem && (
             <DetailPane path={previewPath} name={selectedItem.label} />
           )}
         </div>
+      )}
+
+      {isFormStep && currentStep && (
+        <FormView
+          fields={currentStep.fields ?? []}
+          values={formValues}
+          onChange={(id, value) => setFormValues(prev => ({ ...prev, [id]: value }))}
+          onSubmit={handleFormSubmit}
+        />
+      )}
+
+      {actionPanelOpen && actionItems.length > 0 && (
+        <ActionPanel
+          items={actionItems}
+          selectedIndex={actionPanelClampedIndex}
+          onSelect={async item => {
+            if (selectedItem) recordUse(selectedItem.id)
+            try { await item.handler() } catch (err) { dispatch({ type: 'SET_ERROR', error: String(err) }) }
+            setActionPanelOpen(false)
+            setActionPanelIndex(0)
+          }}
+          onHover={i => setActionPanelIndex(i)}
+        />
       )}
 
       {claudeUsageVisible && <ClaudeUsage />}

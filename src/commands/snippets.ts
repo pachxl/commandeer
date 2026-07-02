@@ -8,9 +8,11 @@ function snippetCommand(snippet: Snippet): Command {
     label: snippet.keyword,
     description: snippet.text.slice(0, 80).replace(/\n/g, ' '),
     icon: 'snippet',
+    source: 'snippet',
     keywords: [snippet.text],
     actionLabel: 'Paste to active app',
     searchOnly: true,
+    data: snippet,
     action: async () => {
       await pasteToPrevious(snippet.text)
     },

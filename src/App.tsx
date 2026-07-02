@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { loadScriptCommands, scriptsToCommands, webSearchCommand } from './commands'
-import { killProcessCommand } from './commands/processes'
 import { loadSnippetCommands } from './commands/snippets'
 import { settingsCommand } from './commands/settings'
+import { loadProviderCommands } from './providers'
+import { killProcessCommand } from './providers/processes'
 import { appEvents } from './lib/appEvents'
 import { applyThemeByName } from './lib/themes'
 import { readConfig, setGameMode, setWindowTransparency, type ScriptInfo } from './lib/tauri'
@@ -64,11 +65,15 @@ export default function App() {
         console.error(err)
         return [] as Command[]
       })
+      const providerCmds = await loadProviderCommands(configRef.current).catch(err => {
+        console.error(err)
+        return [] as Command[]
+      })
       setCommands([
         ...cmds,
         ...snippetCmds,
         ...(isWebSearchVisible() ? [webSearchCommand] : []),
-        killProcessCommand,
+        ...providerCmds,
         settingsCommand(configRef.current),
       ])
     } catch (err) {

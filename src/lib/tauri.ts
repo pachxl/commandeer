@@ -57,6 +57,32 @@ export interface Snippet {
   text: string
 }
 
+export interface Quicklink {
+  id: string
+  name: string
+  url: string
+  icon: string | null
+}
+
+export const readQuicklinks = () =>
+  invoke<Quicklink[]>('read_quicklinks')
+
+export const writeQuicklinks = (quicklinks: Quicklink[]) =>
+  invoke<void>('write_quicklinks', { quicklinks })
+
+// Per-command user overrides (alias, pinned, hotkey), keyed by command id
+export interface CommandOverride {
+  alias?: string
+  pinned?: boolean
+  hotkey?: string
+}
+
+export const readOverrides = () =>
+  invoke<Record<string, CommandOverride>>('read_overrides')
+
+export const writeOverrides = (overrides: Record<string, CommandOverride>) =>
+  invoke<void>('write_overrides', { overrides })
+
 export const readSnippets = () =>
   invoke<Snippet[]>('read_snippets')
 

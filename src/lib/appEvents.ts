@@ -12,4 +12,6 @@ export const appEvents: {
   isSystemStatsVisible?: () => boolean
   // Rebuild the root command list (e.g. after snippets change)
   refreshCommands?: () => void
+  // Show a transient toast above the results list (registered by Palette)
+  toast?: (message: string, kind?: 'success' | 'error' | 'info') => void
 } = {}

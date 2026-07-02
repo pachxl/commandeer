@@ -61,7 +61,9 @@ export function scriptsToCommands(scripts: ScriptInfo[]): Command[] {
         id: `script:${script.path}`,
         label: script.name,
         icon: script.icon ?? '',
+        source: 'script',
         folderName: script.folder ?? undefined,
+        data: script.path,
         action: async () => {
           await runScript(script.path)
         },

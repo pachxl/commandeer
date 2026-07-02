@@ -1,11 +1,39 @@
+export type CommandSource =
+  | 'builtin'
+  | 'script'
+  | 'app'
+  | 'window'
+  | 'file'
+  | 'calculator'
+  | 'system'
+  | 'quicklink'
+  | 'snippet'
+  | 'clipboard'
+  | 'bookmark'
+
+export interface PaletteAccessory {
+  text?: string
+  icon?: string
+  color?: string
+}
+
+export interface PaletteMetadata {
+  label: string
+  value: string
+}
+
 export interface AppConfig {
   scripts_dir: string
-  // Used by the testing-branch build (file search); round-tripped so builds can coexist
+  // Roots for the global find: file search (defaults to Desktop/Documents/Downloads)
   search_paths?: string[]
   // Theme name ('Tokyo Night', 'Light', …); legacy values 'dark'/'light' still resolve
   theme?: string
   // Window transparency: 0.0 (fully opaque) to 1.0 (fully transparent)
   transparency?: number
+  // Global hotkey that toggles the palette (e.g. 'Ctrl+Space')
+  global_hotkey?: string
+  // Alternate global hotkey used in game mode (e.g. 'Alt+Space')
+  global_hotkey_game?: string
 }
 
 export interface PaletteItem {
@@ -21,6 +49,18 @@ export interface PaletteItem {
   data?: unknown
   // Label of the primary (Enter) action, shown in the footer
   actionLabel?: string
+  // Which provider produced this item (drives action-panel actions)
+  source?: CommandSource
+  // Keywords used for weighted multi-field fuzzy ranking
+  keywords?: string[]
+  // CSS color for a swatch (used by the color formatter)
+  color?: string
+  // Render the label/sublabel in this font family (used by the font browser)
+  fontFamily?: string
+  // Right-aligned badges/tags
+  accessories?: PaletteAccessory[]
+  // Key/value rows rendered in the detail pane
+  metadata?: PaletteMetadata[]
 }
 
 export type StepResult =
@@ -28,6 +68,20 @@ export type StepResult =
   | { type: 'push'; step: Step }
   | { type: 'replace'; step: Step }
   | { type: 'pop' }
+
+export interface FormFieldOption {
+  label: string
+  value: string
+}
+
+export interface FormField {
+  id: string
+  label: string
+  type: 'text' | 'dropdown' | 'checkbox'
+  placeholder?: string
+  defaultValue?: unknown
+  options?: FormFieldOption[]
+}
 
 export interface Step {
   id: string
@@ -49,7 +103,16 @@ export interface Step {
   minValue?: number
   maxValue?: number
   stepValue?: number
+  // Optional async seed for the slider's starting position (e.g. current volume)
+  loadSliderValue?: () => Promise<number>
   onSliderChange?: (value: number, config: AppConfig) => Promise<void>
+  // For grid steps: render load items as a tiled grid instead of a list
+  isGridStep?: boolean
+  gridColumns?: number
+  // For form steps: multi-field input resolved by a single submit
+  isFormStep?: boolean
+  fields?: FormField[]
+  onSubmit?: (values: Record<string, unknown>, config: AppConfig) => Promise<StepResult>
 }
 
 export interface Command {
@@ -57,19 +120,51 @@ export interface Command {
   label: string
   description?: string
   icon: string
+  // Which provider produced this command (drives action-panel actions)
+  source?: CommandSource
+  // Filesystem path whose shell icon should replace `icon` once resolved
+  iconPath?: string
   folderName?: string
   isFolder?: boolean
   // Extra terms matched by the fuzzy search
   keywords?: string[]
+  aliases?: string[]
   // Label of the primary (Enter) action, shown in the footer
   actionLabel?: string
   // If true, hidden from the browse list — only findable by typing a query
   searchOnly?: boolean
+  // Optional payload passed through to the UI as PaletteItem.data
+  data?: unknown
   // Either run directly (scripts/shortcuts) or push a step (multi-step commands)
   action?: (config: AppConfig) => Promise<void>
   createRootStep?: (config: AppConfig) => Step
   // If true, selecting this command won't close the palette
   noClose?: boolean
+  // CSS color for a swatch (used by the color formatter)
+  color?: string
+  // Right-aligned badges/tags
+  accessories?: PaletteAccessory[]
+  // Key/value rows rendered in the detail pane
+  metadata?: PaletteMetadata[]
+}
+
+// A source of commands: static entries for the root list (getCommands) and/or
+// dynamic per-query results surfaced inline at root (search)
+export interface CommandProvider {
+  id: string
+  name: string
+  priority: number
+  getCommands?: (config: AppConfig) => Promise<Command[]> | Command[]
+  search?: (query: string, config: AppConfig) => Promise<Command[]> | Command[]
+}
+
+// One entry in the Ctrl+K action panel
+export interface ActionItem {
+  id: string
+  label: string
+  shortcut?: string
+  icon?: string
+  handler: () => Promise<void>
 }
 
 export interface PaletteState {
