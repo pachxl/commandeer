@@ -40,6 +40,7 @@ export function scriptsToCommands(scripts: ScriptInfo[]): Command[] {
         id: `folder:${folderName}`,
         label: folderName,
         icon: script.icon ?? 'folder',
+        source: 'script',
         isFolder: true,
         createRootStep: (_cfg): Step => ({
           id: `folder-step:${folderName}`,

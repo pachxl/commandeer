@@ -377,14 +377,25 @@ export default function Palette({
     const withOverrides = (items: PaletteItem[]) =>
       items.map(i => applyOverride(i, overrides[i.id]))
 
-    // Hierarchical view: folders at top, then root scripts with last-used floating up.
+    // Hierarchical view: everything from the user's commands folder first
+    // (script folders, then loose scripts with last-used floating up), then
+    // built-in virtual folders (Tools, Snippets) and any other builtins.
     // searchOnly commands are excluded here but stay in the flat search list.
-    const folderCmds = commands.filter(c => c.isFolder)
-    const rootScripts = commands.filter(c => !c.isFolder && !c.folderName && !c.searchOnly && c.id !== SETTINGS_COMMAND_ID)
+    const isScript = (c: Command) => c.source === 'script'
+    const rootLoose = commands.filter(c => !c.isFolder && !c.folderName && !c.searchOnly && c.id !== SETTINGS_COMMAND_ID)
+    const scriptFolders = commands.filter(c => c.isFolder && isScript(c))
+    const builtinFolders = commands.filter(c => c.isFolder && !isScript(c))
+    const scriptLoose = rootLoose.filter(isScript)
+    const builtinLoose = rootLoose.filter(c => !isScript(c))
     const sortedScripts = lastId
-      ? [...rootScripts].sort((a, b) => (a.id === lastId ? -1 : b.id === lastId ? 1 : 0))
-      : rootScripts
-    dispatch({ type: 'SET_ITEMS', stepId: '__root__', items: withOverrides(commandsToItems([...folderCmds, ...sortedScripts])), preserveSelection: true })
+      ? [...scriptLoose].sort((a, b) => (a.id === lastId ? -1 : b.id === lastId ? 1 : 0))
+      : scriptLoose
+    dispatch({
+      type: 'SET_ITEMS',
+      stepId: '__root__',
+      items: withOverrides(commandsToItems([...scriptFolders, ...sortedScripts, ...builtinFolders, ...builtinLoose])),
+      preserveSelection: true,
+    })
 
     // Flat view: all scripts (no folder nav items) for cross-folder search
     const allScripts = commands.filter(c => !c.isFolder && c.id !== SETTINGS_COMMAND_ID)
