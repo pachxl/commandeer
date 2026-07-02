@@ -66,6 +66,20 @@ export const writeSnippets = (snippets: Snippet[]) =>
 export const pasteToPrevious = (text: string) =>
   invoke<void>('paste_to_previous', { text })
 
+export interface FileEntry {
+  name: string
+  path: string
+  rel: string
+  is_dir: boolean
+}
+
+// Folder open in the Explorer window focused before the palette was shown
+export const explorerLocation = () =>
+  invoke<string | null>('explorer_location')
+
+export const listFilesRecursive = (path: string, max: number) =>
+  invoke<FileEntry[]>('list_files_recursive', { path, max })
+
 export interface Theme {
   name: string
   variables: Record<string, string>

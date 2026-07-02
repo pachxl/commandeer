@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import { fuzzyFilter } from '../lib/fuzzy'
 import { SETTINGS_COMMAND_ID } from '../commands/settings'
+import { loadActiveFolderItems, openFileItem } from '../commands/fileSearch'
 import type { AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
@@ -131,6 +132,10 @@ function reducer(state: PaletteState, action: PaletteAction): PaletteState {
 
 const LAST_CMD_KEY = 'commandeer:last'
 
+// Root-level query prefix that switches the palette to file search in the
+// active Explorer folder (same data as the Search Folder command)
+const FIND_PREFIX = 'find:'
+
 // On Linux the palette is a wlr-layer-shell surface (set up in the Rust backend),
 // which can be resized in place; a plain setSize is enough. On Windows we also
 // lock min == max so the user can't drag-resize it.
@@ -189,6 +194,33 @@ export default function Palette({
   const currentStep = state.stepStack[state.stepStack.length - 1] ?? null
   const cacheKey = currentStep?.id ?? '__root__'
 
+  // "find:" prefix at root → file search in the active Explorer folder.
+  // The file list is fetched once per palette show (walked in parallel on the
+  // Rust side) and cached; keystrokes then filter it client-side.
+  const findMode = !currentStep && state.query.toLowerCase().startsWith(FIND_PREFIX)
+  const findQuery = findMode ? state.query.slice(FIND_PREFIX.length).trimStart() : ''
+  const findLoad = useRef({ token: 0, loaded: false, loading: false })
+
+  useEffect(() => {
+    if (!findMode) return
+    const fl = findLoad.current
+    if (fl.loaded || fl.loading) return
+    fl.loading = true
+    const token = fl.token
+    dispatch({ type: 'SET_LOADING', loading: true })
+    loadActiveFolderItems()
+      .then(items => {
+        if (findLoad.current.token !== token) return
+        findLoad.current.loaded = true
+        dispatch({ type: 'SET_ITEMS', stepId: '__find__', items })
+      })
+      .catch(err => {
+        if (findLoad.current.token !== token) return
+        dispatch({ type: 'SET_ERROR', error: String(err) })
+      })
+      .finally(() => { findLoad.current.loading = false })
+  }, [findMode])
+
   // Load items when a new step is pushed or replaced. Keyed on the step object
   // (not its id) so a REPLACE_STEP with the same id still reloads.
   useEffect(() => {
@@ -216,18 +248,20 @@ export default function Palette({
   // At root without a query, or inside a step: use the current step's items
   const rawItems = currentStep
     ? (state.itemCache[cacheKey] ?? [])
-    : state.query
-      ? (state.itemCache['__root_flat__'] ?? [])
-      : (state.itemCache['__root__'] ?? [])
+    : findMode
+      ? (state.itemCache['__find__'] ?? [])
+      : state.query
+        ? (state.itemCache['__root_flat__'] ?? [])
+        : (state.itemCache['__root__'] ?? [])
   const isInputStep = currentStep?.isInputStep ?? false
   const isSliderStep = currentStep?.isSliderStep ?? false
-  const matchedItems = (isInputStep || isSliderStep) ? [] : fuzzyFilter(rawItems, state.query, i =>
+  const matchedItems = (isInputStep || isSliderStep) ? [] : fuzzyFilter(rawItems, findMode ? findQuery : state.query, i =>
     i.searchText ?? (i.label + ' ' + (i.sublabel ?? ''))
   )
   const noMatches = matchedItems.length === 0
 
   // The Settings row is always the last item at root, query or not
-  const settingsCmd = !currentStep && !isInputStep
+  const settingsCmd = !currentStep && !isInputStep && !findMode
     ? commands.find(c => c.id === SETTINGS_COMMAND_ID)
     : undefined
   const visibleItems = settingsCmd
@@ -315,6 +349,17 @@ export default function Palette({
   const handleSelect = useCallback(async (item: PaletteItem) => {
     // Root level: find command and either run action or push step
     if (!currentStep) {
+      // find: prefix results are files, not commands
+      if (item.id.startsWith('file:')) {
+        try {
+          await openFileItem(item)
+          dispatch({ type: 'RESET' })
+          await getCurrentWindow().hide()
+        } catch (err) {
+          dispatch({ type: 'SET_ERROR', error: String(err) })
+        }
+        return
+      }
       const cmd = commandsRef.current.find(c => c.id === item.id)
       if (!cmd) return
       if (cmd.action) {
@@ -403,6 +448,10 @@ export default function Palette({
           // Force a re-apply even if the height didn't change while hidden
           lastHeightRef.current = 0
           void applySize()
+          // Drop the cached file list: each show may target a different
+          // Explorer folder (and invalidate any in-flight load)
+          findLoad.current = { token: findLoad.current.token + 1, loaded: false, loading: false }
+          dispatch({ type: 'SET_ITEMS', stepId: '__find__', items: [] })
         }
       })
       .then(fn => { unlisten = fn })
@@ -473,7 +522,7 @@ export default function Palette({
           fontSize: 12,
           fontFamily: 'var(--font)',
         }}>
-          No commands matching '{state.query}'
+          {findMode ? `No files matching '${findQuery}'` : `No commands matching '${state.query}'`}
         </div>
       )}
 

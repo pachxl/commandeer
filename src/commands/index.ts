@@ -1,27 +1,8 @@
 import type { AppConfig, Command, Step, PaletteItem } from '../types'
-import { listScripts, runScript, openUrl, type ScriptInfo } from '../lib/tauri'
+import { listScripts, runScript, type ScriptInfo } from '../lib/tauri'
+import { searchFolderCommand } from './fileSearch'
 
-export const builtinCommands: Command[] = [
-  {
-    id: 'builtin:search',
-    label: 'Search',
-    icon: 'search',
-    description: 'Search the web',
-    actionLabel: 'Open',
-    createRootStep: (): Step => ({
-      id: 'search-input',
-      label: 'Search',
-      placeholder: 'Type your search...',
-      isInputStep: true,
-      onSelect: async () => ({ type: 'done' }),
-      onCommitQuery: async (query) => {
-        const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`
-        await openUrl(url)
-        return { type: 'done' }
-      },
-    }),
-  },
-]
+export const builtinCommands: Command[] = [searchFolderCommand]
 
 export async function loadScriptCommands(config: AppConfig): Promise<{ commands: Command[]; scripts: ScriptInfo[] }> {
   const scripts = await listScripts(config.scripts_dir)

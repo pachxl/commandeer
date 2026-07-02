@@ -286,6 +286,8 @@ pub fn run() {
             commands::store::write_snippets,
             commands::store::read_themes,
             commands::paste::paste_to_previous,
+            commands::explorer::explorer_location,
+            commands::explorer::list_files_recursive,
             commands::window::set_window_transparency,
             set_game_mode,
             resize_palette,
