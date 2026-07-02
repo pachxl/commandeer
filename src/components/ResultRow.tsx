@@ -1,5 +1,6 @@
 import { forwardRef, useState } from 'react'
 import type { PaletteItem } from '../types'
+import { getIconSvg, hasIcon } from './Icon'
 
 interface ResultRowProps {
   item: PaletteItem
@@ -14,12 +15,14 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
     const active = selected || hovered
 
     const isDataUrl = item.icon.startsWith('data:')
-    const hasIcon = item.icon.length > 0
+    const isNamedIcon = hasIcon(item.icon)
+    const hasIconValue = item.icon.length > 0
     const bg = active
       ? (selected ? 'var(--accent)' : 'var(--bg-select)')
       : 'transparent'
     const fg = selected ? '#ffffff' : 'var(--text)'
     const subFg = selected ? 'rgba(255,255,255,0.78)' : 'var(--text-dim)'
+    const iconColor = selected ? '#ffffff' : subFg
 
     return (
       <div
@@ -38,7 +41,7 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
           userSelect: 'none',
         }}
       >
-        {hasIcon && (
+        {hasIconValue && (
           <div style={{
             width: 18,
             height: 18,
@@ -47,11 +50,13 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
             justifyContent: 'center',
             flexShrink: 0,
             fontSize: 14,
-            color: subFg,
+            color: iconColor,
           }}>
             {isDataUrl
               ? <img src={item.icon} width={18} height={18} style={{ objectFit: 'contain' }} />
-              : item.icon
+              : isNamedIcon
+                ? <div dangerouslySetInnerHTML={{ __html: getIconSvg(item.icon, iconColor, 16) ?? '' }} style={{ display: 'flex' }} />
+                : item.icon
             }
           </div>
         )}

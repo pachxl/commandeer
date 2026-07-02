@@ -5,7 +5,7 @@ export const builtinCommands: Command[] = [
   {
     id: 'builtin:search',
     label: 'Search',
-    icon: '🔍',
+    icon: 'search',
     description: 'Search the web',
     actionLabel: 'Open',
     createRootStep: (): Step => ({
@@ -39,7 +39,7 @@ export function scriptsToCommands(scripts: ScriptInfo[]): Command[] {
       commands.push({
         id: `folder:${folderName}`,
         label: folderName,
-        icon: script.icon ?? '📁',
+        icon: script.icon ?? 'folder',
         isFolder: true,
         createRootStep: (_cfg): Step => ({
           id: `folder-step:${folderName}`,

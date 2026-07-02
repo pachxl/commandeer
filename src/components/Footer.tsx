@@ -1,4 +1,5 @@
 import type { PaletteItem } from '../types'
+import { getIconSvg, hasIcon } from './Icon'
 
 interface FooterProps {
   selectedItem: PaletteItem | null
@@ -10,6 +11,7 @@ interface FooterProps {
 export default function Footer({ selectedItem, primaryAction }: FooterProps) {
   const icon = selectedItem?.icon ?? ''
   const isDataUrl = icon.startsWith('data:')
+  const isNamedIcon = hasIcon(icon)
 
   return (
     <div style={{
@@ -37,7 +39,9 @@ export default function Footer({ selectedItem, primaryAction }: FooterProps) {
           }}>
             {isDataUrl
               ? <img src={icon} width={14} height={14} style={{ objectFit: 'contain' }} />
-              : icon
+              : isNamedIcon
+                ? <div dangerouslySetInnerHTML={{ __html: getIconSvg(icon, 'var(--text-dim)', 14) ?? '' }} style={{ display: 'flex' }} />
+                : icon
             }
           </div>
         )}
