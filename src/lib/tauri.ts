@@ -91,6 +91,42 @@ export const explorerLocation = () =>
 export const listFilesRecursive = (path: string, max: number) =>
   invoke<FileEntry[]>('list_files_recursive', { path, max })
 
+// Global file search: FTS5 index → Everything → walkdir fallback (Rust side)
+export interface FileResult {
+  name: string
+  path: string
+  icon: string | null
+}
+
+export const searchFiles = (query: string, paths: string[]) =>
+  invoke<FileResult[]>('search_files', { query, paths })
+
+export interface FileInfo {
+  size: number
+  modified: string | null
+  is_dir: boolean
+  thumbnail: string | null
+}
+
+export const fileInfo = (path: string) =>
+  invoke<FileInfo>('file_info', { path })
+
+// Shell icon for a path as a PNG data URL; cached per extension on both sides
+export const pathIcon = (path: string) =>
+  invoke<string | null>('path_icon', { path })
+
+export interface ProcessInfo {
+  pid: number
+  name: string
+  memory_bytes: number
+}
+
+export const listProcesses = () =>
+  invoke<ProcessInfo[]>('list_processes')
+
+export const killProcess = (pid: number) =>
+  invoke<void>('kill_process', { pid })
+
 export interface Theme {
   name: string
   variables: Record<string, string>

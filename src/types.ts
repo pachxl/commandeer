@@ -13,6 +13,9 @@ export interface PaletteItem {
   label: string
   sublabel?: string
   icon: string
+  // Filesystem path whose shell icon should replace `icon` once resolved
+  // (fetched lazily per visible row, cached per extension)
+  iconPath?: string
   searchText?: string
   isFolder?: boolean
   data?: unknown

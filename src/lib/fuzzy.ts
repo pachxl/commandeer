@@ -1,35 +1,163 @@
-export function fuzzyScore(query: string, text: string): number | null {
-  if (!query) return 0
-  const q = query.toLowerCase()
-  const t = text.toLowerCase()
-  let qi = 0
-  let score = 0
-  let lastMatch = -1
+import { Fzf } from 'fzf'
 
-  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
-    if (t[ti] === q[qi]) {
-      score += 1
-      if (lastMatch === ti - 1) score += 2          // contiguous bonus
-      if (ti === 0 || t[ti - 1] === ' ' || t[ti - 1] === '/' || t[ti - 1] === '\\') {
-        score += 3                                    // word boundary bonus
+export interface FuzzyMatch {
+  score: number
+  // Indices into `text` of the characters that matched the query, for highlighting
+  positions: number[]
+}
+
+export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
+  if (!query) return { score: 0, positions: [] }
+  const fzf = new Fzf([text], { casing: 'case-insensitive' })
+  const results = fzf.find(query)
+  if (results.length === 0) return null
+  const r = results[0]
+  return { score: r.score, positions: [...r.positions].sort((a, b) => a - b) }
+}
+
+export function fuzzyScore(query: string, text: string): number | null {
+  return fuzzyMatch(query, text)?.score ?? null
+}
+
+export interface ScoredItem<T> {
+  item: T
+  score: number
+}
+
+// A weighted field used for multi-field fuzzy ranking. The highest weighted
+// score across all fields is used as the item's score.
+export interface FuzzyField<T> {
+  text: (item: T) => string | undefined
+  weight: number
+}
+
+// Score a whole list against a set of weighted fields in one pass, returning a
+// map of item → best weighted field score. Builds a single Fzf index per field
+// across all items (not one per item), so ranking N items over F fields costs F
+// index builds instead of N×F. This is the hot path on every keystroke, so the
+// batched form matters — the per-item variant below is a thin wrapper for
+// callers that only have one item.
+export function fuzzyScoreFieldsBatch<T>(
+  items: T[],
+  query: string,
+  fields: FuzzyField<T>[],
+): Map<T, number> {
+  const best = new Map<T, number>()
+  if (!query) {
+    for (const item of items) best.set(item, 0)
+    return best
+  }
+  for (const field of fields) {
+    const fieldItems = items
+      .map(item => ({ item, text: field.text(item) }))
+      .filter((x): x is { item: T; text: string } => !!x.text)
+    if (fieldItems.length === 0) continue
+    const fzf = new Fzf(fieldItems, { selector: x => x.text, casing: 'case-insensitive' })
+    for (const r of fzf.find(query)) {
+      const weighted = r.score * field.weight
+      const existing = best.get(r.item.item)
+      if (existing === undefined || weighted > existing) {
+        best.set(r.item.item, weighted)
       }
-      lastMatch = ti
-      qi++
     }
   }
+  return best
+}
 
-  return qi === q.length ? score : null
+// Score a single item against a set of weighted fields and return the best
+// match. Prefer fuzzyScoreFieldsBatch when ranking a list — this rebuilds an Fzf
+// index per field on every call.
+export function fuzzyScoreFields<T>(
+  query: string,
+  item: T,
+  fields: FuzzyField<T>[],
+): { score: number; positions: number[]; fieldIndex: number } | null {
+  if (!query) return { score: 0, positions: [], fieldIndex: 0 }
+  let best: { score: number; positions: number[]; fieldIndex: number } | null = null
+  for (let i = 0; i < fields.length; i++) {
+    const text = fields[i].text(item)
+    if (!text) continue
+    const m = fuzzyMatch(query, text)
+    if (!m) continue
+    const weighted = m.score * fields[i].weight
+    if (best === null || weighted > best.score) {
+      best = { score: weighted, positions: m.positions, fieldIndex: i }
+    }
+  }
+  return best
+}
+
+// Like fuzzyFilterScored but supports a list of weighted fields.
+function fuzzyFilterFields<T>(
+  items: T[],
+  query: string,
+  fields: FuzzyField<T>[],
+): ScoredItem<T>[] {
+  if (!query) return items.map(item => ({ item, score: 0 }))
+  const best = fuzzyScoreFieldsBatch(items, query, fields)
+  return items
+    .map(item => {
+      const score = best.get(item)
+      return score === undefined ? null : { item, score }
+    })
+    .filter((r): r is ScoredItem<T> => r !== null)
+}
+
+function fuzzyFilterScoredSingle<T>(
+  items: T[],
+  query: string,
+  getText: (item: T) => string,
+): ScoredItem<T>[] {
+  if (!query) return items.map(item => ({ item, score: 0 }))
+  const wrapped = items.map(item => ({ item, text: getText(item) }))
+  const fzf = new Fzf(wrapped, { selector: x => x.text, casing: 'case-insensitive' })
+  return fzf.find(query).map(r => ({ item: r.item.item, score: r.score }))
+}
+
+// Like fuzzyFilter but returns scores so callers can blend in other signals
+// (e.g. frecency) before sorting. Accepts either a single text getter or a
+// list of weighted fields.
+export function fuzzyFilterScored<T>(
+  items: T[],
+  query: string,
+  getText: (item: T) => string,
+): ScoredItem<T>[]
+export function fuzzyFilterScored<T>(
+  items: T[],
+  query: string,
+  fields: FuzzyField<T>[],
+): ScoredItem<T>[]
+export function fuzzyFilterScored<T>(
+  items: T[],
+  query: string,
+  getTextOrFields: ((item: T) => string) | FuzzyField<T>[],
+): ScoredItem<T>[] {
+  if (Array.isArray(getTextOrFields)) {
+    return fuzzyFilterFields(items, query, getTextOrFields)
+  }
+  return fuzzyFilterScoredSingle(items, query, getTextOrFields)
 }
 
 export function fuzzyFilter<T>(
   items: T[],
   query: string,
   getText: (item: T) => string,
+): T[]
+export function fuzzyFilter<T>(
+  items: T[],
+  query: string,
+  fields: FuzzyField<T>[],
+): T[]
+export function fuzzyFilter<T>(
+  items: T[],
+  query: string,
+  getTextOrFields: ((item: T) => string) | FuzzyField<T>[],
 ): T[] {
   if (!query) return items
-  return items
-    .map(item => ({ item, score: fuzzyScore(query, getText(item)) }))
-    .filter((r): r is { item: T; score: number } => r.score !== null)
+  const scored = Array.isArray(getTextOrFields)
+    ? fuzzyFilterScored(items, query, getTextOrFields as FuzzyField<T>[])
+    : fuzzyFilterScored(items, query, getTextOrFields as (item: T) => string)
+  return scored
     .sort((a, b) => b.score - a.score)
     .map(r => r.item)
 }

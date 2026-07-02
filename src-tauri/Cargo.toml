@@ -21,6 +21,11 @@ walkdir = "2"
 # Parallel per-level directory reads for the folder file-search
 rayon = "1"
 tokio = { version = "1", features = ["full"] }
+# Live filesystem watcher feeding the self-hosted file index
+notify = "6"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# Self-hosted file index: SQLite + FTS5 (trigram tokenizer)
+rusqlite = { version = "0.32", features = ["bundled"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 arboard = "3"
 
@@ -36,6 +41,9 @@ windows = { version = "0.58", features = [
     "Win32_UI_Shell",
     "Win32_System_SystemInformation",
     "Win32_System_Performance",
+    "Win32_System_ProcessStatus",
+    "Win32_Storage_FileSystem",
+    "Win32_System_DataExchange",
 ] }
 
 [target.'cfg(not(windows))'.dependencies]

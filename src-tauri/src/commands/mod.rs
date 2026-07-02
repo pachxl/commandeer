@@ -1,7 +1,11 @@
 pub mod claude;
 pub mod config;
 pub mod explorer;
+pub mod file_index;
 pub mod fs;
+pub mod icons;
+pub mod process;
+pub mod search;
 pub mod paste;
 pub mod stats;
 pub mod store;

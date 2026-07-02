@@ -1,4 +1,4 @@
-// "find:" prefix search over the folder open in the previously-focused File
+// "search:" prefix search over the folder open in the previously-focused File
 // Explorer window. The whole tree is loaded once (parallel walk in Rust,
 // capped), then every keystroke filters client-side — no IPC while typing.
 import type { PaletteItem } from '../types'
@@ -15,6 +15,8 @@ function fileToItem(f: FileEntry): PaletteItem {
     label: f.name,
     sublabel: f.rel,
     icon: f.is_dir ? 'folder' : 'file',
+    // Swap in the real shell icon once a row becomes visible (cached per ext)
+    iconPath: f.path,
     searchText: f.rel,
     data: f.path,
     actionLabel: 'Open',

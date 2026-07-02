@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { loadScriptCommands, scriptsToCommands, webSearchCommand } from './commands'
+import { killProcessCommand } from './commands/processes'
 import { loadSnippetCommands } from './commands/snippets'
 import { settingsCommand } from './commands/settings'
 import { appEvents } from './lib/appEvents'
@@ -40,6 +41,7 @@ export default function App() {
     () => [
       ...scriptsToCommands(loadCachedScripts()),
       ...(isWebSearchVisible() ? [webSearchCommand] : []),
+      killProcessCommand,
       settingsCommand(configRef.current),
     ]
   )
@@ -66,6 +68,7 @@ export default function App() {
         ...cmds,
         ...snippetCmds,
         ...(isWebSearchVisible() ? [webSearchCommand] : []),
+        killProcessCommand,
         settingsCommand(configRef.current),
       ])
     } catch (err) {

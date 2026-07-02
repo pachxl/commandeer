@@ -5,9 +5,12 @@ import { LogicalSize } from '@tauri-apps/api/dpi'
 import { fuzzyFilter } from '../lib/fuzzy'
 import { SETTINGS_COMMAND_ID } from '../commands/settings'
 import { loadActiveFolderItems, openFileItem } from '../commands/fileSearch'
+import { loadGlobalFileResults } from '../commands/globalFileSearch'
+import { killAll, killShortcutItem, loadProcessGroups, type ProcessGroup } from '../commands/processes'
 import type { AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
+import DetailPane, { isImagePath } from './DetailPane'
 import ClaudeUsage from './ClaudeUsage'
 import SystemStatsPanel from './SystemStats'
 import Footer from './Footer'
@@ -136,8 +139,18 @@ function reducer(state: PaletteState, action: PaletteAction): PaletteState {
 const LAST_CMD_KEY = 'commandeer:last'
 
 // Root-level query prefix that switches the palette to file search in the
-// active Explorer folder (same data as the Search Folder command)
+// active Explorer folder
+const SEARCH_PREFIX = 'search:'
+
+// Root-level query prefix for the global file search (FTS5 index → Everything
+// → walkdir on the Rust side, fzf-based ranking client-side)
 const FIND_PREFIX = 'find:'
+
+// Debounce between keystrokes and the global-search IPC round trip
+const FIND_DEBOUNCE_MS = 120
+
+// "kill <name>" at root surfaces matching processes directly in the results
+const KILL_RE = /^kill\s+(.{2,})$/i
 
 // On Linux the palette is a wlr-layer-shell surface (set up in the Rust backend),
 // which can be resized in place; a plain setSize is enough. On Windows we also
@@ -199,32 +212,91 @@ export default function Palette({
   const currentStep = state.stepStack[state.stepStack.length - 1] ?? null
   const cacheKey = currentStep?.id ?? '__root__'
 
-  // "find:" prefix at root → file search in the active Explorer folder.
+  // "search:" prefix at root → file search in the active Explorer folder.
   // The file list is fetched once per palette show (walked in parallel on the
   // Rust side) and cached; keystrokes then filter it client-side.
-  const findMode = !currentStep && state.query.toLowerCase().startsWith(FIND_PREFIX)
-  const findQuery = findMode ? state.query.slice(FIND_PREFIX.length).trimStart() : ''
-  const findLoad = useRef({ token: 0, loaded: false, loading: false })
+  const folderMode = !currentStep && state.query.toLowerCase().startsWith(SEARCH_PREFIX)
+  const folderQuery = folderMode ? state.query.slice(SEARCH_PREFIX.length).trimStart() : ''
+  const folderLoad = useRef({ token: 0, loaded: false, loading: false })
 
   useEffect(() => {
-    if (!findMode) return
-    const fl = findLoad.current
+    if (!folderMode) return
+    const fl = folderLoad.current
     if (fl.loaded || fl.loading) return
     fl.loading = true
     const token = fl.token
     dispatch({ type: 'SET_LOADING', loading: true })
     loadActiveFolderItems()
       .then(items => {
-        if (findLoad.current.token !== token) return
-        findLoad.current.loaded = true
-        dispatch({ type: 'SET_ITEMS', stepId: '__find__', items })
+        if (folderLoad.current.token !== token) return
+        folderLoad.current.loaded = true
+        dispatch({ type: 'SET_ITEMS', stepId: '__folder__', items })
       })
       .catch(err => {
-        if (findLoad.current.token !== token) return
+        if (folderLoad.current.token !== token) return
         dispatch({ type: 'SET_ERROR', error: String(err) })
       })
-      .finally(() => { findLoad.current.loading = false })
-  }, [findMode])
+      .finally(() => { folderLoad.current.loading = false })
+  }, [folderMode])
+
+  // "find:" prefix at root → global file search. Unlike the folder search this
+  // hits the backend per (debounced) keystroke — the index does the narrowing —
+  // and results arrive pre-ranked by the fzf scorer + relevance multipliers.
+  const findMode = !currentStep && state.query.toLowerCase().startsWith(FIND_PREFIX)
+  const findQuery = findMode ? state.query.slice(FIND_PREFIX.length).trimStart() : ''
+  const findToken = useRef(0)
+
+  useEffect(() => {
+    if (!findMode) return
+    const token = ++findToken.current
+    if (!findQuery.trim()) {
+      dispatch({ type: 'SET_ITEMS', stepId: '__global__', items: [] })
+      return
+    }
+    dispatch({ type: 'SET_LOADING', loading: true })
+    const timer = setTimeout(() => {
+      loadGlobalFileResults(findQuery, configRef.current)
+        .then(items => {
+          if (findToken.current !== token) return
+          dispatch({ type: 'SET_ITEMS', stepId: '__global__', items })
+        })
+        .catch(err => {
+          if (findToken.current !== token) return
+          dispatch({ type: 'SET_ERROR', error: String(err) })
+        })
+    }, FIND_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [findMode, findQuery])
+
+  // "kill <name>" at root → matching processes inline. The process list is
+  // fetched once per activation; the needle then filters it client-side.
+  const killMatch = !currentStep ? KILL_RE.exec(state.query.trim()) : null
+  const killMode = killMatch !== null
+  const killNeedle = killMatch?.[1] ?? ''
+  const killLoad = useRef({ token: 0, loaded: false, loading: false })
+
+  useEffect(() => {
+    if (!killMode) {
+      // Re-fetch on the next activation so memory numbers stay current
+      killLoad.current = { token: killLoad.current.token + 1, loaded: false, loading: false }
+      return
+    }
+    const kl = killLoad.current
+    if (kl.loaded || kl.loading) return
+    kl.loading = true
+    const token = kl.token
+    loadProcessGroups()
+      .then(groups => {
+        if (killLoad.current.token !== token) return
+        killLoad.current.loaded = true
+        dispatch({ type: 'SET_ITEMS', stepId: '__kill__', items: groups.map(killShortcutItem) })
+      })
+      .catch(err => {
+        if (killLoad.current.token !== token) return
+        dispatch({ type: 'SET_ERROR', error: String(err) })
+      })
+      .finally(() => { killLoad.current.loading = false })
+  }, [killMode])
 
   // Load items when a new step is pushed or replaced. Keyed on the step object
   // (not its id) so a REPLACE_STEP with the same id still reloads.
@@ -261,25 +333,38 @@ export default function Palette({
   // At root without a query, or inside a step: use the current step's items
   const rawItems = currentStep
     ? (state.itemCache[cacheKey] ?? [])
-    : findMode
-      ? (state.itemCache['__find__'] ?? [])
-      : state.query
-        ? (state.itemCache['__root_flat__'] ?? [])
-        : (state.itemCache['__root__'] ?? [])
+    : folderMode
+      ? (state.itemCache['__folder__'] ?? [])
+      : findMode
+        ? (state.itemCache['__global__'] ?? [])
+        : state.query
+          ? (state.itemCache['__root_flat__'] ?? [])
+          : (state.itemCache['__root__'] ?? [])
   const isInputStep = currentStep?.isInputStep ?? false
   const isSliderStep = currentStep?.isSliderStep ?? false
-  const matchedItems = (isInputStep || isSliderStep) ? [] : fuzzyFilter(rawItems, findMode ? findQuery : state.query, i =>
-    i.searchText ?? (i.label + ' ' + (i.sublabel ?? ''))
-  )
-  const noMatches = matchedItems.length === 0
+  const matchedItems = (isInputStep || isSliderStep)
+    ? []
+    : findMode
+      // Global results are already ranked for this query (fzf + relevance
+      // multipliers in globalFileSearch) — re-filtering would fight the ranker
+      ? rawItems
+      : fuzzyFilter(rawItems, folderMode ? folderQuery : state.query, i =>
+        i.searchText ?? (i.label + ' ' + (i.sublabel ?? ''))
+      )
+  // "kill <name>": matching processes surface above the command matches
+  const killItems = killMode
+    ? fuzzyFilter(state.itemCache['__kill__'] ?? [], killNeedle, i => i.searchText ?? i.label)
+    : []
+  const mergedItems = killItems.length > 0 ? [...killItems, ...matchedItems] : matchedItems
+  const noMatches = mergedItems.length === 0
 
   // The Settings row is always the last item at root, query or not
-  const settingsCmd = !currentStep && !isInputStep && !findMode
+  const settingsCmd = !currentStep && !isInputStep && !findMode && !folderMode
     ? commands.find(c => c.id === SETTINGS_COMMAND_ID)
     : undefined
   const visibleItems = settingsCmd
-    ? [...matchedItems.slice(0, 50), ...commandsToItems([settingsCmd])]
-    : matchedItems.slice(0, 50)
+    ? [...mergedItems.slice(0, 50), ...commandsToItems([settingsCmd])]
+    : mergedItems.slice(0, 50)
   const clampedIndex = Math.min(state.selectedIndex, Math.max(0, visibleItems.length - 1))
   const selectedItem = visibleItems[clampedIndex] ?? null
   const primaryAction = selectedItem
@@ -287,6 +372,15 @@ export default function Palette({
       ?? (selectedItem.isFolder
         ? 'Open Folder'
         : selectedItem.id.startsWith('script:') ? 'Run Script' : 'Select'))
+    : null
+
+  // Image/GIF preview: shown while a file result pointing at an image is
+  // highlighted in the find:/search: modes
+  const previewPath = (folderMode || findMode)
+    && selectedItem?.id.startsWith('file:')
+    && typeof selectedItem.data === 'string'
+    && isImagePath(selectedItem.data)
+    ? selectedItem.data
     : null
 
   // Live preview on highlight change (arrow keys or hover). The first
@@ -376,7 +470,18 @@ export default function Palette({
   const handleSelect = useCallback(async (item: PaletteItem) => {
     // Root level: find command and either run action or push step
     if (!currentStep) {
-      // find: prefix results are files, not commands
+      // "kill <name>" inline results
+      if (item.id.startsWith('process:kill:')) {
+        try {
+          await killAll((item.data as ProcessGroup).pids)
+          dispatch({ type: 'RESET' })
+          await getCurrentWindow().hide()
+        } catch (err) {
+          dispatch({ type: 'SET_ERROR', error: String(err) })
+        }
+        return
+      }
+      // search:/find: prefix results are files, not commands
       if (item.id.startsWith('file:')) {
         try {
           await openFileItem(item)
@@ -478,8 +583,8 @@ export default function Palette({
           void applySize()
           // Drop the cached file list: each show may target a different
           // Explorer folder (and invalidate any in-flight load)
-          findLoad.current = { token: findLoad.current.token + 1, loaded: false, loading: false }
-          dispatch({ type: 'SET_ITEMS', stepId: '__find__', items: [] })
+          folderLoad.current = { token: folderLoad.current.token + 1, loaded: false, loading: false }
+          dispatch({ type: 'SET_ITEMS', stepId: '__folder__', items: [] })
         }
       })
       .then(fn => { unlisten = fn })
@@ -543,24 +648,33 @@ export default function Palette({
         </div>
       )}
 
-      {!isInputStep && !isSliderStep && !state.loading && noMatches && state.query && (
+      {!isInputStep && !isSliderStep && !state.loading && noMatches && state.query && !(findMode && !findQuery.trim()) && (
         <div style={{
           padding: '8px 12px',
           color: 'var(--text-dim)',
           fontSize: 12,
           fontFamily: 'var(--font)',
         }}>
-          {findMode ? `No files matching '${findQuery}'` : `No commands matching '${state.query}'`}
+          {folderMode || findMode
+            ? `No files matching '${folderMode ? folderQuery : findQuery}'`
+            : `No commands matching '${state.query}'`}
         </div>
       )}
 
       {!isInputStep && !isSliderStep && visibleItems.length > 0 && (
-        <ResultsList
-          items={visibleItems}
-          selectedIndex={clampedIndex}
-          onSelect={handleSelect}
-          onHover={i => dispatch({ type: 'MOVE_SELECTION', delta: i - clampedIndex })}
-        />
+        <div style={{ display: 'flex', minHeight: 0 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <ResultsList
+              items={visibleItems}
+              selectedIndex={clampedIndex}
+              onSelect={handleSelect}
+              onHover={i => dispatch({ type: 'MOVE_SELECTION', delta: i - clampedIndex })}
+            />
+          </div>
+          {previewPath && selectedItem && (
+            <DetailPane path={previewPath} name={selectedItem.label} />
+          )}
+        </div>
       )}
 
       {claudeUsageVisible && <ClaudeUsage />}

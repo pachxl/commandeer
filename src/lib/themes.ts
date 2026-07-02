@@ -449,6 +449,25 @@ const sakuraNight: Theme = {
   },
 }
 
+// Raycast/Vicinae-style colorway: neutral near-black panels, soft hovers,
+// light hairline borders, and the Raycast-red accent.
+const beacon: Theme = {
+  name: 'Beacon',
+  variables: {
+    '--bg': 'rgba(26, 26, 26, 0.85)',
+    '--bg-tab': 'rgba(40, 40, 40, 0.9)',
+    '--bg-hover': 'rgba(255, 99, 99, 0.08)',
+    '--bg-select': 'rgba(255, 99, 99, 0.14)',
+    '--bg-select-hover': 'rgba(255, 99, 99, 0.20)',
+    '--bg-elevated': 'rgba(20, 20, 20, 0.95)',
+    '--border': 'rgba(255, 255, 255, 0.10)',
+    '--border-strong': 'rgba(255, 255, 255, 0.18)',
+    '--text': '#f2f2f2',
+    '--text-dim': '#7a7a7a',
+    '--accent': '#ff6363',
+  },
+}
+
 export const BUILTIN_THEMES: Theme[] = [
   tokyoNight,
   light,
@@ -476,6 +495,7 @@ export const BUILTIN_THEMES: Theme[] = [
   ultraviolet,
   sakura,
   sakuraNight,
+  beacon,
 ]
 
 // Legacy config values from the old dark/light toggle

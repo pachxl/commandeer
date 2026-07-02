@@ -198,6 +198,12 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // Self-hosted file index (SQLite + FTS5) backing the find: search.
+            let file_index = commands::file_index::FileIndex::new(app.app_handle())?;
+            let file_index_clone = file_index.clone();
+            app.manage(file_index);
+            commands::file_index::start_index_manager(app.app_handle().clone(), file_index_clone);
+
             // Default trigger: Ctrl+Space. Game mode (Alt+Space) is applied via set_game_mode.
             #[cfg(target_os = "windows")]
             app.global_shortcut().register(Shortcut::new(Some(Modifiers::CONTROL), Code::Space))?;
@@ -291,6 +297,12 @@ pub fn run() {
             commands::paste::paste_to_previous,
             commands::explorer::explorer_location,
             commands::explorer::list_files_recursive,
+            commands::search::search_files,
+            commands::search::file_info,
+            commands::search::path_icon,
+            commands::file_index::search_indexed_files,
+            commands::process::list_processes,
+            commands::process::kill_process,
             commands::stats::system_stats,
             commands::window::set_window_transparency,
             set_game_mode,
