@@ -2,11 +2,10 @@
 // Process, …) so they don't clog the root list. Children carry
 // folderName: 'Tools' — the Palette's root browse skips them and the flat
 // search finds them with 'Tools' as the sublabel, exactly like script folders.
-import type { AppConfig, Command, PaletteItem, Step, StepResult } from '../types'
-import { evaluateSmart } from '../lib/math'
-import { tryColor } from '../lib/color'
+import type { AppConfig, Command, CommandProvider, PaletteItem, Step, StepResult } from '../types'
 import { appEvents } from '../lib/appEvents'
-import { currencyRates } from './calculator'
+import { tryTimeConversion } from '../lib/timezones'
+import { evaluateCalcQuery } from './calculator'
 
 function calculatorStep(): Step {
   return {
@@ -18,13 +17,7 @@ function calculatorStep(): Step {
     onCommitQuery: async (query): Promise<StepResult> => {
       const trimmed = query.trim()
       if (!trimmed) return { type: 'pop' }
-      const color = tryColor(trimmed)
-      const result = color
-        ? { display: color.label, copy: color.copyValue }
-        : (() => {
-            const r = evaluateSmart(trimmed, currencyRates())
-            return r ? { display: r.label, copy: r.label } : null
-          })()
+      const result = evaluateCalcQuery(trimmed)
       if (!result) throw new Error(`Could not evaluate '${trimmed}'`)
       await navigator.clipboard.writeText(result.copy)
       appEvents.toast?.(`${result.display} — copied`, 'success')
@@ -43,6 +36,44 @@ export const calculatorCommand: Command = {
   folderName: 'Tools',
   keywords: ['calc', 'calculator', 'math', 'convert', 'currency', 'color'],
   createRootStep: () => calculatorStep(),
+}
+
+function timezonesStep(): Step {
+  return {
+    id: 'timezones:input',
+    label: 'Time Zone Converter',
+    placeholder: 'e.g. 4pm bst to est, 16:30 to tokyo, pst to gmt...',
+    isInputStep: true,
+    onSelect: async () => ({ type: 'done' }),
+    onCommitQuery: async (query): Promise<StepResult> => {
+      const trimmed = query.trim()
+      if (!trimmed) return { type: 'pop' }
+      const result = tryTimeConversion(trimmed)
+      if (!result) throw new Error(`Could not parse '${trimmed}' — try '4pm bst to est'`)
+      await navigator.clipboard.writeText(result.copy)
+      appEvents.toast?.(`${result.sublabel} — copied`, 'success')
+      return { type: 'stay' }
+    },
+  }
+}
+
+export const timezonesCommand: Command = {
+  id: 'builtin:timezones',
+  label: 'Time Zone Converter',
+  description: 'Convert times between zones (4pm bst to est)',
+  icon: 'clock',
+  source: 'builtin',
+  folderName: 'Tools',
+  keywords: ['time', 'timezone', 'zone', 'convert', 'clock', 'utc'],
+  createRootStep: () => timezonesStep(),
+}
+
+// Registers the Tools-folder built-ins (the folder itself is assembled in App)
+export const toolsProvider: CommandProvider = {
+  id: 'tools',
+  name: 'Tools',
+  priority: 15,
+  getCommands: (): Command[] => [calculatorCommand, timezonesCommand],
 }
 
 function commandItem(cmd: Command): PaletteItem {

@@ -10,6 +10,8 @@ import { SETTINGS_COMMAND_ID } from '../commands/settings'
 import { loadActiveFolderItems, openFileItem } from '../commands/fileSearch'
 import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
+import { evaluateCalcQuery } from '../providers/calculator'
+import { tryTimeConversion } from '../lib/timezones'
 import { openPath, openUrl, pasteToPrevious, readSnippets, setCommandHotkey, writeClipboardText, writeSnippets, type ClipboardItem, type CommandOverride, type Snippet } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
@@ -247,6 +249,8 @@ const AT_PREFIXES = [
   { token: '@find', icon: 'folder', description: 'Find files across your computer' },
   { token: '@search', icon: 'folder', description: 'Search the focused Explorer folder' },
   { token: '@web', icon: 'search', description: 'Search the web' },
+  { token: '@calc', icon: 'calculator', description: 'Calculate an expression (40+2, 100 usd to eur, #ff6363)' },
+  { token: '@time', icon: 'clock', description: 'Convert time zones (4pm bst to est)' },
 ]
 
 // Debounce between keystrokes and the global-search IPC round trip
@@ -456,6 +460,13 @@ export default function Palette({
   const webMode = atComplete && atToken === '@web'
   const webQuery = webMode ? atRest.trim() : ''
 
+  // "@calc" / "@time" → evaluate the rest of the query live; Enter copies the
+  // result without closing the palette
+  const calcMode = atComplete && atToken === '@calc'
+  const calcQuery = calcMode ? atRest.trim() : ''
+  const timeMode = atComplete && atToken === '@time'
+  const timeQuery = timeMode ? atRest.trim() : ''
+
   useEffect(() => {
     if (!findMode) return
     const token = ++findToken.current
@@ -591,6 +602,30 @@ export default function Palette({
           icon: 'search',
           data: webQuery,
           actionLabel: 'Search',
+        }]
+      : []
+  } else if (calcMode) {
+    const result = calcQuery ? evaluateCalcQuery(calcQuery) : null
+    matchedItems = result
+      ? [{
+          id: 'calc:result',
+          label: result.display,
+          sublabel: result.sublabel ?? 'Enter to copy',
+          icon: 'calculator',
+          data: result.copy,
+          actionLabel: 'Copy',
+        }]
+      : []
+  } else if (timeMode) {
+    const result = timeQuery ? tryTimeConversion(timeQuery) : null
+    matchedItems = result
+      ? [{
+          id: 'time:result',
+          label: result.label,
+          sublabel: result.sublabel,
+          icon: 'clock',
+          data: result.copy,
+          actionLabel: 'Copy',
         }]
       : []
   } else if (findMode) {
@@ -1020,6 +1055,16 @@ export default function Palette({
         dispatch({ type: 'SET_QUERY', query: `${item.data as string} ` })
         return
       }
+      // @calc/@time results: copy and stay open
+      if (item.id === 'calc:result' || item.id === 'time:result') {
+        try {
+          await navigator.clipboard.writeText(item.data as string)
+          toast('Copied to clipboard', 'success')
+        } catch (err) {
+          dispatch({ type: 'SET_ERROR', error: String(err) })
+        }
+        return
+      }
       // @web row: open the browser search
       if (item.id.startsWith('web:')) {
         try {
@@ -1207,7 +1252,8 @@ export default function Palette({
       )}
 
       {!isInputStep && !isSliderStep && !state.loading && noMatches && state.query
-        && !(findMode && !findQuery.trim()) && !(webMode && !webQuery) && (
+        && !(findMode && !findQuery.trim()) && !(webMode && !webQuery)
+        && !(calcMode && !calcQuery) && !(timeMode && !timeQuery) && (
         <div style={{
           padding: '8px 12px',
           color: 'var(--text-dim)',
@@ -1216,7 +1262,11 @@ export default function Palette({
         }}>
           {folderMode || findMode
             ? `No files matching '${folderMode ? folderQuery : findQuery}'`
-            : `No commands matching '${state.query}'`}
+            : calcMode
+              ? `Could not evaluate '${calcQuery}'`
+              : timeMode
+                ? `Could not parse '${timeQuery}' — try '4pm bst to est'`
+                : `No commands matching '${state.query}'`}
         </div>
       )}
 

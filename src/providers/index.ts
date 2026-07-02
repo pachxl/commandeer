@@ -6,10 +6,12 @@ import type { AppConfig, Command, CommandProvider } from '../types'
 import { calculatorProvider } from './calculator'
 import { clipboardProvider } from './clipboard'
 import { processesProvider } from './processes'
+import { toolsProvider } from './tools'
 
 export const providers: CommandProvider[] = [
   clipboardProvider,
   processesProvider,
+  toolsProvider,
   calculatorProvider,
 ]
 

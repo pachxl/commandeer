@@ -49,6 +49,7 @@ const ICONS: Record<string, (color?: string, size?: number) => string> = {
   eye: icon('0 0 24 24', '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>'),
   cpu: icon('0 0 24 24', '<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/>'),
   keyboard: icon('0 0 24 24', '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M8 12h.01"/><path d="M12 12h.01"/><path d="M16 12h.01"/><path d="M7 16h10"/>'),
+  clock: icon('0 0 24 24', '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'),
 }
 
 export function getIconSvg(name: string, color?: string, size?: number): string | null {
