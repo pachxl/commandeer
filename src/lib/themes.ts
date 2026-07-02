@@ -432,6 +432,23 @@ const sakura: Theme = {
   },
 }
 
+const sakuraNight: Theme = {
+  name: 'Sakura Night',
+  variables: {
+    '--bg': 'rgba(26, 16, 21, 0.85)',
+    '--bg-tab': 'rgba(43, 26, 34, 0.9)',
+    '--bg-hover': 'rgba(242, 119, 168, 0.08)',
+    '--bg-select': 'rgba(242, 119, 168, 0.14)',
+    '--bg-select-hover': 'rgba(242, 119, 168, 0.20)',
+    '--bg-elevated': 'rgba(20, 12, 16, 0.95)',
+    '--border': 'rgba(180, 120, 150, 0.25)',
+    '--border-strong': 'rgba(180, 120, 150, 0.45)',
+    '--text': '#f0dce5',
+    '--text-dim': '#9a7386',
+    '--accent': '#f277a8',
+  },
+}
+
 export const BUILTIN_THEMES: Theme[] = [
   tokyoNight,
   light,
@@ -458,6 +475,7 @@ export const BUILTIN_THEMES: Theme[] = [
   midnightOcean,
   ultraviolet,
   sakura,
+  sakuraNight,
 ]
 
 // Legacy config values from the old dark/light toggle
