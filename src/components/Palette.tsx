@@ -244,7 +244,7 @@ const LAST_CMD_KEY = 'commandeer:last'
 //   @search → file search in the focused Explorer folder
 //   @web    → web search in the browser
 const AT_PREFIXES = [
-  { token: '@find', icon: 'file', description: 'Find files across your computer' },
+  { token: '@find', icon: 'folder', description: 'Find files across your computer' },
   { token: '@search', icon: 'folder', description: 'Search the focused Explorer folder' },
   { token: '@web', icon: 'search', description: 'Search the web' },
 ]
