@@ -129,52 +129,73 @@ fn is_skipped_dir(name: &std::ffi::OsStr) -> bool {
 }
 
 /// Recursively list everything under `path`, capped at `max` entries.
-/// Parallel walk (jwalk), symlinks/junctions not followed. Sorted shallowest
-/// first so the palette's empty-query view shows the folder's top level.
+/// Breadth-first, one level at a time with the directory reads of each level
+/// parallelized (rayon) — so when the cap is hit, it's always the deepest
+/// entries that are cut, never shallow ones (a depth-first walk could burn
+/// the whole budget inside one big early subtree and miss shallow files).
+/// Symlinks/junctions are not descended into.
 #[tauri::command]
 pub async fn list_files_recursive(path: String, max: usize) -> Result<Vec<FileEntry>, String> {
+    use rayon::prelude::*;
+
     tokio::task::spawn_blocking(move || {
         let root = std::path::PathBuf::from(&path);
         if !root.is_dir() {
             return Err(format!("Not a folder: {path}"));
         }
 
-        let mut out: Vec<(usize, FileEntry)> = Vec::new();
-        for entry in jwalk::WalkDir::new(&root)
-            .skip_hidden(false)
-            .follow_links(false)
-            .process_read_dir(|_depth, _path, _state, children| {
-                children.retain(|r| match r {
-                    Ok(e) => !(e.file_type.is_dir() && is_skipped_dir(&e.file_name)),
-                    Err(_) => true,
-                });
-            })
-        {
-            let Ok(e) = entry else { continue };
-            if e.depth() == 0 {
-                continue;
-            }
-            let p = e.path();
-            let rel = p
-                .strip_prefix(&root)
-                .map(|r| r.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            out.push((
-                e.depth(),
-                FileEntry {
-                    name: e.file_name().to_string_lossy().into_owned(),
+        let mut out: Vec<FileEntry> = Vec::new();
+        let mut level: Vec<std::path::PathBuf> = vec![root.clone()];
+
+        while !level.is_empty() && out.len() < max {
+            let mut entries: Vec<(std::path::PathBuf, String, bool)> = level
+                .par_iter()
+                .flat_map_iter(|dir| {
+                    let mut found = Vec::new();
+                    if let Ok(rd) = std::fs::read_dir(dir) {
+                        for e in rd.flatten() {
+                            let Ok(ft) = e.file_type() else { continue };
+                            // Junctions/symlinks report is_symlink; skip to avoid cycles
+                            if ft.is_symlink() {
+                                continue;
+                            }
+                            if ft.is_dir() && is_skipped_dir(&e.file_name()) {
+                                continue;
+                            }
+                            found.push((
+                                e.path(),
+                                e.file_name().to_string_lossy().into_owned(),
+                                ft.is_dir(),
+                            ));
+                        }
+                    }
+                    found
+                })
+                .collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+            level = Vec::new();
+            for (p, name, is_dir) in entries {
+                if out.len() >= max {
+                    break;
+                }
+                let rel = p
+                    .strip_prefix(&root)
+                    .map(|r| r.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                out.push(FileEntry {
+                    name,
                     path: p.to_string_lossy().into_owned(),
                     rel,
-                    is_dir: e.file_type().is_dir(),
-                },
-            ));
-            if out.len() >= max {
-                break;
+                    is_dir,
+                });
+                if is_dir {
+                    level.push(p);
+                }
             }
         }
 
-        out.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.rel.cmp(&b.1.rel)));
-        Ok(out.into_iter().map(|(_, f)| f).collect())
+        Ok(out)
     })
     .await
     .map_err(|e| e.to_string())?

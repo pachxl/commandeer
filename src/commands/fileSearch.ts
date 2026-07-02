@@ -5,8 +5,9 @@ import type { Command, PaletteItem, Step } from '../types'
 import { explorerLocation, listFilesRecursive, openPath, type FileEntry } from '../lib/tauri'
 
 // Enough for any normal folder; keeps the one-time IPC payload small enough
-// to stay instant. Deeper entries past the cap are simply not searchable.
-const FILE_CAP = 20000
+// to stay instant. The walk is breadth-first, so past the cap it's the
+// deepest entries that become unsearchable, never shallow ones.
+const FILE_CAP = 50000
 
 function fileToItem(f: FileEntry): PaletteItem {
   return {

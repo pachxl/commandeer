@@ -16,6 +16,7 @@ const EMPTY_CONFIG: AppConfig = { scripts_dir: '' }
 const GAME_MODE_KEY = 'commandeer:gamemode'
 const CLAUDE_USAGE_KEY = 'commandeer:claude-usage-visible'
 const WEB_SEARCH_KEY = 'commandeer:web-search-visible'
+const SYSTEM_STATS_KEY = 'commandeer:system-stats-visible'
 const SCRIPTS_CACHE_KEY = 'commandeer:scripts'
 
 // Read directly from localStorage (not React state) so refresh() always sees
@@ -48,6 +49,9 @@ export default function App() {
   )
   const [claudeUsageVisible, setClaudeUsageVisible] = useState(
     () => localStorage.getItem(CLAUDE_USAGE_KEY) === 'true'
+  )
+  const [systemStatsVisible, setSystemStatsVisible] = useState(
+    () => localStorage.getItem(SYSTEM_STATS_KEY) !== 'false'
   )
   const resetRef = useRef<(() => void) | null>(null)
 
@@ -102,6 +106,10 @@ export default function App() {
           refresh()
         } else {
           resetRef.current?.()
+          // Drop Search Folder immediately: the next show may not be from an
+          // Explorer window, and refresh() confirming that is async — keeping
+          // the stale command would flash it briefly on show
+          setCommands(cmds => cmds.filter(c => c.id !== searchFolderCommand.id))
         }
       })
       if (disposed) unlisten?.()
@@ -128,13 +136,21 @@ export default function App() {
     void refresh()
   }
 
+  function toggleSystemStats() {
+    const next = !systemStatsVisible
+    setSystemStatsVisible(next)
+    localStorage.setItem(SYSTEM_STATS_KEY, String(next))
+  }
+
   // Keep the bridge fresh each render so settings commands see current state
   appEvents.toggleGameMode = () => { void toggleGameMode() }
   appEvents.toggleClaudeUsage = toggleClaudeUsage
   appEvents.toggleWebSearch = toggleWebSearch
+  appEvents.toggleSystemStats = toggleSystemStats
   appEvents.isGameMode = () => gameModeEnabled
   appEvents.isClaudeUsageVisible = () => claudeUsageVisible
   appEvents.isWebSearchVisible = isWebSearchVisible
+  appEvents.isSystemStatsVisible = () => systemStatsVisible
   appEvents.refreshCommands = () => { void refresh() }
 
   return (
@@ -145,6 +161,7 @@ export default function App() {
       resetRef={resetRef}
       onToggleGameMode={toggleGameMode}
       claudeUsageVisible={claudeUsageVisible}
+      systemStatsVisible={systemStatsVisible}
     />
   )
 }

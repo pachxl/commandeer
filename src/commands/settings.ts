@@ -40,6 +40,13 @@ function settingsStep(config: AppConfig): Step {
         actionLabel: 'Toggle',
       },
       {
+        id: 'settings:toggle-system-stats',
+        label: 'System Stats Panel',
+        sublabel: appEvents.isSystemStatsVisible?.() ? 'On — CPU, RAM, GPU' : 'Off',
+        icon: 'cpu',
+        actionLabel: 'Toggle',
+      },
+      {
         id: 'settings:toggle-web-search',
         label: 'Web Search Command',
         sublabel: appEvents.isWebSearchVisible?.() ? 'On' : 'Off',
@@ -74,6 +81,10 @@ function settingsStep(config: AppConfig): Step {
       }
       if (item.id === 'settings:toggle-claude-usage') {
         appEvents.toggleClaudeUsage?.()
+        return { type: 'replace', step: settingsStep(config) }
+      }
+      if (item.id === 'settings:toggle-system-stats') {
+        appEvents.toggleSystemStats?.()
         return { type: 'replace', step: settingsStep(config) }
       }
       if (item.id === 'settings:toggle-web-search') {

@@ -5,9 +5,11 @@ export const appEvents: {
   toggleGameMode?: () => void
   toggleClaudeUsage?: () => void
   toggleWebSearch?: () => void
+  toggleSystemStats?: () => void
   isGameMode?: () => boolean
   isClaudeUsageVisible?: () => boolean
   isWebSearchVisible?: () => boolean
+  isSystemStatsVisible?: () => boolean
   // Rebuild the root command list (e.g. after snippets change)
   refreshCommands?: () => void
 } = {}

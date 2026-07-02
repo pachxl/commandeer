@@ -66,6 +66,17 @@ export const writeSnippets = (snippets: Snippet[]) =>
 export const pasteToPrevious = (text: string) =>
   invoke<void>('paste_to_previous', { text })
 
+export interface SystemStats {
+  cpu: number
+  mem_used: number
+  mem_total: number
+  mem_percent: number
+  gpu: number | null
+}
+
+export const systemStats = () =>
+  invoke<SystemStats>('system_stats')
+
 export interface FileEntry {
   name: string
   path: string

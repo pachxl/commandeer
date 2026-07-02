@@ -18,9 +18,8 @@ tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 walkdir = "2"
-# Parallel directory walker for the folder file-search (much faster than
-# walkdir on large trees)
-jwalk = "0.8"
+# Parallel per-level directory reads for the folder file-search
+rayon = "1"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 arboard = "3"
@@ -35,6 +34,8 @@ windows = { version = "0.58", features = [
     "Win32_Graphics_Gdi",
     "Win32_System_Com",
     "Win32_UI_Shell",
+    "Win32_System_SystemInformation",
+    "Win32_System_Performance",
 ] }
 
 [target.'cfg(not(windows))'.dependencies]

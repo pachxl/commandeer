@@ -9,6 +9,7 @@ import type { AppConfig, Command, PaletteAction, PaletteItem, PaletteState } fro
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
 import ClaudeUsage from './ClaudeUsage'
+import SystemStatsPanel from './SystemStats'
 import Footer from './Footer'
 // ── Root items (the command list) ────────────────────────────────────────────
 
@@ -150,6 +151,7 @@ interface PaletteProps {
   resetRef: MutableRefObject<(() => void) | null>
   onToggleGameMode: () => void
   claudeUsageVisible: boolean
+  systemStatsVisible: boolean
 }
 
 export default function Palette({
@@ -159,6 +161,7 @@ export default function Palette({
   resetRef,
   onToggleGameMode,
   claudeUsageVisible,
+  systemStatsVisible,
 }: PaletteProps) {
   const [state, dispatch] = useReducer(reducer, config, initialState)
   const [sliderValue, setSliderValue] = useState(0)
@@ -561,6 +564,7 @@ export default function Palette({
       )}
 
       {claudeUsageVisible && <ClaudeUsage />}
+      {systemStatsVisible && <SystemStatsPanel />}
       <Footer selectedItem={selectedItem} primaryAction={primaryAction} />
     </div>
   )

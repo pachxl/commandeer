@@ -288,6 +288,7 @@ pub fn run() {
             commands::paste::paste_to_previous,
             commands::explorer::explorer_location,
             commands::explorer::list_files_recursive,
+            commands::stats::system_stats,
             commands::window::set_window_transparency,
             set_game_mode,
             resize_palette,
