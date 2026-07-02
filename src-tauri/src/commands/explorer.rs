@@ -96,6 +96,38 @@ pub async fn explorer_location() -> Option<String> {
     None
 }
 
+/// Dependency/VCS/cache directories that are never worth searching. Pruned at
+/// descent time so the walker skips the whole subtree.
+const SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    ".git",
+    ".svn",
+    ".hg",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "bower_components",
+    ".pnpm-store",
+    ".yarn",
+    "vendor",
+    "Pods",
+    ".gradle",
+    ".m2",
+    ".nuget",
+    ".cargo",
+    ".terraform",
+    ".bundle",
+];
+
+fn is_skipped_dir(name: &std::ffi::OsStr) -> bool {
+    let name = name.to_string_lossy();
+    SKIP_DIRS.iter().any(|s| name.eq_ignore_ascii_case(s))
+}
+
 /// Recursively list everything under `path`, capped at `max` entries.
 /// Parallel walk (jwalk), symlinks/junctions not followed. Sorted shallowest
 /// first so the palette's empty-query view shows the folder's top level.
@@ -111,6 +143,12 @@ pub async fn list_files_recursive(path: String, max: usize) -> Result<Vec<FileEn
         for entry in jwalk::WalkDir::new(&root)
             .skip_hidden(false)
             .follow_links(false)
+            .process_read_dir(|_depth, _path, _state, children| {
+                children.retain(|r| match r {
+                    Ok(e) => !(e.file_type.is_dir() && is_skipped_dir(&e.file_name)),
+                    Err(_) => true,
+                });
+            })
         {
             let Ok(e) = entry else { continue };
             if e.depth() == 0 {
