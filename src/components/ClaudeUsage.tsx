@@ -1,10 +1,17 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { claudeUsage, type ClaudeLimit } from '../lib/tauri'
 
 const CACHE_KEY = 'commandeer:claude-usage'
+const CACHE_TTL_MS = 60_000
+const RATE_LIMIT_KEY = 'commandeer:claude-rate-limit'
 
 const KIND_ORDER = ['session', 'weekly_all', 'weekly_scoped']
+
+interface CachedUsage {
+  limits: ClaudeLimit[]
+  fetchedAt: number
+}
 
 function limitLabel(limit: ClaudeLimit): string {
   if (limit.kind === 'session') return 'Current session'
@@ -29,21 +36,76 @@ function formatReset(iso: string): string {
   return `resets ${text.toLowerCase()}`
 }
 
-function loadCached(): ClaudeLimit[] | null {
+function loadCached(): CachedUsage | null {
   try {
     const raw = localStorage.getItem(CACHE_KEY)
-    return raw ? (JSON.parse(raw) as ClaudeLimit[]) : null
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<CachedUsage> | ClaudeLimit[]
+    // Legacy cache stored the array directly; migrate it on first read.
+    if (Array.isArray(parsed)) {
+      return parsed.length > 0 ? { limits: parsed, fetchedAt: 0 } : null
+    }
+    if (parsed.limits && parsed.fetchedAt) {
+      return { limits: parsed.limits, fetchedAt: parsed.fetchedAt }
+    }
+    return null
   } catch {
     return null
   }
 }
 
-export default function ClaudeUsage() {
-  const [limits, setLimits] = useState<ClaudeLimit[] | null>(loadCached)
-  const [loading, setLoading] = useState(limits === null)
-  const [error, setError] = useState<string | null>(null)
+function isFresh(cache: CachedUsage | null): boolean {
+  return !!cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS
+}
 
-  const refresh = useCallback(async () => {
+function loadRateLimitUntil(): number {
+  try {
+    const raw = localStorage.getItem(RATE_LIMIT_KEY)
+    const n = raw ? Number(raw) : 0
+    return Number.isFinite(n) ? n : 0
+  } catch {
+    return 0
+  }
+}
+
+function parseRateLimitSeconds(message: string): number | null {
+  const match = message.match(/rate limited; retry after (\d+)s/)
+  return match ? Number(match[1]) : null
+}
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes > 0) return `${minutes}m ${seconds}s`
+  return `${seconds}s`
+}
+
+export default function ClaudeUsage() {
+  const cacheRef = useRef<CachedUsage | null>(loadCached())
+  const rateLimitRef = useRef<number>(loadRateLimitUntil())
+  const [cache, setCache] = useState<CachedUsage | null>(cacheRef.current)
+  const [loading, setLoading] = useState(!isFresh(cacheRef.current) && Date.now() >= rateLimitRef.current)
+  const [error, setError] = useState<string | null>(null)
+  const [rateLimitedUntil, setRateLimitedUntil] = useState<number>(rateLimitRef.current)
+  const [now, setNow] = useState<number>(Date.now())
+  const limits = cache?.limits ?? null
+
+  // Tick every second so the "try again in..." countdown updates.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const refresh = useCallback(async (force = false) => {
+    if (!force && isFresh(cacheRef.current)) {
+      setLoading(false)
+      return
+    }
+    if (Date.now() < rateLimitRef.current) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
@@ -51,12 +113,25 @@ export default function ClaudeUsage() {
       const sorted = (data.limits ?? [])
         .filter(l => KIND_ORDER.includes(l.kind))
         .sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind))
-      setLimits(sorted)
-      localStorage.setItem(CACHE_KEY, JSON.stringify(sorted))
+      const next = { limits: sorted, fetchedAt: Date.now() }
+      cacheRef.current = next
+      setCache(next)
+      localStorage.setItem(CACHE_KEY, JSON.stringify(next))
+      rateLimitRef.current = 0
+      setRateLimitedUntil(0)
+      localStorage.removeItem(RATE_LIMIT_KEY)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      const retrySeconds = parseRateLimitSeconds(message)
+      if (retrySeconds !== null) {
+        const until = Date.now() + retrySeconds * 1000
+        rateLimitRef.current = until
+        setRateLimitedUntil(until)
+        localStorage.setItem(RATE_LIMIT_KEY, String(until))
+      }
       setError(message)
       console.error('claude usage:', err)
+      // Keep showing stale cached data instead of wiping it on error.
     } finally {
       setLoading(false)
     }
@@ -100,7 +175,9 @@ export default function ClaudeUsage() {
           fontSize: 11,
           lineHeight: 1.4,
         }}>
-          {error}
+          {rateLimitedUntil > now
+            ? `Rate limited — try again in ${formatDuration(rateLimitedUntil - now)}`
+            : error}
         </div>
       )}
 

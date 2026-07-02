@@ -31,8 +31,18 @@ pub async fn claude_usage() -> Result<Value, String> {
         .await
         .map_err(|e| format!("usage request failed: {e}"))?;
 
-    if !resp.status().is_success() {
-        return Err(format!("usage endpoint returned {}", resp.status()));
+    let status = resp.status();
+    if status == 429 {
+        let retry_after = resp
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(300);
+        return Err(format!("rate limited; retry after {retry_after}s"));
+    }
+    if !status.is_success() {
+        return Err(format!("usage endpoint returned {}", status));
     }
     resp.json::<Value>()
         .await

@@ -26,9 +26,37 @@ fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 /// Where to look for scripts when the user hasn't configured a directory.
-/// `<home>/commandeer/commands`, created on demand so there's always a place
-/// to drop scripts. Stored with forward slashes for cross-platform consistency.
+///
+/// Prefer a `commands` folder found by walking up from the executable's
+/// directory (handles both dev builds and the packaged `bin/` layout), then
+/// fall back to `<home>/commandeer/commands`, created on demand so there's
+/// always a place to drop scripts. Stored with forward slashes for
+/// cross-platform consistency.
 fn default_scripts_dir(app: &tauri::AppHandle) -> String {
+    fn find_commands_dir() -> Option<std::path::PathBuf> {
+        if let Ok(exe) = std::env::current_exe() {
+            let mut dir = exe.parent();
+            while let Some(d) = dir {
+                let candidate = d.join("commands");
+                if candidate.is_dir() {
+                    return Some(candidate);
+                }
+                dir = d.parent();
+            }
+        }
+        if let Ok(cwd) = std::env::current_dir() {
+            let candidate = cwd.join("commands");
+            if candidate.is_dir() {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    if let Some(dir) = find_commands_dir() {
+        return dir.to_string_lossy().replace('\\', "/");
+    }
+
     let dir = match app.path().home_dir() {
         Ok(home) => home.join("commandeer").join("commands"),
         Err(_) => return String::new(),
