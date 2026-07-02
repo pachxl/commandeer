@@ -40,6 +40,13 @@ function settingsStep(config: AppConfig): Step {
         actionLabel: 'Toggle',
       },
       {
+        id: 'settings:toggle-web-search',
+        label: 'Web Search Command',
+        sublabel: appEvents.isWebSearchVisible?.() ? 'On' : 'Off',
+        icon: 'search',
+        actionLabel: 'Toggle',
+      },
+      {
         id: 'settings:open-scripts',
         label: 'Open Scripts Folder',
         sublabel: config.scripts_dir || 'Not configured',
@@ -67,6 +74,10 @@ function settingsStep(config: AppConfig): Step {
       }
       if (item.id === 'settings:toggle-claude-usage') {
         appEvents.toggleClaudeUsage?.()
+        return { type: 'replace', step: settingsStep(config) }
+      }
+      if (item.id === 'settings:toggle-web-search') {
+        appEvents.toggleWebSearch?.()
         return { type: 'replace', step: settingsStep(config) }
       }
       if (item.id === 'settings:open-scripts') {

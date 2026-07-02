@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { loadScriptCommands, scriptsToCommands } from './commands'
+import { loadScriptCommands, scriptsToCommands, webSearchCommand } from './commands'
 import { searchFolderCommand } from './commands/fileSearch'
 import { loadSnippetCommands } from './commands/snippets'
 import { settingsCommand } from './commands/settings'
@@ -15,7 +15,12 @@ import Palette from './components/Palette'
 const EMPTY_CONFIG: AppConfig = { scripts_dir: '' }
 const GAME_MODE_KEY = 'commandeer:gamemode'
 const CLAUDE_USAGE_KEY = 'commandeer:claude-usage-visible'
+const WEB_SEARCH_KEY = 'commandeer:web-search-visible'
 const SCRIPTS_CACHE_KEY = 'commandeer:scripts'
+
+// Read directly from localStorage (not React state) so refresh() always sees
+// the current value without stale-closure issues. Defaults to visible.
+const isWebSearchVisible = () => localStorage.getItem(WEB_SEARCH_KEY) !== 'false'
 
 function loadCachedScripts(): ScriptInfo[] {
   try {
@@ -32,7 +37,11 @@ export default function App() {
   // in place (Object.assign) so writes stay visible without re-creating commands.
   const configRef = useRef<AppConfig>({ ...EMPTY_CONFIG })
   const [commands, setCommands] = useState<Command[]>(
-    () => [...scriptsToCommands(loadCachedScripts()), settingsCommand(configRef.current)]
+    () => [
+      ...scriptsToCommands(loadCachedScripts()),
+      ...(isWebSearchVisible() ? [webSearchCommand] : []),
+      settingsCommand(configRef.current),
+    ]
   )
   const [gameModeEnabled, setGameModeEnabled] = useState(
     () => localStorage.getItem(GAME_MODE_KEY) === 'true'
@@ -57,6 +66,7 @@ export default function App() {
         ...cmds,
         ...snippetCmds,
         ...(explorerFolder ? [searchFolderCommand] : []),
+        ...(isWebSearchVisible() ? [webSearchCommand] : []),
         settingsCommand(configRef.current),
       ])
     } catch (err) {
@@ -113,11 +123,18 @@ export default function App() {
     localStorage.setItem(CLAUDE_USAGE_KEY, String(next))
   }
 
+  function toggleWebSearch() {
+    localStorage.setItem(WEB_SEARCH_KEY, String(!isWebSearchVisible()))
+    void refresh()
+  }
+
   // Keep the bridge fresh each render so settings commands see current state
   appEvents.toggleGameMode = () => { void toggleGameMode() }
   appEvents.toggleClaudeUsage = toggleClaudeUsage
+  appEvents.toggleWebSearch = toggleWebSearch
   appEvents.isGameMode = () => gameModeEnabled
   appEvents.isClaudeUsageVisible = () => claudeUsageVisible
+  appEvents.isWebSearchVisible = isWebSearchVisible
   appEvents.refreshCommands = () => { void refresh() }
 
   return (
