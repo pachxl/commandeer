@@ -6,8 +6,12 @@ not a product with a userbase. Every item below is ranked by
 
 ## Context
 
-The current `testing` branch was rebuilt on top of `main`'s history. Features
-from the old feature-rich branch — which lives as a full checkout at
+**Branch policy (2026-07-03):** day-to-day work — QoL and straightforward
+features/ports like the items below — happens directly on `main`. `testing`
+is reserved for experimental, "out there" changes.
+
+The tree was rebuilt on top of `main`'s history. Features from the old
+feature-rich branch — which lives as a full checkout at
 `C:\Users\lunat\commandeer-legacy` — have been re-ported in phases:
 
 - **Ported already:** provider architecture, weighted fuzzy + frecency ranking,
