@@ -53,8 +53,11 @@ export interface PaletteItem {
   source?: CommandSource
   // Keywords used for weighted multi-field fuzzy ranking
   keywords?: string[]
-  // CSS color for a swatch (used by the color formatter)
+  // CSS color for a swatch (used by the color formatter); also shows a
+  // swatch preview in the detail pane
   color?: string
+  // Tint the row icon without implying the item *is* a color (no swatch preview)
+  iconColor?: string
   // Render the label/sublabel in this font family (used by the font browser)
   fontFamily?: string
   // Right-aligned badges/tags
