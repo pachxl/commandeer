@@ -157,6 +157,7 @@ function initialState(_config: AppConfig): PaletteState {
   return {
     query: '',
     stepStack: [],
+    selectionStack: [],
     itemCache: { '__root__': [] },
     selectedIndex: 0,
     loading: false,
@@ -181,21 +182,29 @@ function reducer(state: PaletteState, action: PaletteAction): PaletteState {
       return {
         ...state,
         stepStack: [...state.stepStack, action.step],
+        // Remember where we were so popping back restores this view
+        selectionStack: [
+          ...state.selectionStack,
+          { query: state.query, selectedIndex: state.selectedIndex },
+        ],
         query: '',
         selectedIndex: 0,
         loading: false,
         error: null,
       }
 
-    case 'POP_STEP':
+    case 'POP_STEP': {
+      const restored = state.selectionStack[state.selectionStack.length - 1]
       return {
         ...state,
         stepStack: state.stepStack.slice(0, -1),
-        query: '',
-        selectedIndex: 0,
+        selectionStack: state.selectionStack.slice(0, -1),
+        query: restored?.query ?? '',
+        selectedIndex: restored?.selectedIndex ?? 0,
         loading: false,
         error: null,
       }
+    }
 
     case 'REPLACE_STEP':
       // preserveSelection: same-id replaces (toggles, theme apply) keep the
@@ -226,6 +235,7 @@ function reducer(state: PaletteState, action: PaletteAction): PaletteState {
         ...state,
         query: '',
         stepStack: [],
+        selectionStack: [],
         selectedIndex: 0,
         loading: false,
         error: null,

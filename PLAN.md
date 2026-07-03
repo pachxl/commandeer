@@ -87,6 +87,8 @@ launcher):
   time (Esc only hides the launcher from the root screen); Right enters the
   selected submenu when the query is empty — items that open a step are
   marked with the `isFolder` chevron, and Right never fires plain actions.
+  Going back restores the parent level exactly as you left it (highlighted
+  row and typed filter), instead of jumping to the top.
 - Typed `SystemAction` serde enum on the Rust side instead of string matching.
 
 ### 3. Window switcher + window management — *deferred for now (2026-07-03)*

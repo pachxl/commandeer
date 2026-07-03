@@ -173,6 +173,9 @@ export interface ActionItem {
 export interface PaletteState {
   query: string
   stepStack: Step[]
+  // Query + highlighted row at each ancestor level, restored when popping
+  // back so Esc/Left/Backspace return to where you were, not the top
+  selectionStack: { query: string; selectedIndex: number }[]
   itemCache: Record<string, PaletteItem[]>
   selectedIndex: number
   loading: boolean
