@@ -209,6 +209,40 @@ export const listProcesses = () =>
 export const killProcess = (pid: number) =>
   invoke<void>('kill_process', { pid })
 
+// System power/session actions, dispatched as direct Win32 calls (no shell)
+export type SystemActionId =
+  | 'lock'
+  | 'sleep'
+  | 'hibernate'
+  | 'shutdown'
+  | 'restart'
+  | 'logout'
+  | 'empty-trash'
+
+export const systemAction = (action: SystemActionId) =>
+  invoke<void>('system_action', { action })
+
+// An active audio output device; id is the endpoint id the volume calls take
+export interface AudioDevice {
+  id: string
+  name: string
+  is_default: boolean
+}
+
+export const listAudioDevices = () =>
+  invoke<AudioDevice[]>('list_audio_devices')
+
+// Master volume of a device (omit for the default output), as a 0.0–1.0 scalar
+export const getVolume = (device?: string) =>
+  invoke<number>('get_volume', { device: device ?? null })
+
+export const setVolume = (level: number, device?: string) =>
+  invoke<void>('set_volume', { level, device: device ?? null })
+
+// Atomically flips a device's mute and returns the new state
+export const toggleMute = (device?: string) =>
+  invoke<boolean>('toggle_mute', { device: device ?? null })
+
 export interface Theme {
   name: string
   variables: Record<string, string>

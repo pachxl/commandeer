@@ -166,6 +166,9 @@ function transparencyStep(config: AppConfig): Step {
     minValue: 0,
     maxValue: 100,
     stepValue: 1,
+    // Transparency is stored cubically eased ((percent/100)^3), so the
+    // slider position is recovered with a cube root
+    loadSliderValue: async () => Math.round(Math.cbrt(config.transparency ?? 0) * 100),
     onSliderChange: async (value: number): Promise<void> => {
       const percent = Math.round(value)
       // Cubic easing: transparency = (percent/100)^3 for a slower start,

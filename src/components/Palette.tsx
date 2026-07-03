@@ -549,16 +549,18 @@ export default function Palette({
     return () => { currentStep?.onExit?.() }
   }, [currentStep])
 
-  // Initialize slider position when a slider step is pushed. Transparency is
-  // stored cubically eased ((percent/100)^3), so invert with a cube root.
+  // Initialize slider position when a slider step is pushed: seed from the
+  // step's loadSliderValue (current volume, stored transparency, …), showing
+  // min until it resolves.
   useEffect(() => {
     if (!currentStep?.isSliderStep) return
-    if (currentStep.id === 'settings:transparency') {
-      const transparency = configRef.current.transparency ?? 0
-      setSliderValue(Math.round(Math.cbrt(transparency) * 100))
-    } else {
-      setSliderValue(currentStep.minValue ?? 0)
-    }
+    setSliderValue(currentStep.minValue ?? 0)
+    if (!currentStep.loadSliderValue) return
+    let cancelled = false
+    currentStep.loadSliderValue()
+      .then(value => { if (!cancelled) setSliderValue(value) })
+      .catch(err => console.error('loadSliderValue failed:', err))
+    return () => { cancelled = true }
   }, [currentStep])
 
   // Derived filtered items
@@ -957,6 +959,13 @@ export default function Palette({
 
     if (e.key === 'Escape') {
       e.preventDefault()
+      // Esc walks back through menus one level at a time (sliders apply
+      // live, so the adjusted value is kept); it only hides the launcher
+      // from the root screen.
+      if (state.stepStack.length > 0) {
+        dispatch({ type: 'POP_STEP' })
+        return
+      }
       dispatch({ type: 'RESET' })
       await getCurrentWindow().hide()
       return
@@ -1003,6 +1012,23 @@ export default function Palette({
       return
     }
 
+    // Slider steps: arrows nudge the value by stepValue (applies live)
+    if (isSliderStep && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+      e.preventDefault()
+      const min = currentStep?.minValue ?? 0
+      const max = currentStep?.maxValue ?? 100
+      const stepBy = currentStep?.stepValue ?? 1
+      const delta = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? stepBy : -stepBy
+      const next = Math.min(max, Math.max(min, sliderValue + delta))
+      if (next !== sliderValue) {
+        setSliderValue(next)
+        currentStep?.onSliderChange?.(next, configRef.current).catch(err => {
+          dispatch({ type: 'SET_ERROR', error: String(err) })
+        })
+      }
+      return
+    }
+
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       const next = Math.min(clampedIndex + 1, Math.max(0, visibleItems.length - 1))
@@ -1019,6 +1045,12 @@ export default function Palette({
 
     if (e.key === 'Enter') {
       e.preventDefault()
+
+      // Slider step: the value is already applied; Enter confirms and goes back
+      if (isSliderStep) {
+        dispatch({ type: 'POP_STEP' })
+        return
+      }
 
       // Input step: commit raw query
       if (isInputStep && currentStep?.onCommitQuery) {
@@ -1045,7 +1077,7 @@ export default function Palette({
       await handleSelect(selected)
       return
     }
-  }, [state, currentStep, isInputStep, visibleItems, clampedIndex, actionPanelOpen, actionItems, actionPanelClampedIndex, selectedItem]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state, currentStep, isInputStep, isSliderStep, sliderValue, visibleItems, clampedIndex, actionPanelOpen, actionItems, actionPanelClampedIndex, selectedItem]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSelect = useCallback(async (item: PaletteItem) => {
     // Root level: find command and either run action or push step

@@ -78,9 +78,11 @@ export default function App() {
       const webSearchCmds = isWebSearchVisible() ? [webSearchCommand] : []
       const toolsChildren = [...providerCmds, ...webSearchCmds].filter(c => c.folderName === 'Tools')
       const appCmds = providerCmds.filter(c => c.folderName === 'Apps')
+      const systemCmds = providerCmds.filter(c => c.folderName === 'System')
       setCommands([
         ...cmds,
         ...(appCmds.length > 0 ? [virtualFolderCommand('Apps', appCmds)] : []),
+        ...(systemCmds.length > 0 ? [virtualFolderCommand('System', systemCmds)] : []),
         ...(toolsChildren.length > 0 ? [toolsFolderCommand(toolsChildren)] : []),
         ...(snippetCmds.length > 0 ? [virtualFolderCommand('Snippets', snippetCmds)] : []),
         ...snippetCmds,
