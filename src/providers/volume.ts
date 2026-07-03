@@ -7,6 +7,7 @@ function deviceSliderStep(device: AudioDevice): Step {
     id: `volume:slider:${device.id}`,
     label: device.name,
     placeholder: `Volume — ${device.name}`,
+    icon: 'volume',
     isSliderStep: true,
     minValue: 0,
     maxValue: 100,

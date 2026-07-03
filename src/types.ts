@@ -108,6 +108,8 @@ export interface Step {
   stepValue?: number
   // Optional async seed for the slider's starting position (e.g. current volume)
   loadSliderValue?: () => Promise<number>
+  // Icon shown beside the slider (defaults to an eye/opacity icon)
+  icon?: string
   onSliderChange?: (value: number, config: AppConfig) => Promise<void>
   // For grid steps: render load items as a tiled grid instead of a list
   isGridStep?: boolean

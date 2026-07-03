@@ -1289,6 +1289,7 @@ export default function Palette({
           min={currentStep.minValue ?? 0}
           max={currentStep.maxValue ?? 100}
           step={currentStep.stepValue ?? 1}
+          icon={currentStep.icon ?? 'eye'}
           onChange={value => {
             setSliderValue(value)
             currentStep.onSliderChange?.(value, configRef.current).catch(err => {

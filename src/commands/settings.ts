@@ -164,6 +164,7 @@ function transparencyStep(config: AppConfig): Step {
     id: 'settings:transparency',
     label: 'Window Transparency',
     placeholder: `Adjust window transparency (Current: ${currentPercent}%)`,
+    icon: 'eye',
     isSliderStep: true,
     minValue: 0,
     maxValue: 100,

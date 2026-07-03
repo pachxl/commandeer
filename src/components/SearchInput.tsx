@@ -1,4 +1,5 @@
 import { forwardRef } from 'react'
+import Icon from './Icon'
 
 interface SearchInputProps {
   value: string
@@ -12,6 +13,7 @@ interface SliderInputProps {
   min: number
   max: number
   step: number
+  icon?: string
   onChange: (value: number) => void
 }
 
@@ -66,7 +68,7 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
 
 SearchInput.displayName = 'SearchInput'
 
-export const SliderInput = ({ value, min, max, step, onChange }: SliderInputProps) => {
+export const SliderInput = ({ value, min, max, step, icon = 'eye', onChange }: SliderInputProps) => {
   const percent = ((value - min) / (max - min)) * 100
 
   return (
@@ -77,9 +79,7 @@ export const SliderInput = ({ value, min, max, step, onChange }: SliderInputProp
       padding: '8px 14px',
       borderBottom: '1px solid var(--border)',
     }}>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, color: 'var(--text-dim)' }}>
-        <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" stroke="currentColor" strokeWidth="2" />
-      </svg>
+      <Icon name={icon} width={16} height={16} color="var(--text-dim)" />
       <div style={{ flex: 1, height: 4, position: 'relative' }}>
         <div style={{
           position: 'absolute',
