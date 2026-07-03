@@ -107,29 +107,38 @@ function commandItem(cmd: Command): PaletteItem {
 }
 
 // A folder command whose children are built-in commands rather than scripts.
-// Selecting a child pushes its step or runs its action.
-export function virtualFolderCommand(name: string, children: Command[]): Command {
+// Selecting a child pushes its step or runs its action. Children may be a
+// function for folders whose contents change while the palette is open
+// (e.g. Snippets): it's re-invoked on every step load, so the list stays
+// fresh after an add/remove without rebuilding the step.
+export function virtualFolderCommand(name: string, children: Command[] | (() => Promise<Command[]>)): Command {
   return {
     id: `folder:${name}`,
     label: name,
     icon: 'folder',
     isFolder: true,
-    createRootStep: (): Step => ({
-      id: `folder-step:${name}`,
-      label: name,
-      placeholder: `Search ${name}...`,
-      load: async (): Promise<PaletteItem[]> => children.map(commandItem),
-      onSelect: async (item, config: AppConfig): Promise<StepResult> => {
-        const cmd = children.find(c => c.id === item.id)
-        if (!cmd) return { type: 'done' }
-        if (cmd.createRootStep) return { type: 'push', step: cmd.createRootStep(config) }
-        if (cmd.action) {
-          await cmd.action(config)
-          return cmd.noClose ? { type: 'pop' } : { type: 'done' }
-        }
-        return { type: 'done' }
-      },
-    }),
+    createRootStep: (): Step => {
+      let resolved: Command[] = typeof children === 'function' ? [] : children
+      return {
+        id: `folder-step:${name}`,
+        label: name,
+        placeholder: `Search ${name}...`,
+        load: async (): Promise<PaletteItem[]> => {
+          resolved = typeof children === 'function' ? await children() : children
+          return resolved.map(commandItem)
+        },
+        onSelect: async (item, config: AppConfig): Promise<StepResult> => {
+          const cmd = resolved.find(c => c.id === item.id)
+          if (!cmd) return { type: 'done' }
+          if (cmd.createRootStep) return { type: 'push', step: cmd.createRootStep(config) }
+          if (cmd.action) {
+            await cmd.action(config)
+            return cmd.noClose ? { type: 'pop' } : { type: 'done' }
+          }
+          return { type: 'done' }
+        },
+      }
+    },
   }
 }
 

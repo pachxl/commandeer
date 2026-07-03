@@ -28,9 +28,11 @@ function addSnippetStep(): Step {
     onSelect: async () => ({ type: 'done' }),
     onCommitQuery: async (query): Promise<StepResult> => {
       const keyword = query.trim()
-      if (!keyword) return { type: 'done' }
+      if (!keyword) return { type: 'stay' }
+      // Replace (not push) so the text step sits directly above the Snippets
+      // folder: one pop after saving lands back on the snippets list
       return {
-        type: 'push',
+        type: 'replace',
         step: {
           id: 'snippet:add:text',
           label: 'Snippet Text',
@@ -39,7 +41,7 @@ function addSnippetStep(): Step {
           onSelect: async () => ({ type: 'done' }),
           onCommitQuery: async (text): Promise<StepResult> => {
             const trimmed = text.trim()
-            if (!trimmed) return { type: 'done' }
+            if (!trimmed) return { type: 'stay' }
             const all = await readSnippets()
             const next: Snippet = {
               id: crypto.randomUUID(),
@@ -48,7 +50,8 @@ function addSnippetStep(): Step {
             }
             await writeSnippets([...all, next])
             appEvents.refreshCommands?.()
-            return { type: 'done' }
+            appEvents.toast?.('Snippet saved', 'success')
+            return { type: 'pop' }
           },
         },
       }
