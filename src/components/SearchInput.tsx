@@ -1,11 +1,13 @@
 import { forwardRef } from 'react'
 import Icon from './Icon'
+import type { LivePreview } from '../types'
 
 interface SearchInputProps {
   value: string
   placeholder: string
   loading: boolean
   onChange: (value: string) => void
+  preview?: LivePreview | null
 }
 
 interface SliderInputProps {
@@ -18,7 +20,7 @@ interface SliderInputProps {
 }
 
 const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
-  ({ value, placeholder, loading, onChange }, ref) => {
+  ({ value, placeholder, loading, onChange, preview }, ref) => {
     return (
       <div style={{
         display: 'flex',
@@ -57,10 +59,51 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
             fontFamily: 'var(--font)',
             caretColor: 'var(--accent)',
             lineHeight: '20px',
+            minWidth: 0,
           }}
           spellCheck={false}
           autoComplete="off"
         />
+        {preview && (
+          <div
+            title={preview.sublabel ? `${preview.label} · ${preview.sublabel}` : preview.label}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-end',
+              flexShrink: 0,
+              maxWidth: '45%',
+              minWidth: 0,
+              userSelect: 'none',
+            }}
+          >
+            <span style={{
+              color: 'var(--text)',
+              fontSize: 15,
+              fontWeight: 500,
+              lineHeight: '20px',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: '100%',
+            }}>
+              {preview.label}
+            </span>
+            {preview.sublabel && (
+              <span style={{
+                color: 'var(--text-dim)',
+                fontSize: 11,
+                lineHeight: '14px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: '100%',
+              }}>
+                {preview.sublabel}
+              </span>
+            )}
+          </div>
+        )}
       </div>
     )
   }

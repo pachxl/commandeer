@@ -77,6 +77,12 @@ export interface FormFieldOption {
   value: string
 }
 
+export interface LivePreview {
+  label: string
+  sublabel?: string
+  copy: string
+}
+
 export interface FormField {
   id: string
   label: string
@@ -101,6 +107,8 @@ export interface Step {
   // If true, pressing Enter with no selection confirms the raw query text
   isInputStep?: boolean
   onCommitQuery?: (query: string, config: AppConfig) => Promise<StepResult>
+  // Live preview shown on the right side of the search input (e.g. calculator result)
+  livePreview?: (query: string) => LivePreview | null
   // For slider steps
   isSliderStep?: boolean
   minValue?: number

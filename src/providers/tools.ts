@@ -13,6 +13,12 @@ function calculatorStep(): Step {
     label: 'Calculator',
     placeholder: 'Type an expression (e.g. 40+2, 100 usd to eur)...',
     isInputStep: true,
+    livePreview: (query) => {
+      const trimmed = query.trim()
+      if (!trimmed) return null
+      const r = evaluateCalcQuery(trimmed)
+      return r ? { label: r.display, sublabel: r.sublabel, copy: r.copy } : null
+    },
     onSelect: async () => ({ type: 'done' }),
     onCommitQuery: async (query): Promise<StepResult> => {
       const trimmed = query.trim()
@@ -44,6 +50,12 @@ function timezonesStep(): Step {
     label: 'Time Zone Converter',
     placeholder: 'e.g. 4pm bst to est, 16:30 to tokyo, pst to gmt...',
     isInputStep: true,
+    livePreview: (query) => {
+      const trimmed = query.trim()
+      if (!trimmed) return null
+      const r = tryTimeConversion(trimmed)
+      return r ? { label: r.label, sublabel: r.sublabel, copy: r.copy } : null
+    },
     onSelect: async () => ({ type: 'done' }),
     onCommitQuery: async (query): Promise<StepResult> => {
       const trimmed = query.trim()

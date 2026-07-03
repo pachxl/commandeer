@@ -597,6 +597,22 @@ export default function Palette({
   const isSliderStep = currentStep?.isSliderStep ?? false
   const isFormStep = currentStep?.isFormStep ?? false
   const isGridStep = currentStep?.isGridStep ?? false
+
+  // Live preview shown on the right side of the search input for calculator /
+  // time-zone modes (root prefixes and Tools input steps).
+  const previewResult = (() => {
+    if (currentStep?.livePreview) return currentStep.livePreview(state.query)
+    if (calcMode && calcQuery) {
+      const r = evaluateCalcQuery(calcQuery)
+      return r ? { label: r.display, sublabel: r.sublabel, copy: r.copy } : null
+    }
+    if (timeMode && timeQuery) {
+      const r = tryTimeConversion(timeQuery)
+      return r ? { label: r.label, sublabel: r.sublabel, copy: r.copy } : null
+    }
+    return null
+  })()
+
   let matchedItems: PaletteItem[]
   if (isInputStep || isSliderStep || isFormStep) {
     matchedItems = []
@@ -624,30 +640,9 @@ export default function Palette({
           actionLabel: 'Search',
         }]
       : []
-  } else if (calcMode) {
-    const result = calcQuery ? evaluateCalcQuery(calcQuery) : null
-    matchedItems = result
-      ? [{
-          id: 'calc:result',
-          label: result.display,
-          sublabel: result.sublabel ?? 'Enter to copy',
-          icon: 'calculator',
-          data: result.copy,
-          actionLabel: 'Copy',
-        }]
-      : []
-  } else if (timeMode) {
-    const result = timeQuery ? tryTimeConversion(timeQuery) : null
-    matchedItems = result
-      ? [{
-          id: 'time:result',
-          label: result.label,
-          sublabel: result.sublabel,
-          icon: 'clock',
-          data: result.copy,
-          actionLabel: 'Copy',
-        }]
-      : []
+  } else if (calcMode || timeMode) {
+    // Result is shown inline via previewResult; no list row needed
+    matchedItems = []
   } else if (findMode) {
     // Global results are already ranked for this query (fzf + relevance
     // multipliers in globalFileSearch) — re-filtering would fight the ranker
@@ -685,12 +680,14 @@ export default function Palette({
     if (!settingsCmd?.createRootStep) return
     dispatch({ type: 'PUSH_STEP', step: settingsCmd.createRootStep(configRef.current) })
   }, [settingsCmd])
-  const primaryAction = selectedItem
-    ? (selectedItem.actionLabel
-      ?? (selectedItem.isFolder
-        ? 'Open Folder'
-        : selectedItem.id.startsWith('script:') ? 'Run Script' : 'Select'))
-    : null
+  const primaryAction = previewResult
+    ? 'Copy'
+    : selectedItem
+      ? (selectedItem.actionLabel
+        ?? (selectedItem.isFolder
+          ? 'Open Folder'
+          : selectedItem.id.startsWith('script:') ? 'Run Script' : 'Select'))
+      : null
 
   // Preview pane: shown when the selected item has something to preview
   // (image, text file, color swatch, font, snippet, or metadata).
@@ -1121,12 +1118,23 @@ export default function Palette({
         return
       }
 
+      // @calc / @time: copy the inline preview and stay open
+      if ((calcMode || timeMode) && previewResult) {
+        try {
+          await navigator.clipboard.writeText(previewResult.copy)
+          toast('Copied to clipboard', 'success')
+        } catch (err) {
+          dispatch({ type: 'SET_ERROR', error: String(err) })
+        }
+        return
+      }
+
       const selected = visibleItems[clampedIndex]
       if (!selected) return
       await handleSelect(selected)
       return
     }
-  }, [state, currentStep, isInputStep, isSliderStep, sliderValue, visibleItems, clampedIndex, actionPanelOpen, actionItems, actionPanelClampedIndex, selectedItem]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state, currentStep, isInputStep, isSliderStep, sliderValue, visibleItems, clampedIndex, actionPanelOpen, actionItems, actionPanelClampedIndex, selectedItem, previewResult, calcMode, timeMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSelect = useCallback(async (item: PaletteItem) => {
     // Root level: find command and either run action or push step
@@ -1318,6 +1326,7 @@ export default function Palette({
           placeholder={placeholder}
           loading={state.loading}
           onChange={q => dispatch({ type: 'SET_QUERY', query: q })}
+          preview={previewResult}
         />
       )}
 
@@ -1339,7 +1348,7 @@ export default function Palette({
 
       {!isInputStep && !isSliderStep && !state.loading && noMatches && state.query
         && !(findMode && !findQuery.trim()) && !(webMode && !webQuery)
-        && !(calcMode && !calcQuery) && !(timeMode && !timeQuery) && (
+        && !calcMode && !timeMode && (
         <div style={{
           padding: '12px 14px',
           display: 'flex',
