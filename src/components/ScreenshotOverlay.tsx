@@ -126,7 +126,18 @@ export default function ScreenshotOverlay() {
       {frame && (
         <img
           src={frame.src}
-          onLoad={() => void showScreenshotOverlay()}
+          onLoad={() => {
+            // onLoad means fetched, not painted — showing here can flash the
+            // previous capture's stale surface for a frame. Wait for a real
+            // paint (double rAF; runs while hidden because native window
+            // occlusion is disabled via additionalBrowserArgs). The timeout
+            // covers rAF being throttled anyway; worst case is the old flash.
+            const painted = new Promise<void>(resolve =>
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+            )
+            const timeout = new Promise<void>(resolve => setTimeout(resolve, 200))
+            void Promise.race([painted, timeout]).then(() => showScreenshotOverlay())
+          }}
           draggable={false}
           style={{
             position: 'absolute',
