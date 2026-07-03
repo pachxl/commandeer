@@ -2,6 +2,9 @@
 //! spawned `powershell.exe` per action (slow, and its `powercfg -hibernate`
 //! toggle needed admin rights, so it silently failed); everything here is a
 //! single API call in-process.
+//!
+//! These APIs expect to run on the thread that owns the GUI message queue,
+//! so we dispatch them to the main thread rather than a Tokio blocking pool.
 
 use serde::Deserialize;
 
@@ -18,19 +21,22 @@ pub enum SystemAction {
 }
 
 #[tauri::command]
-pub async fn system_action(action: SystemAction) -> Result<(), String> {
+pub async fn system_action(action: SystemAction, app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        // spawn_blocking: emptying a large recycle bin can take a while, and
-        // the other calls are cheap enough not to care.
-        tokio::task::spawn_blocking(move || win::run(action))
-            .await
-            .map_err(|e| e.to_string())?
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        app.run_on_main_thread(move || {
+            let result = win::run(action);
+            let _ = tx.send(result);
+        })
+        .map_err(|e| format!("main thread dispatch failed: {e}"))?;
+        rx.await
+            .map_err(|e| format!("system action channel closed: {e}"))?
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = action;
+        let _ = (action, app);
         Err("system actions are only implemented on Windows".to_string())
     }
 }
@@ -39,7 +45,7 @@ pub async fn system_action(action: SystemAction) -> Result<(), String> {
 mod win {
     use super::SystemAction;
     use windows::core::{HRESULT, PCWSTR};
-    use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LUID};
+    use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, HWND, LUID, WIN32_ERROR};
     use windows::Win32::Security::{
         AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED,
         SE_SHUTDOWN_NAME, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY,
@@ -57,6 +63,14 @@ mod win {
     const SHERB_NOPROGRESSUI: u32 = 0x2;
     const SHERB_NOSOUND: u32 = 0x4;
 
+    const ERROR_NOT_SUPPORTED: u32 = 50;
+    const ERROR_NOT_ALL_ASSIGNED: u32 = 1300;
+
+    fn last_error_string(context: &str) -> String {
+        let code = unsafe { GetLastError().0 };
+        format!("{} failed (error {})", context, code)
+    }
+
     /// Enable SeShutdownPrivilege on our process token. ExitWindowsEx
     /// (shutdown/restart) and SetSuspendState require it; a normal user
     /// *holds* the privilege but it starts disabled.
@@ -68,12 +82,12 @@ mod win {
                 TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
                 &mut token,
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|_| last_error_string("OpenProcessToken"))?;
 
             let result = (|| {
                 let mut luid = LUID::default();
                 LookupPrivilegeValueW(PCWSTR::null(), SE_SHUTDOWN_NAME, &mut luid)
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|_| last_error_string("LookupPrivilegeValueW(SeShutdownPrivilege)"))?;
                 let tp = TOKEN_PRIVILEGES {
                     PrivilegeCount: 1,
                     Privileges: [LUID_AND_ATTRIBUTES {
@@ -82,7 +96,17 @@ mod win {
                     }],
                 };
                 AdjustTokenPrivileges(token, false, Some(&tp), 0, None, None)
-                    .map_err(|e| e.to_string())
+                    .map_err(|_| last_error_string("AdjustTokenPrivileges"))?;
+
+                // AdjustTokenPrivileges can return OK without enabling the
+                // privilege if the token doesn't hold it.
+                let err = GetLastError();
+                if err == WIN32_ERROR(ERROR_NOT_ALL_ASSIGNED) {
+                    return Err(
+                        "SeShutdownPrivilege is not held by this process".to_string(),
+                    );
+                }
+                Ok(())
             })();
             let _ = CloseHandle(token);
             result
@@ -92,18 +116,25 @@ mod win {
     pub fn run(action: SystemAction) -> Result<(), String> {
         unsafe {
             match action {
-                SystemAction::Lock => LockWorkStation().map_err(|e| e.to_string()),
+                SystemAction::Lock => LockWorkStation()
+                    .map_err(|_| last_error_string("LockWorkStation")),
 
-                // SetSuspendState picks sleep vs hibernate from its first
-                // argument directly — no powercfg toggling needed (that hack
-                // exists for rundll32 callers, which can't pass arguments).
                 SystemAction::Sleep | SystemAction::Hibernate => {
                     enable_shutdown_privilege()?;
                     let hibernate = matches!(action, SystemAction::Hibernate);
                     if SetSuspendState(hibernate, false, false).as_bool() {
                         Ok(())
                     } else {
-                        Err(windows::core::Error::from_win32().to_string())
+                        let code = GetLastError().0;
+                        if code == ERROR_NOT_SUPPORTED {
+                            Err(format!(
+                                "{} is not supported on this system (error {})",
+                                if hibernate { "Hibernate" } else { "Sleep" },
+                                code
+                            ))
+                        } else {
+                            Err(last_error_string("SetSuspendState"))
+                        }
                     }
                 }
 
@@ -115,11 +146,12 @@ mod win {
                         EWX_SHUTDOWN
                     };
                     ExitWindowsEx(what | EWX_FORCEIFHUNG, SHUTDOWN_REASON(0))
-                        .map_err(|e| e.to_string())
+                        .map_err(|_| last_error_string("ExitWindowsEx"))
                 }
 
                 SystemAction::Logout => {
-                    ExitWindowsEx(EWX_LOGOFF, SHUTDOWN_REASON(0)).map_err(|e| e.to_string())
+                    ExitWindowsEx(EWX_LOGOFF, SHUTDOWN_REASON(0))
+                        .map_err(|_| last_error_string("ExitWindowsEx"))
                 }
 
                 SystemAction::EmptyTrash => {
@@ -132,7 +164,7 @@ mod win {
                         // An already-empty bin reports E_UNEXPECTED on some
                         // Windows versions — not a failure for our purposes.
                         Err(e) if e.code() == HRESULT(0x8000FFFFu32 as i32) => Ok(()),
-                        Err(e) => Err(e.to_string()),
+                        Err(_) => Err(last_error_string("SHEmptyRecycleBinW")),
                     }
                 }
             }
