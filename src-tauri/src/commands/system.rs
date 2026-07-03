@@ -36,8 +36,121 @@ pub async fn system_action(action: SystemAction, app: tauri::AppHandle) -> Resul
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = (action, app);
-        Err("system actions are only implemented on Windows".to_string())
+        let _ = app;
+        tokio::task::spawn_blocking(move || linux::run(action))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+}
+
+/// Linux implementations shell out to the standard session/systemd tools so
+/// they work across desktops; polkit allows suspend/poweroff/reboot for local
+/// active sessions without prompting. Failures surface the tool's stderr.
+#[cfg(not(target_os = "windows"))]
+mod linux {
+    use super::SystemAction;
+
+    fn run_cmd(program: &str, args: &[&str]) -> Result<(), String> {
+        let out = std::process::Command::new(program)
+            .args(args)
+            .output()
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    format!("{program} not found")
+                } else {
+                    format!("{program} failed to run: {e}")
+                }
+            })?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            Err(if err.is_empty() {
+                format!("{program} exited with {}", out.status)
+            } else {
+                err
+            })
+        }
+    }
+
+    fn lock() -> Result<(), String> {
+        // logind first (COSMIC/GNOME/KDE register with it); then the session
+        // ScreenSaver D-Bus interface; then the X11 helper.
+        run_cmd("loginctl", &["lock-session"])
+            .or_else(|_| {
+                run_cmd(
+                    "dbus-send",
+                    &[
+                        "--session",
+                        "--dest=org.freedesktop.ScreenSaver",
+                        "/org/freedesktop/ScreenSaver",
+                        "org.freedesktop.ScreenSaver.Lock",
+                    ],
+                )
+            })
+            .or_else(|_| run_cmd("xdg-screensaver", &["lock"]))
+    }
+
+    fn logout() -> Result<(), String> {
+        let desktop = std::env::var("XDG_CURRENT_DESKTOP")
+            .unwrap_or_default()
+            .to_lowercase();
+        if desktop.contains("gnome") {
+            return run_cmd("gnome-session-quit", &["--logout", "--no-prompt"]);
+        }
+        if desktop.contains("kde") {
+            return run_cmd(
+                "qdbus",
+                &["org.kde.Shutdown", "/Shutdown", "org.kde.Shutdown.logout"],
+            );
+        }
+        // COSMIC and everything else: end the logind session. Abrupt, but the
+        // frontend confirms before calling and it works everywhere.
+        match std::env::var("XDG_SESSION_ID") {
+            Ok(sid) if !sid.is_empty() => run_cmd("loginctl", &["terminate-session", &sid]),
+            // No session id in the environment: terminate the caller's own
+            // session by passing no argument (loginctl resolves it).
+            _ => run_cmd("loginctl", &["terminate-session"]),
+        }
+    }
+
+    fn empty_trash() -> Result<(), String> {
+        // gio understands per-mount .Trash-$UID dirs too; the manual fallback
+        // only clears the home trash (contents, never the dirs themselves).
+        run_cmd("gio", &["trash", "--empty"]).or_else(|_| {
+            let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
+            let xdg_data_home = std::env::var("XDG_DATA_HOME")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .unwrap_or(format!("{home}/.local/share"));
+            for sub in ["files", "info"] {
+                let dir = std::path::PathBuf::from(&xdg_data_home).join("Trash").join(sub);
+                let Ok(entries) = std::fs::read_dir(&dir) else {
+                    continue;
+                };
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let p = entry.path();
+                    let _ = if p.is_dir() {
+                        std::fs::remove_dir_all(&p)
+                    } else {
+                        std::fs::remove_file(&p)
+                    };
+                }
+            }
+            Ok(())
+        })
+    }
+
+    pub fn run(action: SystemAction) -> Result<(), String> {
+        match action {
+            SystemAction::Lock => lock(),
+            SystemAction::Sleep => run_cmd("systemctl", &["suspend"]),
+            SystemAction::Hibernate => run_cmd("systemctl", &["hibernate"]),
+            SystemAction::Shutdown => run_cmd("systemctl", &["poweroff"]),
+            SystemAction::Restart => run_cmd("systemctl", &["reboot"]),
+            SystemAction::Logout => logout(),
+            SystemAction::EmptyTrash => empty_trash(),
+        }
     }
 }
 

@@ -38,8 +38,43 @@ pub async fn path_icon(path: String) -> Option<String> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = path;
-        None
+        tokio::task::spawn_blocking(move || linux_icons::cached_icon_for_path(&path))
+            .await
+            .ok()
+            .flatten()
+    }
+}
+
+/// Server-side icon cache mirroring the frontend's: keyed per extension for
+/// ordinary files (one theme lookup covers every .rs file), per path for
+/// .desktop entries and extensionless files, whose icons are individual.
+#[cfg(not(target_os = "windows"))]
+mod linux_icons {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    static CACHE: Mutex<Option<HashMap<String, Option<String>>>> = Mutex::new(None);
+
+    pub(super) fn cached_icon_for_path(path: &str) -> Option<String> {
+        let ext = std::path::Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        let key = if ext.is_empty() || ext == "desktop" {
+            path.to_string()
+        } else {
+            format!("ext:{ext}")
+        };
+
+        let mut guard = CACHE.lock().unwrap();
+        let cache = guard.get_or_insert_with(HashMap::new);
+        if let Some(hit) = cache.get(&key) {
+            return hit.clone();
+        }
+        let icon = crate::commands::desktop::icon_for_path(path);
+        cache.insert(key, icon.clone());
+        icon
     }
 }
 

@@ -287,7 +287,20 @@ export interface Theme {
 export const readThemes = () =>
   invoke<Theme[]>('read_themes')
 
-const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
+export const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
+
+// Runtime environment facts from the backend (Wayland vs X11 can't be sniffed
+// from the user agent). Fetched once and cached for the session.
+export interface EnvInfo {
+  os: string
+  wayland: boolean
+  desktop: string
+  home: string
+}
+
+let envInfoPromise: Promise<EnvInfo> | null = null
+export const envInfo = () =>
+  (envInfoPromise ??= invoke<EnvInfo>('env_info'))
 
 export const setWindowTransparency = (transparency: number) => {
   if (IS_LINUX) {

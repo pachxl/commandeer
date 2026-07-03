@@ -61,6 +61,14 @@ windows = { version = "0.58", features = [
     "Win32_System_Variant",
 ] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# kill(2) for the process-list "kill" action
+libc = "0.2"
+# Clipboard-history encryption at rest (Windows uses DPAPI; Linux stores the
+# key in the Secret Service via `keyring`, falling back to a 0600 key file)
+chacha20poly1305 = "0.10"
+keyring = { version = "3", features = ["sync-secret-service"] }
+
 [target.'cfg(not(windows))'.dependencies]
 # Render the palette as a wlr-layer-shell surface on Linux/Wayland: lets the
 # compositor center it and makes transparent regions truly invisible (no

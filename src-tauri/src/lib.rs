@@ -28,6 +28,28 @@ fn resize_palette(app: tauri::AppHandle, height: i32) {
     let _ = (&app, height);
 }
 
+/// Runtime environment facts the frontend can't reliably sniff from the user
+/// agent — chiefly Wayland vs X11, which decides how the palette resizes.
+#[derive(serde::Serialize)]
+struct EnvInfo {
+    os: &'static str,
+    wayland: bool,
+    desktop: String,
+    home: String,
+}
+
+#[tauri::command]
+fn env_info() -> EnvInfo {
+    EnvInfo {
+        os: std::env::consts::OS,
+        wayland: std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        desktop: std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),
+        home: std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_default(),
+    }
+}
+
 /// Center the palette horizontally on the monitor under the mouse cursor,
 /// with its top at ~20% of that monitor's height (Raycast opens where you
 /// are working, not on the primary display). Positioning happens once per
@@ -488,6 +510,7 @@ pub fn run() {
             get_autostart,
             set_game_mode,
             resize_palette,
+            env_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
