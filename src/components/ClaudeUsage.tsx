@@ -3,8 +3,19 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { claudeUsage, type ClaudeLimit } from '../lib/tauri'
 
 const CACHE_KEY = 'commandeer:claude-usage'
-const CACHE_TTL_MS = 60_000
-const RATE_LIMIT_KEY = 'commandeer:claude-rate-limit'
+const STATE_KEY = 'commandeer:claude-poll-state'
+
+// The usage numbers move on the scale of hours (5h rolling session window, 7d
+// weekly); the only time-sensitive value is the reset countdown, and that's
+// computed locally each second from `resets_at`. So a multi-minute network
+// floor costs no perceptible accuracy while keeping us well under the shared,
+// undocumented per-OAuth-token rate limit (the /api/oauth/usage endpoint
+// returns no budget headers on success — we only learn we're over on a 429).
+const BASE_INTERVAL_MS = 5 * 60_000
+const MAX_INTERVAL_MS = 30 * 60_000
+// Small randomisation so our polls don't phase-lock with Claude Code's own
+// usage polling on the same token (they share one rate-limit bucket).
+const JITTER_MS = 15_000
 
 const KIND_ORDER = ['session', 'weekly_all', 'weekly_scoped']
 const CLAUDE_ORANGE = '#D97757'
@@ -12,6 +23,19 @@ const CLAUDE_ORANGE = '#D97757'
 interface CachedUsage {
   limits: ClaudeLimit[]
   fetchedAt: number
+}
+
+// Adaptive poll state, persisted so it survives palette hide/show remounts.
+// `interval` is the current spacing between fetches — it doubles on every 429
+// and halves back toward the base on success, auto-tuning to whatever the
+// shared bucket tolerates. `nextAllowedAt` is the earliest we may fetch again.
+interface PollState {
+  interval: number
+  nextAllowedAt: number
+}
+
+function clampInterval(ms: number): number {
+  return Math.min(MAX_INTERVAL_MS, Math.max(BASE_INTERVAL_MS, ms))
 }
 
 function limitLabel(limit: ClaudeLimit): string {
@@ -70,17 +94,29 @@ function loadCached(): CachedUsage | null {
   }
 }
 
-function isFresh(cache: CachedUsage | null): boolean {
-  return !!cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS
+function loadState(): PollState {
+  try {
+    const raw = localStorage.getItem(STATE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<PollState>
+      const interval = Number(parsed.interval)
+      const nextAllowedAt = Number(parsed.nextAllowedAt)
+      return {
+        interval: Number.isFinite(interval) ? clampInterval(interval) : BASE_INTERVAL_MS,
+        nextAllowedAt: Number.isFinite(nextAllowedAt) ? nextAllowedAt : 0,
+      }
+    }
+  } catch {
+    /* fall through to default */
+  }
+  return { interval: BASE_INTERVAL_MS, nextAllowedAt: 0 }
 }
 
-function loadRateLimitUntil(): number {
+function saveState(state: PollState): void {
   try {
-    const raw = localStorage.getItem(RATE_LIMIT_KEY)
-    const n = raw ? Number(raw) : 0
-    return Number.isFinite(n) ? n : 0
+    localStorage.setItem(STATE_KEY, JSON.stringify(state))
   } catch {
-    return 0
+    /* ignore quota / private-mode failures */
   }
 }
 
@@ -99,58 +135,93 @@ function formatDuration(ms: number): string {
 
 export default function ClaudeUsage() {
   const cacheRef = useRef<CachedUsage | null>(loadCached())
-  const rateLimitRef = useRef<number>(loadRateLimitUntil())
+  const stateRef = useRef<PollState>(loadState())
+  // Coalesces concurrent refresh() calls (rapid focus events, StrictMode, a
+  // reopen mid-request) onto a single in-flight request — no request bursts.
+  const inFlightRef = useRef<Promise<void> | null>(null)
+
   const [cache, setCache] = useState<CachedUsage | null>(cacheRef.current)
-  const [loading, setLoading] = useState(!isFresh(cacheRef.current) && Date.now() >= rateLimitRef.current)
+  const [loading, setLoading] = useState(
+    !cacheRef.current && Date.now() >= stateRef.current.nextAllowedAt,
+  )
   const [error, setError] = useState<string | null>(null)
-  const [rateLimitedUntil, setRateLimitedUntil] = useState<number>(rateLimitRef.current)
+  const [rateLimitedUntil, setRateLimitedUntil] = useState<number>(0)
   const [now, setNow] = useState<number>(Date.now())
   const limits = cache?.limits ?? null
 
-  // Tick every second so the "try again in..." countdown updates.
+  // Tick every second so the "resets in..." and "retrying in..." countdowns update.
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
   }, [])
 
-  const refresh = useCallback(async (force = false) => {
-    if (!force && isFresh(cacheRef.current)) {
+  const refresh = useCallback((force = false): Promise<void> => {
+    // A request is already running — reuse it rather than firing another.
+    if (inFlightRef.current) return inFlightRef.current
+    // Respect the adaptive spacing / backoff window unless explicitly forced.
+    if (!force && Date.now() < stateRef.current.nextAllowedAt) {
       setLoading(false)
-      return
+      return Promise.resolve()
     }
-    if (Date.now() < rateLimitRef.current) {
-      setLoading(false)
-      return
-    }
+
     setLoading(true)
     setError(null)
-    try {
-      const data = await claudeUsage()
-      const sorted = (data.limits ?? [])
-        .filter(l => KIND_ORDER.includes(l.kind))
-        .sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind))
-      const next = { limits: sorted, fetchedAt: Date.now() }
-      cacheRef.current = next
-      setCache(next)
-      localStorage.setItem(CACHE_KEY, JSON.stringify(next))
-      rateLimitRef.current = 0
-      setRateLimitedUntil(0)
-      localStorage.removeItem(RATE_LIMIT_KEY)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      const retrySeconds = parseRateLimitSeconds(message)
-      if (retrySeconds !== null) {
-        const until = Date.now() + retrySeconds * 1000
-        rateLimitRef.current = until
-        setRateLimitedUntil(until)
-        localStorage.setItem(RATE_LIMIT_KEY, String(until))
+
+    const run = (async () => {
+      try {
+        const data = await claudeUsage()
+        const sorted = (data.limits ?? [])
+          .filter(l => KIND_ORDER.includes(l.kind))
+          .sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind))
+        const next = { limits: sorted, fetchedAt: Date.now() }
+        cacheRef.current = next
+        setCache(next)
+        try {
+          localStorage.setItem(CACHE_KEY, JSON.stringify(next))
+        } catch {
+          /* ignore storage failures */
+        }
+
+        // Success: decay the interval back toward the base and hold off until
+        // it elapses (+ jitter so we don't re-sync with Claude Code's polling).
+        const interval = clampInterval(stateRef.current.interval / 2)
+        const jitter = Math.floor(Math.random() * JITTER_MS)
+        stateRef.current = { interval, nextAllowedAt: Date.now() + interval + jitter }
+        saveState(stateRef.current)
+        setRateLimitedUntil(0)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        const retrySeconds = parseRateLimitSeconds(message)
+        if (retrySeconds !== null) {
+          // Rate limited: escalate hard. Wait at least the server's retry-after,
+          // and at least double our current interval, so repeated limits ramp
+          // the spacing up until we fall under the shared budget.
+          const interval = clampInterval(
+            Math.max(retrySeconds * 1000, stateRef.current.interval * 2),
+          )
+          const nextAllowedAt = Date.now() + interval
+          stateRef.current = { interval, nextAllowedAt }
+          saveState(stateRef.current)
+          setRateLimitedUntil(nextAllowedAt)
+        } else {
+          // Transient (network) error: brief cooldown, keep the interval as-is.
+          stateRef.current = {
+            ...stateRef.current,
+            nextAllowedAt: Date.now() + BASE_INTERVAL_MS,
+          }
+          saveState(stateRef.current)
+        }
+        setError(message)
+        console.error('claude usage:', err)
+        // Keep showing stale cached data instead of wiping it on error.
+      } finally {
+        setLoading(false)
+        inFlightRef.current = null
       }
-      setError(message)
-      console.error('claude usage:', err)
-      // Keep showing stale cached data instead of wiping it on error.
-    } finally {
-      setLoading(false)
-    }
+    })()
+
+    inFlightRef.current = run
+    return run
   }, [])
 
   useEffect(() => {
@@ -160,6 +231,9 @@ export default function ClaudeUsage() {
     })
     return () => { unlisten.then(fn => fn()) }
   }, [refresh])
+
+  const showRateLimit = rateLimitedUntil > now
+  const hasLimits = !!limits && limits.length > 0
 
   return (
     <div style={{
@@ -186,32 +260,11 @@ export default function ClaudeUsage() {
         )}
       </div>
 
-      {error && (
-        <div style={{
-          padding: '4px 0',
-          color: '#f7768e',
-          fontSize: 11,
-          lineHeight: 1.4,
-        }}>
-          {rateLimitedUntil > now
-            ? `Rate limited — try again in ${formatDuration(rateLimitedUntil - now)}`
-            : error}
-        </div>
-      )}
-
-      {!error && (!limits || limits.length === 0) && !loading && (
-        <div style={{
-          padding: '4px 0',
-          color: 'var(--text-dim)',
-          fontSize: 11,
-        }}>
-          No usage data available.
-        </div>
-      )}
-
-      {!error && limits && limits.length > 0 && (
+      {/* Show the last-known bars whenever we have them — even while rate
+          limited or erroring — so the widget stays as informative as possible. */}
+      {hasLimits && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {limits.map(limit => {
+          {limits!.map(limit => {
             const pct = Math.min(100, Math.max(0, Math.round(limit.percent)))
             const color = barColor(limit)
             return (
@@ -250,6 +303,40 @@ export default function ClaudeUsage() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Backoff countdown — subtle when we still have bars to show, since it's
+          just informational; the stale numbers above remain useful. */}
+      {showRateLimit && (
+        <div style={{
+          padding: '2px 0',
+          color: 'var(--text-dim)',
+          fontSize: 10,
+        }}>
+          Rate limited — retrying in {formatDuration(rateLimitedUntil - now)}
+        </div>
+      )}
+
+      {/* Hard error with nothing cached to fall back on. */}
+      {error && !showRateLimit && !hasLimits && (
+        <div style={{
+          padding: '4px 0',
+          color: '#f7768e',
+          fontSize: 11,
+          lineHeight: 1.4,
+        }}>
+          {error}
+        </div>
+      )}
+
+      {!error && !hasLimits && !loading && !showRateLimit && (
+        <div style={{
+          padding: '4px 0',
+          color: 'var(--text-dim)',
+          fontSize: 11,
+        }}>
+          No usage data available.
         </div>
       )}
     </div>
