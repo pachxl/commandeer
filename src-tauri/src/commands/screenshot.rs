@@ -245,59 +245,78 @@ pub fn start_screenshot_bg(app: &AppHandle) {
     });
 }
 
-async fn start_inner(app: &AppHandle, mut delay_ms: u64) -> Result<(), String> {
-    // Never freeze our own windows into the frame: hide them first and give
-    // the compositor a beat to actually unmap them. (A re-trigger while the
-    // overlay is open restarts the flow with a fresh frame.)
-    for label in ["palette", "screenshot"] {
-        if let Some(win) = app.get_webview_window(label) {
-            if win.is_visible().unwrap_or(false) {
-                let _ = win.hide();
+/// True while a capture is being taken (trigger → overlay shown). A second
+/// trigger in that window must not start a parallel flow.
+static CAPTURING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+async fn start_inner(app: &AppHandle, delay_ms: u64) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+
+    // The screen can't be frozen twice: while the overlay is up (or another
+    // capture is mid-flight) further triggers are no-ops, like Lightshot.
+    let overlay_open = app
+        .get_webview_window("screenshot")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    if overlay_open || CAPTURING.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    let result = start_capture(app, delay_ms).await;
+    CAPTURING.store(false, Ordering::SeqCst);
+    return result;
+
+    async fn start_capture(app: &AppHandle, mut delay_ms: u64) -> Result<(), String> {
+        // Never freeze our own palette into the frame: hide it first and give
+        // the compositor a beat to actually unmap it.
+        if let Some(palette) = app.get_webview_window("palette") {
+            if palette.is_visible().unwrap_or(false) {
+                let _ = palette.hide();
                 delay_ms = delay_ms.max(220);
             }
         }
-    }
-    if delay_ms > 0 {
-        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-    }
-
-    let capture = capture_frame(app)?;
-    let payload = FramePayload {
-        path: capture.frame_path.to_string_lossy().into_owned(),
-        width: capture.width,
-        height: capture.height,
-    };
-    {
-        let state = app.state::<ScreenshotState>();
-        *state.0.lock().unwrap() = Some(capture);
-    }
-    app.emit_to("screenshot", "screenshot-frame", payload)
-        .map_err(|e| e.to_string())?;
-
-    // Safety net: if the overlay hasn't shown itself shortly (frame <img>
-    // onload → show_screenshot_overlay), show it anyway so a hiccup in event
-    // delivery or image decode can't leave the user with a silent no-op.
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(700)).await;
-        let pending = app
-            .state::<ScreenshotState>()
-            .0
-            .lock()
-            .unwrap()
-            .is_some();
-        let visible = app
-            .get_webview_window("screenshot")
-            .and_then(|w| w.is_visible().ok())
-            .unwrap_or(false);
-        if pending && !visible {
-            eprintln!("screenshot: overlay did not self-show, forcing show");
-            if let Err(e) = show_screenshot_overlay(app.clone()) {
-                eprintln!("screenshot: fallback show failed: {e}");
-            }
+        if delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
         }
-    });
-    Ok(())
+
+        let capture = capture_frame(app)?;
+        let payload = FramePayload {
+            path: capture.frame_path.to_string_lossy().into_owned(),
+            width: capture.width,
+            height: capture.height,
+        };
+        {
+            let state = app.state::<ScreenshotState>();
+            *state.0.lock().unwrap() = Some(capture);
+        }
+        app.emit_to("screenshot", "screenshot-frame", payload)
+            .map_err(|e| e.to_string())?;
+
+        // Safety net: if the overlay hasn't shown itself shortly (frame <img>
+        // onload → show_screenshot_overlay), show it anyway so a hiccup in
+        // event delivery or image decode can't leave the user with a silent
+        // no-op.
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+            let pending = app
+                .state::<ScreenshotState>()
+                .0
+                .lock()
+                .unwrap()
+                .is_some();
+            let visible = app
+                .get_webview_window("screenshot")
+                .and_then(|w| w.is_visible().ok())
+                .unwrap_or(false);
+            if pending && !visible {
+                eprintln!("screenshot: overlay did not self-show, forcing show");
+                if let Err(e) = show_screenshot_overlay(app.clone()) {
+                    eprintln!("screenshot: fallback show failed: {e}");
+                }
+            }
+        });
+        Ok(())
+    }
 }
 
 /// Called by the overlay webview once the frame <img> has decoded — showing

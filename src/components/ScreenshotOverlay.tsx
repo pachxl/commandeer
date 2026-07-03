@@ -28,6 +28,13 @@ const VEIL = 'rgba(0, 0, 0, 0.45)'
 // Drags smaller than this (CSS px) are treated as a stray click, not a snip.
 const MIN_DRAG = 4
 
+// Run `fn` after the next paint has been committed. WebKit stops painting
+// once the window is hidden, so whatever is on screen at hide time is what
+// flashes when the reused window is next mapped — always clear the selection
+// UI, wait for that to paint, and only then ask Rust to hide the window.
+const afterPaint = (fn: () => void) =>
+  requestAnimationFrame(() => requestAnimationFrame(fn))
+
 export default function ScreenshotOverlay() {
   const [frame, setFrame] = useState<Frame | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
@@ -51,7 +58,7 @@ export default function ScreenshotOverlay() {
       if (e.key === 'Escape') {
         setDrag(null)
         setFrame(null)
-        void cancelScreenshot()
+        afterPaint(() => void cancelScreenshot())
       }
     }
     window.addEventListener('keydown', onKey)
@@ -85,12 +92,17 @@ export default function ScreenshotOverlay() {
       finishing.current = true
       setDrag(null)
       setFrame(null)
-      void finishScreenshot({
+      const region = {
         x: Math.round(left * scaleX),
         y: Math.round(top * scaleY),
         w: Math.max(1, Math.round(w * scaleX)),
         h: Math.max(1, Math.round(h * scaleY)),
-      }).catch(err => console.error('finish_screenshot failed:', err))
+      }
+      afterPaint(() => {
+        void finishScreenshot(region).catch(err =>
+          console.error('finish_screenshot failed:', err)
+        )
+      })
     },
     [drag, frame]
   )
