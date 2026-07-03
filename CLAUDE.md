@@ -15,6 +15,8 @@ bun install                          # install JS deps — bun.lock is the sourc
                                      # (package-lock.json is stale; run this after pulling or tsc fails)
 npm run tauri dev                    # run the app in dev mode (vite + cargo)
 npm run tauri build -- --no-bundle   # release build (on Linux: source ~/.cargo/env first)
+                                     # NEVER `cargo build --release` directly: without the tauri
+                                     # CLI the binary is dev-mode and loads localhost:5173
 npm run build                        # tsc + vite build (frontend only; use as the type-check)
 npm run release                      # Windows-only: build + copy commandeer.exe to bin/
 ```
@@ -28,7 +30,11 @@ Linux dev/test notes:
 
 ## Architecture
 
-Single always-running Tauri window (label `palette`, transparent, undecorated) that hides/shows rather than launching per use. A tray icon (Windows-only) and the global hotkey / single-instance toggle are the entry points.
+Two always-running Tauri windows that hide/show rather than launching per use: the palette (label `palette`, transparent, undecorated) and the screenshot overlay (label `screenshot`, opaque fullscreen). A tray icon (Windows-only) and the global hotkey / single-instance toggle are the entry points.
+
+### Screenshot tool
+
+Lightshot-style region capture: trigger → Rust freezes the screen to `<app-cache>/frame.png` (`cosmic-screenshot` CLI on Linux, GDI BitBlt of the cursor monitor on Windows) → the `screenshot` window (same JS bundle; `main.tsx` branches on window label to `ScreenshotOverlay.tsx`) shows the frame under a dim veil → drag a region → Rust crops, saves to `~/Pictures/Screenshots`, and copies PNG to the clipboard (`wl-copy` on Linux, arboard on Windows). Esc cancels. Backend in `commands/screenshot.rs`. Triggers: `commandeer://screenshot` deep link (bound to PrtScn via a second managed COSMIC shortcut line), PrtScn global shortcut on Windows (`screenshot_hotkey` config), and a Tools → Take Screenshot palette command. The overlay shows only after the frontend reports the frame `<img>` decoded (700 ms Rust-side fallback), and on Linux is a 4-edge-anchored, exclusive-keyboard layer-shell surface.
 
 ### Frontend (`src/`)
 

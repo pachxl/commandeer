@@ -10,6 +10,7 @@ pub mod icons;
 pub mod launcher;
 pub mod process;
 pub mod rates;
+pub mod screenshot;
 pub mod search;
 pub mod shortcuts;
 pub mod paste;

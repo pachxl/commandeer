@@ -50,6 +50,7 @@ const ICONS: Record<string, (color?: string, size?: number) => string> = {
   cpu: icon('0 0 24 24', '<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/>'),
   keyboard: icon('0 0 24 24', '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M8 12h.01"/><path d="M12 12h.01"/><path d="M16 12h.01"/><path d="M7 16h10"/>'),
   clock: icon('0 0 24 24', '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'),
+  camera: icon('0 0 24 24', '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>'),
   volume: icon('0 0 24 24', '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>'),
   x: icon('0 0 24 24', '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
 }

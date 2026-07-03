@@ -7,6 +7,7 @@ import { appLauncherProvider } from './appLauncher'
 import { calculatorProvider } from './calculator'
 import { clipboardProvider } from './clipboard'
 import { processesProvider } from './processes'
+import { screenshotProvider } from './screenshot'
 import { systemProvider } from './system'
 import { toolsProvider } from './tools'
 import { volumeProvider } from './volume'
@@ -18,6 +19,7 @@ export const providers: CommandProvider[] = [
   clipboardProvider,
   processesProvider,
   toolsProvider,
+  screenshotProvider,
   calculatorProvider,
 ]
 

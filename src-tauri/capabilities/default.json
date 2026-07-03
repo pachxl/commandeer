@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2/capability.json",
   "identifier": "default",
   "description": "Default capability for commandeer palette",
-  "windows": ["palette"],
+  "windows": ["palette", "screenshot"],
   "permissions": [
     "core:default",
     "core:window:allow-show",

@@ -4,6 +4,7 @@
 //! Supported forms:
 //!   commandeer://command/<id>   → show the palette and run/open command <id>
 //!                                 (reuses the per-command-hotkey path)
+//!   commandeer://screenshot     → start the region-screenshot flow
 //!   commandeer://open           → just show the palette
 //!
 //! The <id> may be percent-encoded (command ids contain ':', e.g.
@@ -33,6 +34,11 @@ pub fn handle_url(app: &AppHandle, url: &str) -> bool {
         "command" | "run" if !arg.is_empty() => {
             let id = percent_decode(arg);
             let _ = app.emit("command-hotkey", id);
+        }
+        // Must not fall through to show_palette: the palette would end up in
+        // the frozen frame (this is the COSMIC PrtScn binding's entry point).
+        "screenshot" => {
+            super::screenshot::start_screenshot_bg(app);
         }
         _ => {
             // "open" or anything unrecognized: surface the palette.

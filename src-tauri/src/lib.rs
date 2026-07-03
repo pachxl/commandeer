@@ -190,8 +190,16 @@ fn update_cosmic_shortcut(game_mode: bool) {
     let our_line = format!(
         "    (modifiers: [{modifier}], key: \"space\", description: Some(\"Toggle Commandeer\")): Spawn(\"{exe}\"),"
     );
+    // Second managed binding: PrtScn relaunches us with the screenshot deep
+    // link (cosmic-comp spawns via shell, so the appended arg survives).
+    // NOTE: both managed lines embed the exe path bare; a path containing
+    // spaces would break Spawn's word-splitting.
+    let screenshot_line = format!(
+        "    (modifiers: [], key: \"Print\", description: Some(\"Commandeer Screenshot\")): Spawn(\"{exe} commandeer://screenshot\"),"
+    );
 
-    // Preserve unrelated custom shortcuts; replace only our binding (any modifier).
+    // Preserve unrelated custom shortcuts; replace only our bindings (the
+    // exe-path filter below drops every line we manage).
     let mut kept: Vec<String> = Vec::new();
     if let Ok(existing) = std::fs::read_to_string(&file) {
         for line in existing.lines() {
@@ -208,6 +216,8 @@ fn update_cosmic_shortcut(game_mode: bool) {
 
     let mut out = String::from("{\n");
     out.push_str(&our_line);
+    out.push('\n');
+    out.push_str(&screenshot_line);
     out.push('\n');
     for line in kept {
         out.push_str(&line);
@@ -251,6 +261,12 @@ pub fn run() {
                     if event.state() != ShortcutState::Pressed {
                         return;
                     }
+                    // PrtScn starts the screenshot flow (Windows; on Linux the
+                    // COSMIC binding relaunches us with a deep link instead).
+                    if commands::shortcuts::is_screenshot_hotkey(*shortcut) {
+                        commands::screenshot::start_screenshot_bg(app);
+                        return;
+                    }
                     // Per-command shortcuts take precedence over the toggle.
                     if let Some(command_id) = commands::shortcuts::is_command_hotkey(*shortcut) {
                         let _ = app.emit("command-hotkey", command_id);
@@ -276,8 +292,24 @@ pub fn run() {
                     }
                 }
             }
+            // Windows only: dismiss the screenshot overlay on click-away. On
+            // Linux the overlay layer's focus semantics are quirky (a spurious
+            // unfocus would make the tool unusable), so Esc is the only out.
+            #[cfg(target_os = "windows")]
+            if win.label() == "screenshot" {
+                if let WindowEvent::Focused(false) = event {
+                    if std::env::var_os("COMMANDEER_NO_AUTOHIDE").is_none()
+                        && win.is_visible().unwrap_or(false)
+                    {
+                        commands::screenshot::cancel_screenshot(win.app_handle().clone());
+                    }
+                }
+            }
         })
         .setup(|app| {
+            // Pending screenshot capture (frame path + dimensions).
+            app.manage(commands::screenshot::ScreenshotState::default());
+
             // Self-hosted file index (SQLite + FTS5) backing the find: search.
             let file_index = commands::file_index::FileIndex::new(app.app_handle())?;
             let file_index_clone = file_index.clone();
@@ -358,6 +390,30 @@ pub fn run() {
                             gtk_win.set_size_request(669, 300);
                         }
                     }
+
+                    // The screenshot overlay is a second layer surface: anchored
+                    // to ALL four edges so the compositor stretches it across the
+                    // whole output (no size request — unlike the palette above,
+                    // its size must come from the anchors). Exclusive keyboard so
+                    // Esc always reaches it; exclusive zone -1 so it covers
+                    // panels/docks instead of being pushed inside them.
+                    if let Some(win) = app.get_webview_window("screenshot") {
+                        if let Ok(gtk_win) = win.gtk_window() {
+                            use gtk::prelude::*;
+                            if gtk_win.is_realized() {
+                                gtk_win.unrealize();
+                            }
+                            gtk_win.init_layer_shell();
+                            gtk_win.set_layer(Layer::Overlay);
+                            gtk_win.set_namespace("commandeer-screenshot");
+                            gtk_win.set_keyboard_mode(KeyboardMode::Exclusive);
+                            gtk_win.set_anchor(Edge::Top, true);
+                            gtk_win.set_anchor(Edge::Bottom, true);
+                            gtk_win.set_anchor(Edge::Left, true);
+                            gtk_win.set_anchor(Edge::Right, true);
+                            gtk_win.set_exclusive_zone(-1);
+                        }
+                    }
                 }
             }
 
@@ -421,6 +477,10 @@ pub fn run() {
             commands::audio::set_volume,
             commands::audio::toggle_mute,
             commands::window::set_window_transparency,
+            commands::screenshot::start_screenshot,
+            commands::screenshot::show_screenshot_overlay,
+            commands::screenshot::finish_screenshot,
+            commands::screenshot::cancel_screenshot,
             commands::shortcuts::set_global_hotkey,
             commands::shortcuts::set_command_hotkey,
             commands::shortcuts::get_command_hotkey,

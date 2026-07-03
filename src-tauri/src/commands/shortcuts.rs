@@ -15,6 +15,7 @@ use super::store::CommandOverride;
 struct ActiveShortcuts {
     base: Option<Shortcut>,
     base_game: Option<Shortcut>,
+    screenshot: Option<Shortcut>,
     commands: HashMap<String, Shortcut>,
 }
 
@@ -25,6 +26,8 @@ fn active() -> &'static Mutex<ActiveShortcuts> {
 
 const DEFAULT_HOTKEY: &str = "Ctrl+Space";
 const DEFAULT_GAME_HOTKEY: &str = "Alt+Space";
+#[cfg(target_os = "windows")]
+const DEFAULT_SCREENSHOT_HOTKEY: &str = "PrintScreen";
 
 /// Parse a human-readable shortcut like "Ctrl+Space" or "Alt+Shift+T" into a
 /// Tauri Shortcut. Key names are case-insensitive.
@@ -51,6 +54,7 @@ pub fn parse_shortcut(s: &str) -> Result<Shortcut, String> {
 fn parse_code(key: &str) -> Result<Code, String> {
     let code = match key {
         "space" => Code::Space,
+        "printscreen" | "prtsc" | "print" => Code::PrintScreen,
         "enter" | "return" => Code::Enter,
         "escape" | "esc" => Code::Escape,
         "tab" => Code::Tab,
@@ -179,6 +183,34 @@ pub fn register_base_hotkey(app: &AppHandle, config: &AppConfig, game_mode: bool
     Ok(())
 }
 
+/// (Re-)register the screenshot hotkey (Windows only — on Linux the trigger is
+/// a managed COSMIC binding that relaunches us with a deep link). Registration
+/// failure is non-fatal: Windows' own Snipping Tool setting can hold PrtScn,
+/// and the palette command still works.
+#[cfg(target_os = "windows")]
+fn register_screenshot_hotkey(app: &AppHandle, config: &AppConfig) {
+    let hotkey_str = config
+        .screenshot_hotkey
+        .as_deref()
+        .unwrap_or(DEFAULT_SCREENSHOT_HOTKEY);
+    let shortcut = match parse_shortcut(hotkey_str) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Invalid screenshot hotkey {hotkey_str}: {e}");
+            return;
+        }
+    };
+
+    let mut active = active().lock().unwrap();
+    if let Some(prev) = active.screenshot.take() {
+        let _ = app.global_shortcut().unregister(prev);
+    }
+    match app.global_shortcut().register(shortcut) {
+        Ok(_) => active.screenshot = Some(shortcut),
+        Err(e) => eprintln!("Failed to register screenshot hotkey {hotkey_str}: {e}"),
+    }
+}
+
 /// Register per-command shortcuts from overrides. Each shortcut fires a
 /// `command-hotkey` event carrying the command id.
 pub fn register_command_hotkeys(
@@ -218,6 +250,8 @@ pub fn register_command_hotkeys(
 pub fn setup_shortcuts(app: &AppHandle) -> Result<(), String> {
     let config = read_config_sync(app)?;
     register_base_hotkey(app, &config, false)?;
+    #[cfg(target_os = "windows")]
+    register_screenshot_hotkey(app, &config);
 
     let overrides = read_overrides_sync(app)?;
     register_command_hotkeys(app, &overrides)?;
@@ -228,10 +262,17 @@ pub fn setup_shortcuts(app: &AppHandle) -> Result<(), String> {
 pub fn reload_shortcuts(app: &AppHandle, game_mode: bool) -> Result<(), String> {
     let config = read_config_sync(app)?;
     register_base_hotkey(app, &config, game_mode)?;
+    #[cfg(target_os = "windows")]
+    register_screenshot_hotkey(app, &config);
 
     let overrides = read_overrides_sync(app)?;
     register_command_hotkeys(app, &overrides)?;
     Ok(())
+}
+
+/// Returns true if the shortcut is the registered screenshot hotkey.
+pub fn is_screenshot_hotkey(shortcut: Shortcut) -> bool {
+    active().lock().unwrap().screenshot == Some(shortcut)
 }
 
 /// Returns true if the shortcut currently belongs to a registered command

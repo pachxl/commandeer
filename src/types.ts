@@ -34,6 +34,9 @@ export interface AppConfig {
   global_hotkey?: string
   // Alternate global hotkey used in game mode (e.g. 'Alt+Space')
   global_hotkey_game?: string
+  // Global hotkey that starts the region screenshot (default 'PrintScreen';
+  // Windows only — Linux uses a managed COSMIC binding instead)
+  screenshot_hotkey?: string
 }
 
 export interface PaletteItem {

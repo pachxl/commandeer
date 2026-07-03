@@ -126,6 +126,37 @@ export const getAutostart = () =>
 export const onCommandHotkey = (callback: (commandId: string) => void) =>
   listen<string>('command-hotkey', event => callback(event.payload))
 
+// Region screenshot (Lightshot-style). start → Rust freezes the screen and
+// emits screenshot-frame to the overlay window; the overlay reports the
+// selected region (in frame-image pixels) via finish, or cancels.
+export interface ScreenshotFrame {
+  path: string
+  width: number
+  height: number
+}
+
+export interface ScreenshotRegion {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export const startScreenshot = (delayMs?: number) =>
+  invoke<void>('start_screenshot', { delayMs: delayMs ?? null })
+
+export const showScreenshotOverlay = () =>
+  invoke<void>('show_screenshot_overlay')
+
+export const finishScreenshot = (region: ScreenshotRegion) =>
+  invoke<string>('finish_screenshot', { region })
+
+export const cancelScreenshot = () =>
+  invoke<void>('cancel_screenshot')
+
+export const onScreenshotFrame = (callback: (frame: ScreenshotFrame) => void) =>
+  listen<ScreenshotFrame>('screenshot-frame', event => callback(event.payload))
+
 export const readSnippets = () =>
   invoke<Snippet[]>('read_snippets')
 
