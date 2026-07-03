@@ -482,6 +482,7 @@ pub fn run() {
             commands::screenshot::finish_screenshot,
             commands::screenshot::cancel_screenshot,
             commands::shortcuts::set_global_hotkey,
+            commands::shortcuts::set_screenshot_hotkey,
             commands::shortcuts::set_command_hotkey,
             commands::shortcuts::get_command_hotkey,
             set_autostart,

@@ -26,8 +26,11 @@ fn active() -> &'static Mutex<ActiveShortcuts> {
 
 const DEFAULT_HOTKEY: &str = "Ctrl+Space";
 const DEFAULT_GAME_HOTKEY: &str = "Alt+Space";
+// Insert, not PrintScreen: RegisterHotKey(VK_SNAPSHOT) "succeeds" but never
+// fires because PrintScreen emits no WM_KEYDOWN, so WM_HOTKEY is never sent.
+// Insert is an ordinary key that RegisterHotKey handles normally.
 #[cfg(target_os = "windows")]
-const DEFAULT_SCREENSHOT_HOTKEY: &str = "PrintScreen";
+const DEFAULT_SCREENSHOT_HOTKEY: &str = "Insert";
 
 /// Parse a human-readable shortcut like "Ctrl+Space" or "Alt+Shift+T" into a
 /// Tauri Shortcut. Key names are case-insensitive.
@@ -59,6 +62,7 @@ fn parse_code(key: &str) -> Result<Code, String> {
         "escape" | "esc" => Code::Escape,
         "tab" => Code::Tab,
         "backspace" => Code::Backspace,
+        "insert" | "ins" => Code::Insert,
         "delete" | "del" => Code::Delete,
         "home" => Code::Home,
         "end" => Code::End,
@@ -310,6 +314,30 @@ pub async fn set_global_hotkey(
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
 
     register_base_hotkey(&app, &config, game_mode)
+}
+
+/// Update the stored screenshot hotkey and re-register it. The binding is
+/// validated (parsed) before persisting so an invalid string is rejected with
+/// an error the UI can surface. Registration only takes effect on Windows; on
+/// Linux the screenshot trigger is a managed COSMIC binding, but the value is
+/// still persisted for cross-build consistency.
+#[tauri::command]
+pub async fn set_screenshot_hotkey(app: AppHandle, hotkey: String) -> Result<(), String> {
+    let hotkey = hotkey.trim().to_string();
+    // Validate the binding up front so bad input never reaches config.json.
+    parse_shortcut(&hotkey)?;
+
+    let mut config = read_config_sync(&app)?;
+    config.screenshot_hotkey = Some(hotkey);
+
+    let path = config_path(&app)?;
+    let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    register_screenshot_hotkey(&app, &config);
+
+    Ok(())
 }
 
 /// Set or clear a per-command global shortcut. Stores the hotkey in

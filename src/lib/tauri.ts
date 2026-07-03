@@ -109,6 +109,11 @@ export const writeOverrides = (overrides: Record<string, CommandOverride>) =>
 export const setGlobalHotkey = (hotkey: string, gameHotkey: string | null, gameMode: boolean) =>
   invoke<void>('set_global_hotkey', { update: { hotkey, game_hotkey: gameHotkey }, gameMode })
 
+// Global hotkey that starts the region screenshot (Windows only; default 'Insert').
+// Rejects (throws) if the binding string doesn't parse.
+export const setScreenshotHotkey = (hotkey: string) =>
+  invoke<void>('set_screenshot_hotkey', { hotkey })
+
 export const setCommandHotkey = (commandId: string, hotkey: string | null) =>
   invoke<void>('set_command_hotkey', { commandId, hotkey })
 

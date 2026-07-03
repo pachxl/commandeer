@@ -1,9 +1,15 @@
 import type { AppConfig, Command, PaletteItem, Step, StepResult } from '../types'
-// The palette hotkeys aren't edited here — set global_hotkey /
-// global_hotkey_game in <app-data>/config.json (read at startup).
-import { dataDir, getAutostart, openPath, setAutostart, setWindowTransparency, writeConfig } from '../lib/tauri'
+// The palette toggle hotkeys aren't edited here — set global_hotkey /
+// global_hotkey_game in <app-data>/config.json (read at startup). The
+// screenshot hotkey, however, is editable below (Windows only).
+import { dataDir, getAutostart, openPath, setAutostart, setScreenshotHotkey, setWindowTransparency, writeConfig } from '../lib/tauri'
 import { appEvents } from '../lib/appEvents'
 import { applyTheme, applyThemeByName, getAllThemes, type Theme } from '../lib/themes'
+
+// The screenshot hotkey is a Windows-only global shortcut; on Linux the
+// trigger is a managed COSMIC binding, so we hide the setting there.
+const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
+const DEFAULT_SCREENSHOT_HOTKEY = 'Insert'
 
 function settingsStep(config: AppConfig): Step {
   const transparencyPercent = Math.round((config.transparency ?? 0) * 100)
@@ -44,6 +50,14 @@ function settingsStep(config: AppConfig): Step {
         iconColor: '#39ff14',
         actionLabel: 'Toggle',
       },
+      ...(IS_LINUX ? [] : [{
+        id: 'settings:screenshot-hotkey',
+        label: 'Screenshot Hotkey',
+        sublabel: `Current: ${config.screenshot_hotkey || DEFAULT_SCREENSHOT_HOTKEY} — starts region capture`,
+        icon: 'camera',
+        isFolder: true,
+        actionLabel: 'Change',
+      } as PaletteItem]),
       {
         id: 'settings:toggle-claude-usage',
         label: 'Claude Usage Panel',
@@ -87,6 +101,9 @@ function settingsStep(config: AppConfig): Step {
       }
       if (item.id === 'settings:transparency') {
         return { type: 'push', step: transparencyStep(config) }
+      }
+      if (item.id === 'settings:screenshot-hotkey') {
+        return { type: 'push', step: screenshotHotkeyStep(config) }
       }
       if (item.id === 'settings:autostart') {
         const current = await getAutostart().catch(() => false)
@@ -190,6 +207,37 @@ function transparencyStep(config: AppConfig): Step {
     },
     load: async () => [],
     onSelect: async () => ({ type: 'pop' }),
+  }
+}
+
+// Free-text step to rebind the region-screenshot global hotkey. The binding is
+// validated on the Rust side (set_screenshot_hotkey rejects unparseable
+// strings) and re-registered immediately. Windows only — reached solely from
+// the (Windows-gated) settings entry above.
+function screenshotHotkeyStep(config: AppConfig): Step {
+  const current = config.screenshot_hotkey || DEFAULT_SCREENSHOT_HOTKEY
+  return {
+    id: 'settings:screenshot-hotkey',
+    label: 'Screenshot Hotkey',
+    placeholder: `Type a hotkey (e.g. Insert, Ctrl+Shift+S). Current: ${current}`,
+    isInputStep: true,
+    onSelect: async () => ({ type: 'done' }),
+    onCommitQuery: async (query): Promise<StepResult> => {
+      const binding = query.trim()
+      // Empty commit: leave the binding unchanged.
+      if (!binding) return { type: 'pop' }
+      try {
+        await setScreenshotHotkey(binding)
+        Object.assign(config, { screenshot_hotkey: binding })
+        appEvents.toast?.(`Screenshot hotkey set to ${binding}`, 'success')
+        return { type: 'pop' }
+      } catch (err) {
+        appEvents.toast?.(`Invalid hotkey: ${String(err)}`, 'error')
+        // Stay on the step so the user can correct it.
+        return { type: 'stay' }
+      }
+    },
+    load: async () => [],
   }
 }
 
