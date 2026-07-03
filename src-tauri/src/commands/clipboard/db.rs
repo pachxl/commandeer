@@ -58,7 +58,57 @@ impl ClipboardDb {
             conn: Arc::new(Mutex::new(conn)),
         };
         db.migrate_json(app)?;
+        #[cfg(target_os = "linux")]
+        db.migrate_plaintext()?;
         Ok(db)
+    }
+
+    /// One-time (idempotent) re-encryption of rows written before encryption
+    /// existed on Linux. `decrypt` passes unmarked rows through, so this is
+    /// safe to interrupt and re-run.
+    #[cfg(target_os = "linux")]
+    fn migrate_plaintext(&self) -> Result<(), String> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        {
+            let mut stmt = tx
+                .prepare("SELECT id, text FROM clipboard_history")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+                })
+                .map_err(|e| e.to_string())?;
+            let plaintext: Vec<(String, Vec<u8>)> = rows
+                .filter_map(|r| r.ok())
+                .filter(|(_, blob)| !crypto::is_encrypted(blob))
+                .collect();
+            for (id, blob) in plaintext {
+                let encrypted = crypto::encrypt(&blob)?;
+                tx.execute(
+                    "UPDATE clipboard_history SET text = ? WHERE id = ?",
+                    params![&encrypted, &id],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+        }
+        tx.commit().map_err(|e| e.to_string())
+    }
+
+    /// Decrypt a stored row. On Windows a failure is fatal (DPAPI always
+    /// roundtrips for the same user); on Linux a lost key must not brick the
+    /// whole history, so undecryptable rows are skipped via `None`.
+    fn decrypt_row(encrypted: &[u8]) -> Result<Option<String>, String> {
+        let result = crypto::decrypt(encrypted).and_then(|bytes| {
+            String::from_utf8(bytes).map_err(|e| format!("invalid UTF-8 in clipboard entry: {e}"))
+        });
+        match result {
+            Ok(text) => Ok(Some(text)),
+            #[cfg(target_os = "windows")]
+            Err(e) => Err(e),
+            #[cfg(not(target_os = "windows"))]
+            Err(_) => Ok(None),
+        }
     }
 
     /// One-time migration from the legacy plaintext clipboard.json file.
@@ -110,8 +160,9 @@ impl ClipboardDb {
         let mut items = Vec::new();
         for row in rows {
             let (id, encrypted, copied_at) = row.map_err(|e| e.to_string())?;
-            let text = String::from_utf8(crypto::decrypt(&encrypted)?)
-                .map_err(|e| format!("invalid UTF-8 in clipboard entry: {e}"))?;
+            let Some(text) = Self::decrypt_row(&encrypted)? else {
+                continue;
+            };
             items.push(ClipboardItem { id, text, copied_at });
         }
         Ok(items)
@@ -145,8 +196,12 @@ impl ClipboardDb {
         let mut kept_count: usize = 0;
         for row in rows {
             let (id, encrypted, _copied_at) = row.map_err(|e| e.to_string())?;
-            let decrypted = String::from_utf8(crypto::decrypt(&encrypted)?)
-                .map_err(|e| format!("invalid UTF-8 in clipboard entry: {e}"))?;
+            let Some(decrypted) = Self::decrypt_row(&encrypted)? else {
+                // Undecryptable row: not a duplicate, still occupies a slot
+                // until the size cap ages it out.
+                kept_count += 1;
+                continue;
+            };
             if decrypted == text {
                 duplicate_ids.push(id);
             } else {

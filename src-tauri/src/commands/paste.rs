@@ -48,10 +48,13 @@ pub unsafe fn force_foreground(hwnd: windows::Win32::Foundation::HWND) {
 }
 
 /// Hide the palette, put `text` on the clipboard, refocus the window that was
-/// active when the palette opened, and synthesize Ctrl+V. On non-Windows this
-/// degrades to copy-only.
+/// active when the palette opened, and synthesize Ctrl+V. Returns whether the
+/// paste keystroke was actually delivered: on Linux that needs an input
+/// synthesizer (wtype / ydotool on Wayland, xdotool on X11) — without one this
+/// degrades to copy-only and returns `false` so the frontend can tell the user
+/// to press Ctrl+V themselves.
 #[tauri::command]
-pub async fn paste_to_previous(app: tauri::AppHandle, text: String) -> Result<(), String> {
+pub async fn paste_to_previous(app: tauri::AppHandle, text: String) -> Result<bool, String> {
     if let Some(win) = app.get_webview_window("palette") {
         let _ = win.hide();
     }
@@ -100,13 +103,27 @@ pub async fn paste_to_previous(app: tauri::AppHandle, text: String) -> Result<()
                 ];
                 SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
             }
-            Ok(())
+            Ok(true)
         })
         .await
         .map_err(|e| e.to_string())?
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    {
+        tokio::task::spawn_blocking(move || {
+            super::clipboard::set_clipboard_detached(text)?;
+            // The compositor refocuses the previous surface once the palette
+            // unmaps; give it a beat before synthesizing the keystroke (there
+            // is no Wayland equivalent of force_foreground).
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            Ok(synthesize_ctrl_v())
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         std::thread::spawn(move || {
             let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
@@ -114,5 +131,28 @@ pub async fn paste_to_previous(app: tauri::AppHandle, text: String) -> Result<()
         })
         .join()
         .map_err(|e| format!("{:?}", e))?
+        .map(|_| false)
+    }
+}
+
+/// Best-effort Ctrl+V into the focused window via whichever input synthesizer
+/// is installed. Returns false when none worked (copy-only).
+#[cfg(target_os = "linux")]
+fn synthesize_ctrl_v() -> bool {
+    let try_tool = |program: &str, args: &[&str]| {
+        std::process::Command::new(program)
+            .args(args)
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false)
+    };
+
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        // wtype needs the compositor's virtual-keyboard protocol (cosmic-comp
+        // and wlroots have it); ydotool needs its daemon + uinput permissions.
+        try_tool("wtype", &["-M", "ctrl", "-k", "v", "-m", "ctrl"])
+            || try_tool("ydotool", &["key", "29:1", "47:1", "47:0", "29:0"])
+    } else {
+        try_tool("xdotool", &["key", "--clearmodifiers", "ctrl+v"])
     }
 }

@@ -163,8 +163,11 @@ export const readSnippets = () =>
 export const writeSnippets = (snippets: Snippet[]) =>
   invoke<void>('write_snippets', { snippets })
 
+// Resolves to true when the paste keystroke was delivered to the previous
+// window; false means copy-only (Linux without an input synthesizer) and the
+// caller should tell the user to press Ctrl+V themselves.
 export const pasteToPrevious = (text: string) =>
-  invoke<void>('paste_to_previous', { text })
+  invoke<boolean>('paste_to_previous', { text })
 
 export interface SystemStats {
   cpu: number

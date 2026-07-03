@@ -788,7 +788,8 @@ export default function Palette({
             shortcut: '↵',
             handler: async () => {
               try {
-                await pasteToPrevious(clip.text)
+                const pasted = await pasteToPrevious(clip.text)
+                if (!pasted) toast('Copied — press Ctrl+V to paste', 'success')
               } catch (err) {
                 toast('Failed to paste', 'error')
                 throw err

@@ -156,14 +156,46 @@ pub async fn clear_clipboard_history(db: tauri::State<'_, ClipboardDb>) -> Resul
     db.clear()
 }
 
+/// Put `text` on the clipboard and keep serving it after this call returns.
+/// On X11/Wayland the selection is owned by the live connection, so dropping
+/// the `Clipboard` right after `set_text` (the old behavior) made the content
+/// vanish unless a clipboard manager happened to grab it first. `wait()`
+/// blocks until another owner replaces the offer, so the thread outlives the
+/// call; an early error (no display, protocol failure) arrives immediately,
+/// while silence past the timeout means the offer is live.
+#[cfg(target_os = "linux")]
+pub(crate) fn set_clipboard_detached(text: String) -> Result<(), String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = arboard::Clipboard::new().and_then(|mut c| {
+            use arboard::SetExtLinux;
+            c.set().wait().text(text)
+        });
+        let _ = tx.send(result.map_err(|e| e.to_string()));
+    });
+    match rx.recv_timeout(std::time::Duration::from_millis(300)) {
+        Ok(result) => result,
+        Err(_) => Ok(()), // still serving the selection = success
+    }
+}
+
 #[tauri::command]
 pub async fn write_clipboard_text(text: String) -> Result<(), String> {
-    std::thread::spawn(move || {
-        let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-        clipboard.set_text(text).map_err(|e| e.to_string())
-    })
-    .join()
-    .map_err(|e| format!("{:?}", e))?
+    #[cfg(target_os = "linux")]
+    {
+        tokio::task::spawn_blocking(move || set_clipboard_detached(text))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::thread::spawn(move || {
+            let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+            clipboard.set_text(text).map_err(|e| e.to_string())
+        })
+        .join()
+        .map_err(|e| format!("{:?}", e))?
+    }
 }
 
 // paste_to_previous and the foreground-window capture live in paste.rs.
