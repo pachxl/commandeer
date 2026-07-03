@@ -41,6 +41,7 @@ function settingsStep(config: AppConfig): Step {
         label: 'Game Mode',
         sublabel: `${appEvents.isGameMode?.() ? 'On' : 'Off'} — uses the game hotkey (Ctrl+G)`,
         icon: 'gamepad',
+        color: '#39ff14',
         actionLabel: 'Toggle',
       },
       {
@@ -48,6 +49,7 @@ function settingsStep(config: AppConfig): Step {
         label: 'Claude Usage Panel',
         sublabel: appEvents.isClaudeUsageVisible?.() ? 'On' : 'Off',
         icon: 'chart',
+        color: '#D97757',
         actionLabel: 'Toggle',
       },
       {
