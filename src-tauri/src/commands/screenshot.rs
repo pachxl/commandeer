@@ -50,25 +50,7 @@ fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
     let dest = frame_path(app)?;
     let dir = dest.parent().unwrap().to_path_buf();
 
-    let out = std::process::Command::new("cosmic-screenshot")
-        .args(["--interactive=false", "--notify=false"])
-        .arg(format!("--save-dir={}", dir.display()))
-        .output()
-        .map_err(|e| format!("cosmic-screenshot failed to run: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "cosmic-screenshot failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        ));
-    }
-    let saved = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if saved.is_empty() {
-        return Err("cosmic-screenshot printed no path".into());
-    }
-    // Move to the stable name the asset-protocol scope expects.
-    if PathBuf::from(&saved) != dest {
-        std::fs::rename(&saved, &dest).map_err(|e| e.to_string())?;
-    }
+    capture_screen_to(&dest, &dir)?;
 
     let (width, height) = image::image_dimensions(&dest).map_err(|e| e.to_string())?;
     Ok(Capture {
@@ -76,6 +58,68 @@ fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
         width,
         height,
     })
+}
+
+/// Grab the screen into `dest` with the first available backend:
+/// cosmic-screenshot (COSMIC portal CLI), then the DE/compositor natives —
+/// gnome-screenshot, spectacle (KDE), grim (wlroots). A tool that isn't
+/// installed just advances the chain; a tool that runs and fails aborts with
+/// its stderr. (The XDG Screenshot portal is deliberately not shelled to:
+/// its reply arrives as a D-Bus signal that `gdbus call` can't wait for.)
+#[cfg(not(target_os = "windows"))]
+fn capture_screen_to(dest: &std::path::Path, dir: &std::path::Path) -> Result<(), String> {
+    let mut missing: Vec<&str> = Vec::new();
+
+    // cosmic-screenshot picks its own filename; rename to the stable name the
+    // asset-protocol scope expects.
+    match std::process::Command::new("cosmic-screenshot")
+        .args(["--interactive=false", "--notify=false"])
+        .arg(format!("--save-dir={}", dir.display()))
+        .output()
+    {
+        Ok(out) if out.status.success() => {
+            let saved = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if saved.is_empty() {
+                return Err("cosmic-screenshot printed no path".into());
+            }
+            if PathBuf::from(&saved) != dest {
+                std::fs::rename(&saved, dest).map_err(|e| e.to_string())?;
+            }
+            return Ok(());
+        }
+        Ok(out) => {
+            return Err(format!(
+                "cosmic-screenshot failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => missing.push("cosmic-screenshot"),
+        Err(e) => return Err(format!("cosmic-screenshot failed to run: {e}")),
+    }
+
+    // Direct-to-file tools, in rough desktop-popularity order.
+    let dest_str = dest.to_string_lossy().into_owned();
+    let candidates: [(&str, Vec<&str>); 3] = [
+        ("gnome-screenshot", vec!["-f", &dest_str]),
+        ("spectacle", vec!["-b", "-n", "-o", &dest_str]),
+        ("grim", vec![&dest_str]),
+    ];
+    for (program, args) in candidates {
+        match std::process::Command::new(program).args(&args).output() {
+            Ok(out) if out.status.success() && dest.is_file() => return Ok(()),
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                eprintln!("screenshot: {program} failed ({err}), trying next backend");
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => missing.push(program),
+            Err(e) => eprintln!("screenshot: {program} failed to run ({e}), trying next backend"),
+        }
+    }
+
+    Err(format!(
+        "no screenshot tool worked — install one of: {}",
+        missing.join(", ")
+    ))
 }
 
 /// GDI capture of the monitor under the cursor (same monitor the overlay is
@@ -276,8 +320,15 @@ pub fn show_screenshot_overlay(app: AppHandle) -> Result<(), String> {
         let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
         let _ = win.set_size(tauri::PhysicalSize::new(capture.width, capture.height));
     }
-    // On Linux the layer-shell surface is anchored to all four edges, so the
-    // compositor sizes it to the output — nothing to position.
+    // On Linux/Wayland the layer-shell surface is anchored to all four edges,
+    // so the compositor sizes it to the output — nothing to position. On X11
+    // there is no layer shell: cover the captured area from the origin (the
+    // fallback capture tools grab the whole screen).
+    #[cfg(not(target_os = "windows"))]
+    if std::env::var_os("WAYLAND_DISPLAY").is_none() {
+        let _ = win.set_position(tauri::PhysicalPosition::new(0, 0));
+        let _ = win.set_size(tauri::PhysicalSize::new(capture.width, capture.height));
+    }
 
     win.show().map_err(|e| e.to_string())?;
     win.set_focus().map_err(|e| e.to_string())
@@ -327,21 +378,65 @@ pub async fn finish_screenshot(app: AppHandle, region: Region) -> Result<String,
     Ok(path.to_string_lossy().into_owned())
 }
 
-/// Linux/Wayland: hand the PNG to `wl-copy`, which forks and keeps serving the
-/// clipboard after we return — arboard's image offer would die with its
-/// Clipboard object here.
+/// Linux: hand the PNG to `wl-copy` (Wayland) or `xclip` (X11), which fork
+/// and keep serving the clipboard after we return — arboard's image offer
+/// would die with its Clipboard object here. When neither tool is installed,
+/// fall back to arboard on a detached thread held open by `wait()` (same
+/// pattern as clipboard.rs::set_clipboard_detached).
 #[cfg(not(target_os = "windows"))]
-fn copy_image_to_clipboard(path: &std::path::Path, _img: &image::RgbaImage) -> Result<(), String> {
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let status = std::process::Command::new("wl-copy")
-        .args(["--type", "image/png"])
-        .stdin(file)
-        .status()
-        .map_err(|e| format!("wl-copy failed to run: {e}"))?;
-    if !status.success() {
-        return Err("wl-copy failed".into());
+fn copy_image_to_clipboard(path: &std::path::Path, img: &image::RgbaImage) -> Result<(), String> {
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+
+    let tool_result = if wayland {
+        std::fs::File::open(path).map_err(|e| e.to_string()).and_then(|file| {
+            match std::process::Command::new("wl-copy")
+                .args(["--type", "image/png"])
+                .stdin(file)
+                .status()
+            {
+                Ok(status) if status.success() => Ok(()),
+                Ok(_) => Err("wl-copy failed".to_string()),
+                Err(e) => Err(format!("wl-copy failed to run: {e}")),
+            }
+        })
+    } else {
+        match std::process::Command::new("xclip")
+            .args(["-selection", "clipboard", "-t", "image/png", "-i"])
+            .arg(path)
+            .status()
+        {
+            Ok(status) if status.success() => Ok(()),
+            Ok(_) => Err("xclip failed".to_string()),
+            Err(e) => Err(format!("xclip failed to run: {e}")),
+        }
+    };
+    if tool_result.is_ok() {
+        return Ok(());
     }
-    Ok(())
+
+    let (width, height) = (img.width() as usize, img.height() as usize);
+    let bytes = img.as_raw().clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = arboard::Clipboard::new().and_then(|mut c| {
+            let set = c.set();
+            #[cfg(target_os = "linux")]
+            let set = {
+                use arboard::SetExtLinux;
+                set.wait()
+            };
+            set.image(arboard::ImageData {
+                width,
+                height,
+                bytes: std::borrow::Cow::Owned(bytes),
+            })
+        });
+        let _ = tx.send(result.map_err(|e| e.to_string()));
+    });
+    match rx.recv_timeout(std::time::Duration::from_millis(500)) {
+        Ok(result) => result,
+        Err(_) => Ok(()), // offer is live and being served
+    }
 }
 
 #[cfg(target_os = "windows")]
