@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod claude;
 pub mod clipboard;
 pub mod config;
@@ -14,5 +15,6 @@ pub mod shortcuts;
 pub mod paste;
 pub mod stats;
 pub mod store;
+pub mod system;
 pub mod window;
 pub mod workspace;

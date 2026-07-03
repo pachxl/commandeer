@@ -51,7 +51,39 @@ copy:
   browse, flat-searchable) so they rank through the same fuzzy + frecency
   pipeline as everything else — no separate ranking path like legacy had.
 
-### 2. Window switcher + window management
+### 2. System actions + volume — ✅ DONE (2026-07-03)
+
+**Built:** `src-tauri/src/commands/system.rs`, `src-tauri/src/commands/audio.rs`,
+`src/providers/system.ts`, `src/providers/volume.ts`
+
+Implemented as an improvement over the legacy port (same pattern as the app
+launcher):
+
+- **Direct Win32 instead of PowerShell spawns** — legacy shelled out to
+  `powershell.exe` per action; now `LockWorkStation`, `SetSuspendState`,
+  `ExitWindowsEx` (with the `SeShutdownPrivilege` enable dance), and
+  `SHEmptyRecycleBinW`. Legacy's `powercfg -hibernate` toggle needed admin
+  and silently failed; the direct API doesn't need it.
+- **In-palette confirm step** for destructive actions (restart / shutdown /
+  logout / empty trash) — Confirm is preselected so the fast path stays
+  Enter-Enter, and Esc cancels.
+- **System virtual folder** — all nine commands live under one `System`
+  folder row at root (same mechanism as Apps/Tools: hidden from browse,
+  still flat-searchable), instead of cluttering the main display.
+- **Per-device volume sliders** — `list_audio_devices` enumerates active
+  render endpoints (friendly names via `PKEY_Device_FriendlyName`, default
+  first); Set Volume lists devices, each opening a live slider. Volume
+  get/set/mute all take an optional endpoint id. Atomic `toggle_mute`
+  (one IPC, no get/set race) instead of legacy's two round-trips.
+- **Slider-step UX fixes** (benefits transparency too): the palette now
+  actually calls `loadSliderValue` to seed position (was hardcoded to the
+  transparency special case; other sliders started at min), Left/Right and
+  Up/Down arrows nudge the value, Enter confirms and pops back.
+- **Esc = back, not close** (palette-wide): Esc pops one step level at a
+  time and only hides the launcher from the root screen.
+- Typed `SystemAction` serde enum on the Rust side instead of string matching.
+
+### 3. Window switcher + window management — *deferred for now (2026-07-03)*
 
 **Port:** `src-tauri/src/commands/window_mgmt.rs`,
 `src/providers/windowSwitcher.ts`, `src/providers/windowManagement.ts`
@@ -59,17 +91,9 @@ copy:
 An alt-tab replacement with fuzzy search over window titles is arguably a
 bigger daily multiplier than app launching — you switch windows far more often
 than you launch apps. Snap / quarters / restore comes along in the same
-backend (`EnumWindows`, `SetForegroundWindow`, `SetWindowPos`).
-
-### 3. System actions + volume
-
-**Port:** `src/providers/system.ts` (lock / sleep / hibernate / restart /
-shutdown / logout / empty trash), `src-tauri/src/commands/audio.rs` +
-`src/providers/volume.ts`
-
-Both are tiny Win32 backends (`ExitWindowsEx`, `LockWorkStation`,
-`IAudioEndpointVolume`), high frequency, zero-risk ports. Probably an
-afternoon combined.
+backend (`EnumWindows`, `SetForegroundWindow`, `SetWindowPos`). Was #2, but
+deliberately parked — pick up when ready for a meatier port; quicklinks (#4)
+can go first.
 
 ### 4. Quicklinks + bookmarks (+ favicons)
 
