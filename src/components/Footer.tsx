@@ -72,7 +72,7 @@ export default function Footer({ selectedItem, primaryAction, onOpenSettings, se
             gap: 4,
             padding: '2px 8px',
             borderRadius: 4,
-            border: '1px solid var(--border)',
+            border: 'none',
             background: 'transparent',
             color: 'var(--text-dim)',
             fontFamily: 'var(--font-ui)',
@@ -80,6 +80,8 @@ export default function Footer({ selectedItem, primaryAction, onOpenSettings, se
             cursor: 'pointer',
             flexShrink: 0,
             outline: 'none',
+            boxShadow: 'none',
+            WebkitAppearance: 'none',
           }}
           onMouseEnter={e => {
             e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
