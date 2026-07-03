@@ -84,7 +84,11 @@ function commandItem(cmd: Command): PaletteItem {
     icon: cmd.icon,
     iconPath: cmd.iconPath,
     source: cmd.source,
-    actionLabel: cmd.actionLabel,
+    // isFolder marks step-opening children as navigable (chevron, Right
+    // arrow enters); give them a plain 'Open' so they don't inherit the
+    // 'Open Folder' default action label
+    isFolder: !!cmd.createRootStep,
+    actionLabel: cmd.actionLabel ?? (cmd.createRootStep ? 'Open' : undefined),
     searchText: [cmd.label, cmd.description, ...(cmd.keywords ?? [])].filter(Boolean).join(' '),
     data: cmd.data ?? cmd.id,
   }

@@ -18,6 +18,7 @@ function settingsStep(config: AppConfig): Step {
         label: 'Choose Theme…',
         sublabel: `Current: ${config.theme ?? 'Tokyo Night'}`,
         icon: 'moon',
+        isFolder: true,
         actionLabel: 'Open',
       },
       {
@@ -25,6 +26,7 @@ function settingsStep(config: AppConfig): Step {
         label: 'Window Transparency',
         sublabel: `Current: ${transparencyPercent}% - Use slider to adjust`,
         icon: 'eye',
+        isFolder: true,
         actionLabel: 'Open',
       },
       {

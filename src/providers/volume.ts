@@ -36,6 +36,7 @@ function devicesStep(): Step {
         label: d.name,
         sublabel: d.is_default ? 'Default output' : undefined,
         icon: 'volume',
+        isFolder: true,
         actionLabel: 'Adjust',
         data: d,
       }))

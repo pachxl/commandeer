@@ -79,8 +79,10 @@ launcher):
   actually calls `loadSliderValue` to seed position (was hardcoded to the
   transparency special case; other sliders started at min), Left/Right and
   Up/Down arrows nudge the value, Enter confirms and pops back.
-- **Esc = back, not close** (palette-wide): Esc pops one step level at a
-  time and only hides the launcher from the root screen.
+- **Menu navigation** (palette-wide): Esc and Left pop one step level at a
+  time (Esc only hides the launcher from the root screen); Right enters the
+  selected submenu when the query is empty — items that open a step are
+  marked with the `isFolder` chevron, and Right never fires plain actions.
 - Typed `SystemAction` serde enum on the Rust side instead of string matching.
 
 ### 3. Window switcher + window management — *deferred for now (2026-07-03)*

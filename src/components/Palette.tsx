@@ -1029,6 +1029,28 @@ export default function Palette({
       return
     }
 
+    // Left/Right walk menus when the query is empty (with text they keep
+    // moving the caret): Left goes back a level, Right enters the selected
+    // item's submenu. Right never *runs* anything — only items that open a
+    // step (folders, device lists, settings pages) respond, so arrowing
+    // around can't fire an action.
+    if (e.key === 'ArrowLeft' && !state.query && !isGridStep) {
+      e.preventDefault()
+      if (state.stepStack.length > 0) dispatch({ type: 'POP_STEP' })
+      return
+    }
+    if (e.key === 'ArrowRight' && !state.query && !isGridStep) {
+      const selected = visibleItems[clampedIndex]
+      const opensSubmenu = selected
+        ? (currentStep ? selected.isFolder === true : !!resolveCommand(selected.id)?.createRootStep)
+        : false
+      if (selected && opensSubmenu) {
+        e.preventDefault()
+        await handleSelect(selected)
+      }
+      return
+    }
+
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       const next = Math.min(clampedIndex + 1, Math.max(0, visibleItems.length - 1))
