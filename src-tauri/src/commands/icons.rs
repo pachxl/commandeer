@@ -64,6 +64,48 @@ pub fn icon_for_file(path: &str) -> Option<String> {
     icon
 }
 
+/// Data-URL icon for a shell parsing name (e.g. "shell:AppsFolder\\<id>"),
+/// resolved via IShellItemImageFactory — works for UWP/Store apps that have
+/// no filesystem icon source. Cached per path.
+pub fn icon_for_shell_item(parse_path: &str) -> Option<String> {
+    let key = parse_path.to_lowercase();
+    if let Some(hit) = file_cache().lock().ok()?.get(&key) {
+        return hit.clone();
+    }
+    let icon = shell_item_icon(parse_path);
+    if let Ok(mut c) = file_cache().lock() {
+        c.insert(key, icon.clone());
+    }
+    icon
+}
+
+fn shell_item_icon(parse_path: &str) -> Option<String> {
+    use windows::core::{Interface, PCWSTR};
+    use windows::Win32::Foundation::SIZE;
+    use windows::Win32::Graphics::Gdi::DeleteObject;
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+    use windows::Win32::UI::Shell::{
+        IShellItem, IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_ICONONLY,
+    };
+
+    let wide: Vec<u16> = parse_path
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe {
+        // COM may already be initialized on this thread; ignore that.
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let item: IShellItem = SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None).ok()?;
+        let factory: IShellItemImageFactory = item.cast().ok()?;
+        let hbm = factory
+            .GetImage(SIZE { cx: 32, cy: 32 }, SIIGBF_ICONONLY)
+            .ok()?;
+        let png = hbitmap_to_png(hbm);
+        let _ = DeleteObject(hbm);
+        png.map(|bytes| format!("data:image/png;base64,{}", super::fs::base64_encode(&bytes)))
+    }
+}
+
 /// Resolve a Windows .lnk shortcut to the path that should be used for its
 /// icon. This prefers an explicit icon location stored in the shortcut, then
 /// falls back to the shortcut target so we avoid the shortcut overlay.
@@ -253,6 +295,65 @@ unsafe fn hicon_to_png(hicon: windows::Win32::UI::WindowsAndMessaging::HICON) ->
         let _ = DeleteObject(info.hbmMask);
     }
     result
+}
+
+/// 32bpp HBITMAP (e.g. from IShellItemImageFactory) → PNG bytes. Shell images
+/// carry a real alpha channel; all-zero alpha (some legacy sources) is
+/// recovered as fully opaque.
+unsafe fn hbitmap_to_png(hbm: windows::Win32::Graphics::Gdi::HBITMAP) -> Option<Vec<u8>> {
+    use windows::Win32::Graphics::Gdi::{
+        GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
+        DIB_RGB_COLORS,
+    };
+
+    let mut bm = BITMAP::default();
+    let got = GetObjectW(
+        hbm,
+        std::mem::size_of::<BITMAP>() as i32,
+        Some(&mut bm as *mut _ as *mut _),
+    );
+    let (width, height) = (bm.bmWidth, bm.bmHeight);
+    if got == 0 || width <= 0 || height <= 0 || width > 256 || height > 256 {
+        return None;
+    }
+
+    let hdc = GetDC(None);
+    let header = BITMAPINFOHEADER {
+        biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+        biWidth: width,
+        biHeight: -height, // top-down
+        biPlanes: 1,
+        biBitCount: 32,
+        biCompression: BI_RGB.0,
+        ..Default::default()
+    };
+    let count = (width * height) as usize;
+    let mut bgra = vec![0u8; count * 4];
+    let mut bmi = BITMAPINFO { bmiHeader: header, ..Default::default() };
+    let lines = GetDIBits(
+        hdc,
+        hbm,
+        0,
+        height as u32,
+        Some(bgra.as_mut_ptr() as *mut _),
+        &mut bmi,
+        DIB_RGB_COLORS,
+    );
+    ReleaseDC(None, hdc);
+    if lines == 0 {
+        return None;
+    }
+
+    if bgra.chunks_exact(4).all(|px| px[3] == 0) {
+        for px in bgra.chunks_exact_mut(4) {
+            px[3] = 255;
+        }
+    }
+    let mut rgba = Vec::with_capacity(count * 4);
+    for px in bgra.chunks_exact(4) {
+        rgba.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+    }
+    Some(encode_png(width as u32, height as u32, &rgba))
 }
 
 // ── Minimal PNG writer (RGBA8, uncompressed deflate) ─────────────────────────

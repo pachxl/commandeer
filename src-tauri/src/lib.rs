@@ -405,6 +405,8 @@ pub fn run() {
             commands::rates::get_rates,
             commands::explorer::explorer_location,
             commands::explorer::list_files_recursive,
+            commands::launcher::list_apps,
+            commands::launcher::run_app,
             commands::search::search_files,
             commands::search::file_info,
             commands::search::path_icon,

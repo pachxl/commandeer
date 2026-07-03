@@ -3,12 +3,14 @@
 // snippet, and settings sources still live in App.tsx's command assembly —
 // only the newer feature families register here.
 import type { AppConfig, Command, CommandProvider } from '../types'
+import { appLauncherProvider } from './appLauncher'
 import { calculatorProvider } from './calculator'
 import { clipboardProvider } from './clipboard'
 import { processesProvider } from './processes'
 import { toolsProvider } from './tools'
 
 export const providers: CommandProvider[] = [
+  appLauncherProvider,
   clipboardProvider,
   processesProvider,
   toolsProvider,

@@ -77,8 +77,10 @@ export default function App() {
       // script folders): hidden from root browse, still in the flat search
       const webSearchCmds = isWebSearchVisible() ? [webSearchCommand] : []
       const toolsChildren = [...providerCmds, ...webSearchCmds].filter(c => c.folderName === 'Tools')
+      const appCmds = providerCmds.filter(c => c.folderName === 'Apps')
       setCommands([
         ...cmds,
+        ...(appCmds.length > 0 ? [virtualFolderCommand('Apps', appCmds)] : []),
         ...(toolsChildren.length > 0 ? [toolsFolderCommand(toolsChildren)] : []),
         ...(snippetCmds.length > 0 ? [virtualFolderCommand('Snippets', snippetCmds)] : []),
         ...snippetCmds,

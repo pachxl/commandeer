@@ -82,6 +82,7 @@ function commandItem(cmd: Command): PaletteItem {
     label: cmd.label,
     sublabel: cmd.description,
     icon: cmd.icon,
+    iconPath: cmd.iconPath,
     source: cmd.source,
     actionLabel: cmd.actionLabel,
     searchText: [cmd.label, cmd.description, ...(cmd.keywords ?? [])].filter(Boolean).join(' '),
