@@ -6,6 +6,7 @@ pub mod explorer;
 pub mod file_index;
 pub mod fs;
 pub mod icons;
+pub mod launcher;
 pub mod process;
 pub mod rates;
 pub mod search;

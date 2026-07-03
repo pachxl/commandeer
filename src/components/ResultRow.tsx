@@ -21,7 +21,8 @@ function shellIconFor(item: PaletteItem): Promise<string | null> {
   const ext = /\.([^./\\]+)$/.exec(path)?.[1]?.toLowerCase() ?? ''
   const key = item.icon === 'folder'
     ? ':folder:'
-    : ext === 'exe' || ext === 'lnk'
+    // shell:AppsFolder entries and exe/lnk files embed their own icon
+    : path.startsWith('shell:') || ext === 'exe' || ext === 'lnk'
       ? path.toLowerCase()
       : ext
   let cached = shellIconCache.get(key)

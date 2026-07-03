@@ -23,7 +23,10 @@ pub async fn path_icon(path: String) -> Option<String> {
     {
         tokio::task::spawn_blocking(move || {
             let lower = path.to_lowercase();
-            if lower.ends_with(".exe") || lower.ends_with(".lnk") {
+            if lower.starts_with("shell:") {
+                // AppsFolder entries (app launcher) have no filesystem path
+                crate::commands::icons::icon_for_shell_item(&path)
+            } else if lower.ends_with(".exe") || lower.ends_with(".lnk") {
                 crate::commands::icons::icon_for_file(&path)
             } else {
                 crate::commands::icons::icon_for_path(&path)

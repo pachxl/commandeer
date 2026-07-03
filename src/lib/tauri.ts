@@ -183,6 +183,19 @@ export const fileInfo = (path: string) =>
 export const pathIcon = (path: string) =>
   invoke<string | null>('path_icon', { path })
 
+// Installed applications (shell AppsFolder: win32 + UWP/Store), or Start-Menu
+// shortcut paths when COM enumeration is unavailable
+export interface AppInfo {
+  name: string
+  path: string
+}
+
+export const listApps = () =>
+  invoke<AppInfo[]>('list_apps')
+
+export const runApp = (path: string) =>
+  invoke<void>('run_app', { path })
+
 export interface ProcessInfo {
   pid: number
   name: string
