@@ -134,6 +134,9 @@ const SKIP_DIRS: &[&str] = &[
     ".cargo",
     ".terraform",
     ".bundle",
+    // Home-dir walks on Linux (@search falls back to ~) would otherwise burn
+    // most of the entry cap inside caches.
+    ".cache",
 ];
 
 fn is_skipped_dir(name: &std::ffi::OsStr) -> bool {

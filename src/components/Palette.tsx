@@ -12,7 +12,7 @@ import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
 import { evaluateCalcQuery } from '../providers/calculator'
 import { tryTimeConversion } from '../lib/timezones'
-import { openPath, openUrl, pasteToPrevious, readSnippets, setCommandHotkey, writeClipboardText, writeSnippets, type ClipboardItem, type CommandOverride, type Snippet } from '../lib/tauri'
+import { IS_LINUX, openPath, openUrl, pasteToPrevious, readSnippets, setCommandHotkey, writeClipboardText, writeSnippets, type ClipboardItem, type CommandOverride, type Snippet } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
@@ -258,7 +258,7 @@ const LAST_CMD_KEY = 'commandeer:last'
 //   @web    → web search in the browser
 const AT_PREFIXES = [
   { token: '@find', icon: 'folder', description: 'Find files across your computer' },
-  { token: '@search', icon: 'folder', description: 'Search the focused Explorer folder' },
+  { token: '@search', icon: 'folder', description: IS_LINUX ? 'Search your home folder' : 'Search the focused Explorer folder' },
   { token: '@web', icon: 'search', description: 'Search the web' },
   { token: '@calc', icon: 'calculator', description: 'Calculate an expression (40+2, 100 usd to eur)' },
   { token: '@time', icon: 'clock', description: 'Convert time zones (4pm bst to est)' },
@@ -271,10 +271,6 @@ const FIND_DEBOUNCE_MS = 120
 // calculator, apps, …)
 const PROVIDER_DEBOUNCE_MS = 150
 
-// On Linux the palette is a wlr-layer-shell surface (set up in the Rust backend),
-// which can be resized in place; a plain setSize is enough. On Windows we also
-// lock min == max so the user can't drag-resize it.
-const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
 
 interface PaletteProps {
   config: AppConfig

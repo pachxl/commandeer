@@ -319,6 +319,10 @@ pub async fn search_files(
                 for r in &mut out {
                     r.icon = crate::commands::icons::icon_for_path(&r.path);
                 }
+                #[cfg(not(target_os = "windows"))]
+                for r in &mut out {
+                    r.icon = linux_icons::cached_icon_for_path(&r.path);
+                }
                 return Ok(out);
             }
             _ => {}
@@ -422,6 +426,10 @@ pub async fn search_files(
         #[cfg(target_os = "windows")]
         for r in &mut results {
             r.icon = crate::commands::icons::icon_for_path(&r.path);
+        }
+        #[cfg(not(target_os = "windows"))]
+        for r in &mut results {
+            r.icon = linux_icons::cached_icon_for_path(&r.path);
         }
 
         Ok(results)

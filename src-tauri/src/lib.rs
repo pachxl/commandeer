@@ -135,9 +135,10 @@ fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 /// Tray icon with Show / Start at Login / Quit — the only way to quit or
-/// rediscover the app once the palette is hidden. Windows-only for now; the
-/// Linux build would need libappindicator and is untested there.
-#[cfg(target_os = "windows")]
+/// rediscover the app once the palette is hidden. On Linux this goes through
+/// StatusNotifier/libappindicator (runtime dep: libappindicator-gtk3; COSMIC
+/// shows it in the Status Area applet), and failure is non-fatal — the
+/// palette still works via the global shortcut / relaunch toggle.
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     use tauri::menu::{CheckMenuItem, MenuBuilder, MenuItem};
     use tauri::tray::TrayIconBuilder;
@@ -361,6 +362,10 @@ pub fn run() {
 
             #[cfg(target_os = "windows")]
             setup_tray(app)?;
+            #[cfg(not(target_os = "windows"))]
+            if let Err(e) = setup_tray(app) {
+                eprintln!("tray unavailable: {e}");
+            }
 
             // Configurable base hotkey (default Ctrl+Space; game mode applied
             // later via set_game_mode) plus any per-command shortcuts.
