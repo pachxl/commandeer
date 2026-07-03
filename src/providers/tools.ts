@@ -11,7 +11,7 @@ function calculatorStep(): Step {
   return {
     id: 'calculator:input',
     label: 'Calculator',
-    placeholder: 'Type an expression (e.g. 40+2, 100 usd to eur, #ff6363)...',
+    placeholder: 'Type an expression (e.g. 40+2, 100 usd to eur)...',
     isInputStep: true,
     onSelect: async () => ({ type: 'done' }),
     onCommitQuery: async (query): Promise<StepResult> => {
@@ -30,11 +30,11 @@ function calculatorStep(): Step {
 export const calculatorCommand: Command = {
   id: 'builtin:calculator',
   label: 'Calculator',
-  description: 'Evaluate expressions, convert units, currency, and colors',
+  description: 'Evaluate expressions, convert units and currency',
   icon: 'calculator',
   source: 'calculator',
   folderName: 'Tools',
-  keywords: ['calc', 'calculator', 'math', 'convert', 'currency', 'color'],
+  keywords: ['calc', 'calculator', 'math', 'convert', 'currency'],
   createRootStep: () => calculatorStep(),
 }
 
