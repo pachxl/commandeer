@@ -146,6 +146,8 @@ pub struct CommandOverride {
     pub pinned: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hotkey: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_at_root: Option<bool>,
 }
 
 fn overrides_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {

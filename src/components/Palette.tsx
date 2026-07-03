@@ -399,7 +399,12 @@ export default function Palette({
     // built-in virtual folders (Tools, Snippets) and any other builtins.
     // searchOnly commands are excluded here but stay in the flat search list.
     const isScript = (c: Command) => c.source === 'script'
-    const rootLoose = commands.filter(c => !c.isFolder && !c.folderName && !c.searchOnly && c.id !== SETTINGS_COMMAND_ID)
+    const rootLoose = commands.filter(c =>
+      !c.isFolder &&
+      !c.searchOnly &&
+      c.id !== SETTINGS_COMMAND_ID &&
+      (!c.folderName || overrides[c.id]?.showAtRoot)
+    )
     const scriptFolders = commands.filter(c => c.isFolder && isScript(c))
     const builtinFolders = commands.filter(c => c.isFolder && !isScript(c))
     const scriptLoose = rootLoose.filter(isScript)
@@ -818,12 +823,23 @@ export default function Palette({
       actions.push({
         id: 'pin',
         label: ov?.pinned ? 'Unpin' : 'Pin',
-        icon: 'pin',
+        icon: 'bookmark',
         handler: async () => {
           const pinned = !ov?.pinned
           await setOverride(item.id, { pinned })
           await refreshOverrides()
           toast(pinned ? 'Pinned — boosts search rank' : 'Unpinned', 'success')
+        },
+      })
+      actions.push({
+        id: 'show-at-root',
+        label: ov?.showAtRoot ? 'Hide from Root' : 'Show in Root',
+        icon: 'pin',
+        handler: async () => {
+          const showAtRoot = !ov?.showAtRoot
+          await setOverride(item.id, { showAtRoot })
+          await refreshOverrides()
+          toast(showAtRoot ? 'Shown on main page' : 'Hidden from main page', 'success')
         },
       })
       actions.push({

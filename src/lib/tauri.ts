@@ -96,6 +96,7 @@ export interface CommandOverride {
   alias?: string
   pinned?: boolean
   hotkey?: string
+  showAtRoot?: boolean
 }
 
 export const readOverrides = () =>

@@ -20,6 +20,7 @@ export async function setOverride(id: string, patch: CommandOverride): Promise<v
   if (!next.alias) delete next.alias
   if (!next.pinned) delete next.pinned
   if (!next.hotkey) delete next.hotkey
+  if (!next.showAtRoot) delete next.showAtRoot
   if (Object.keys(next).length === 0) delete all[id]
   else all[id] = next
   await writeOverrides(all)
