@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
-import { fileInfo, type FileInfo } from '../lib/tauri'
-
-interface DetailPaneProps {
-  path: string
-  name: string
-}
+import { fileInfo, readTextPreview, type FileInfo, type Snippet } from '../lib/tauri'
+import type { PaletteItem, PaletteMetadata } from '../types'
 
 // Extensions the backend can thumbnail (raw bytes as a data URL)
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|ico)$/i
+// Extensions we can preview as plain text
+const TEXT_EXT = /\.(txt|md|markdown|json|jsonc|js|jsx|ts|tsx|mjs|cjs|html|htm|css|scss|sass|less|xml|yaml|yml|toml|ini|cfg|conf|sh|bash|zsh|fish|ps1|py|rb|go|rs|c|cpp|h|hpp|cs|java|kt|swift|php|sql|log)$/i
 
 export function isImagePath(path: string): boolean {
   return IMAGE_EXT.test(path)
+}
+
+function isTextPath(path: string): boolean {
+  return TEXT_EXT.test(path)
 }
 
 function formatBytes(bytes: number): string {
@@ -20,7 +22,7 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`
 }
 
-function row(label: string, value: string) {
+function metadataRow(label: string, value: string) {
   return (
     <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--text-dim)' }}>
@@ -33,19 +35,59 @@ function row(label: string, value: string) {
   )
 }
 
-// Raycast-style preview pane for image results: thumbnail plus basic metadata.
-// Only rendered when the highlighted file is an image (see isImagePath).
-export default function DetailPane({ path, name }: DetailPaneProps) {
+function MetadataRows({ metadata }: { metadata: PaletteMetadata[] }) {
+  return (
+    <>
+      {metadata.map(m => metadataRow(m.label, m.value))}
+    </>
+  )
+}
+
+interface DetailPaneProps {
+  item: PaletteItem
+}
+
+// Raycast-style preview/detail pane for the highlighted item. Shows:
+//   - image thumbnails for image files
+//   - text previews for text files
+//   - color swatches for items with a color payload
+//   - font previews for items with a fontFamily payload
+//   - snippet text for snippet items
+//   - generic metadata rows for every item that carries them
+export default function DetailPane({ item }: DetailPaneProps) {
   const [info, setInfo] = useState<FileInfo | null>(null)
+  const [textPreview, setTextPreview] = useState<string | null>(null)
+  const [textError, setTextError] = useState<string | null>(null)
+
+  const path = typeof item.data === 'string' ? item.data : null
+  const isImage = path ? isImagePath(path) : false
+  const isText = path ? isTextPath(path) : false
+  const isFile = item.source === 'file' && path
 
   useEffect(() => {
     let cancelled = false
     setInfo(null)
-    fileInfo(path)
-      .then(i => { if (!cancelled) setInfo(i) })
-      .catch(() => {})
+    setTextPreview(null)
+    setTextError(null)
+
+    if (isFile && path) {
+      fileInfo(path)
+        .then(i => { if (!cancelled) setInfo(i) })
+        .catch(() => {})
+    }
+
+    if (path && isText) {
+      readTextPreview(path)
+        .then(t => { if (!cancelled) setTextPreview(t) })
+        .catch(err => { if (!cancelled) setTextError(String(err)) })
+    }
+
     return () => { cancelled = true }
-  }, [path])
+  }, [item.id, path, isText, isFile])
+
+  const title = item.label
+  const hasContent = isImage || isText || item.color || item.fontFamily || item.source === 'snippet' || (item.metadata && item.metadata.length > 0)
+  if (!hasContent) return null
 
   return (
     <div
@@ -62,7 +104,7 @@ export default function DetailPane({ path, name }: DetailPaneProps) {
         userSelect: 'none',
       }}
     >
-      {info?.thumbnail && (
+      {isImage && info?.thumbnail && (
         <img
           src={info.thumbnail}
           style={{
@@ -74,7 +116,109 @@ export default function DetailPane({ path, name }: DetailPaneProps) {
           }}
         />
       )}
-      <div title={name} style={{
+
+      {item.color && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--text-dim)' }}>
+            Color
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 4,
+                background: item.color,
+                border: '1px solid var(--border)',
+              }}
+            />
+            <span style={{ fontSize: 12, color: 'var(--text)', fontFamily: 'var(--font-mono, var(--font))' }}>
+              {item.color}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {item.fontFamily && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--text-dim)' }}>
+            Font
+          </span>
+          <div
+            style={{
+              fontFamily: item.fontFamily,
+              fontSize: 24,
+              color: 'var(--text)',
+              lineHeight: 1.3,
+            }}
+          >
+            Aa Bb Cc 123
+          </div>
+          <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+            {item.fontFamily}
+          </span>
+        </div>
+      )}
+
+      {item.source === 'snippet' && item.data != null && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--text-dim)' }}>
+            Snippet
+          </span>
+          <pre
+            style={{
+              margin: 0,
+              padding: 8,
+              borderRadius: 4,
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid var(--border)',
+              color: 'var(--text)',
+              fontSize: 12,
+              fontFamily: 'var(--font-mono, var(--font))',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              maxHeight: 180,
+              overflowY: 'auto',
+            }}
+          >
+            {(item.data as Snippet).text}
+          </pre>
+        </div>
+      )}
+
+      {isText && textPreview && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--text-dim)' }}>
+            Preview
+          </span>
+          <pre
+            style={{
+              margin: 0,
+              padding: 8,
+              borderRadius: 4,
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid var(--border)',
+              color: 'var(--text)',
+              fontSize: 11,
+              fontFamily: 'var(--font-mono, var(--font))',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              maxHeight: 200,
+              overflowY: 'auto',
+            }}
+          >
+            {textPreview}
+          </pre>
+        </div>
+      )}
+
+      {isText && textError && (
+        <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>
+          Preview unavailable
+        </div>
+      )}
+
+      <div title={title} style={{
         fontSize: 13,
         fontFamily: 'var(--font)',
         color: 'var(--text)',
@@ -83,13 +227,18 @@ export default function DetailPane({ path, name }: DetailPaneProps) {
         overflow: 'hidden',
         textOverflow: 'ellipsis',
       }}>
-        {name}
+        {title}
       </div>
+
+      {item.metadata && item.metadata.length > 0 && (
+        <MetadataRows metadata={item.metadata} />
+      )}
+
       {info && (
         <>
-          {!info.is_dir && row('Size', formatBytes(info.size))}
-          {info.modified && row('Modified', new Date(info.modified).toLocaleString())}
-          {row('Path', path)}
+          {!info.is_dir && metadataRow('Size', formatBytes(info.size))}
+          {info.modified && metadataRow('Modified', new Date(info.modified).toLocaleString())}
+          {path && metadataRow('Path', path)}
         </>
       )}
     </div>

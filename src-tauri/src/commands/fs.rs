@@ -423,6 +423,31 @@ pub(crate) fn base64_encode(input: &[u8]) -> String {
     out
 }
 
+const TEXT_PREVIEW_MAX_BYTES: usize = 32_768;
+const TEXT_PREVIEW_MAX_LINES: usize = 80;
+
+/// Best-effort plain-text preview of a file. Returns the first few thousand
+/// bytes truncated to a safe line count. Binary files are rejected by a simple
+/// null-byte check so the preview pane doesn't render garbage.
+#[tauri::command]
+pub async fn read_text_preview(path: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+        if bytes.contains(&0) {
+            return Err("Binary file".to_string());
+        }
+        let mut text = String::from_utf8_lossy(&bytes[..bytes.len().min(TEXT_PREVIEW_MAX_BYTES)]).to_string();
+        let lines: Vec<&str> = text.lines().collect();
+        if lines.len() > TEXT_PREVIEW_MAX_LINES {
+            text = lines[..TEXT_PREVIEW_MAX_LINES].join("\n");
+            text.push_str("\n…");
+        }
+        Ok(text)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(target_os = "windows")]
 #[tauri::command]
 pub async fn run_script(path: String) -> Result<(), String> {

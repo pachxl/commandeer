@@ -184,6 +184,10 @@ export const fileInfo = (path: string) =>
 export const pathIcon = (path: string) =>
   invoke<string | null>('path_icon', { path })
 
+// Plain-text preview of a file (first 32 KB / 80 lines); binary files error out
+export const readTextPreview = (path: string) =>
+  invoke<string>('read_text_preview', { path })
+
 // Installed applications (shell AppsFolder: win32 + UWP/Store), or Start-Menu
 // shortcut paths when COM enumeration is unavailable
 export interface AppInfo {

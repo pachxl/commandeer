@@ -19,11 +19,12 @@ import ResultsList from './ResultsList'
 import ResultsGrid from './ResultsGrid'
 import FormView from './FormView'
 import ActionPanel from './ActionPanel'
-import DetailPane, { isImagePath } from './DetailPane'
+import DetailPane from './DetailPane'
 import { ToastContainer, type ToastKind, type ToastMessage } from './Toast'
 import ClaudeUsage from './ClaudeUsage'
 import SystemStatsPanel from './SystemStats'
 import Footer from './Footer'
+import StepBreadcrumb from './StepBreadcrumb'
 // ── Root items (the command list) ────────────────────────────────────────────
 
 // Extra search terms (folder name, keywords, aliases) folded into the
@@ -282,6 +283,7 @@ interface PaletteProps {
   resetRef: MutableRefObject<(() => void) | null>
   commandHotkeyRef?: MutableRefObject<((commandId: string) => void) | null>
   onToggleGameMode: () => void
+  gameModeEnabled: boolean
   claudeUsageVisible: boolean
   systemStatsVisible: boolean
 }
@@ -293,6 +295,7 @@ export default function Palette({
   resetRef,
   commandHotkeyRef,
   onToggleGameMode,
+  gameModeEnabled,
   claudeUsageVisible,
   systemStatsVisible,
 }: PaletteProps) {
@@ -689,14 +692,9 @@ export default function Palette({
         : selectedItem.id.startsWith('script:') ? 'Run Script' : 'Select'))
     : null
 
-  // Image/GIF preview: shown while a file result pointing at an image is
-  // highlighted in the find:/search: modes
-  const previewPath = (folderMode || findMode)
-    && selectedItem?.id.startsWith('file:')
-    && typeof selectedItem.data === 'string'
-    && isImagePath(selectedItem.data)
-    ? selectedItem.data
-    : null
+  // Preview pane: shown when the selected item has something to preview
+  // (image, text file, color swatch, font, snippet, or metadata).
+  const showPreview = selectedItem != null
 
   // Forward ref so buildActions (defined before handleSelect) can trigger the
   // normal selection path for step rows
@@ -1335,22 +1333,71 @@ export default function Palette({
         </div>
       )}
 
+      {state.stepStack.length > 0 && (
+        <StepBreadcrumb steps={state.stepStack} />
+      )}
+
       {!isInputStep && !isSliderStep && !state.loading && noMatches && state.query
         && !(findMode && !findQuery.trim()) && !(webMode && !webQuery)
         && !(calcMode && !calcQuery) && !(timeMode && !timeQuery) && (
         <div style={{
-          padding: '8px 12px',
-          color: 'var(--text-dim)',
-          fontSize: 12,
-          fontFamily: 'var(--font)',
+          padding: '12px 14px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
         }}>
-          {folderMode || findMode
-            ? `No files matching '${folderMode ? folderQuery : findQuery}'`
-            : calcMode
-              ? `Could not evaluate '${calcQuery}'`
-              : timeMode
-                ? `Could not parse '${timeQuery}' — try '4pm bst to est'`
-                : `No commands matching '${state.query}'`}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            color: 'var(--text-dim)',
+            fontSize: 12,
+            fontFamily: 'var(--font)',
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.3-4.3" />
+            </svg>
+            {folderMode || findMode
+              ? `No files matching '${folderMode ? folderQuery : findQuery}'`
+              : `No commands matching '${state.query}'`}
+          </div>
+
+          {!folderMode && !findMode && !calcMode && !timeMode && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div
+                onClick={async () => {
+                  const url = `https://www.google.com/search?q=${encodeURIComponent(state.query)}`
+                  try {
+                    await openUrl(url)
+                    dispatch({ type: 'RESET' })
+                    await getCurrentWindow().hide()
+                  } catch (err) {
+                    dispatch({ type: 'SET_ERROR', error: String(err) })
+                  }
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '5px 8px',
+                  borderRadius: 5,
+                  cursor: 'pointer',
+                  color: 'var(--text)',
+                  fontSize: 13,
+                  fontFamily: 'var(--font)',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-select)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+                <span>Search the web for "{state.query}"</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1375,8 +1422,8 @@ export default function Palette({
               />
             )}
           </div>
-          {previewPath && selectedItem && (
-            <DetailPane path={previewPath} name={selectedItem.label} />
+          {showPreview && (
+            <DetailPane item={selectedItem} />
           )}
         </div>
       )}
@@ -1411,6 +1458,9 @@ export default function Palette({
         primaryAction={primaryAction}
         onOpenSettings={handleOpenSettings}
         settingsVisible={!!settingsCmd}
+        inStep={!!currentStep}
+        gameModeEnabled={gameModeEnabled}
+        onToggleGameMode={onToggleGameMode}
       />
     </div>
   )

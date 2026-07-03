@@ -410,6 +410,7 @@ pub fn run() {
             commands::search::search_files,
             commands::search::file_info,
             commands::search::path_icon,
+            commands::fs::read_text_preview,
             commands::file_index::search_indexed_files,
             commands::process::list_processes,
             commands::process::kill_process,

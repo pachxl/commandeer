@@ -126,6 +126,43 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
           </span>
         )}
 
+        {item.accessories && item.accessories.length > 0 && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            flexShrink: 0,
+          }}>
+            {item.accessories.map((acc, i) => (
+              <span
+                key={i}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontSize: 10,
+                  fontFamily: 'var(--font-ui)',
+                  color: acc.color ?? subFg,
+                  background: 'rgba(255,255,255,0.06)',
+                  padding: '1px 5px',
+                  borderRadius: 3,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {acc.icon && hasIcon(acc.icon) && (
+                  <span
+                    style={{ width: 10, height: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    dangerouslySetInnerHTML={{
+                      __html: getIconSvg(acc.icon, acc.color ?? subFg, 10) ?? '',
+                    }}
+                  />
+                )}
+                {acc.text}
+              </span>
+            ))}
+          </div>
+        )}
+
         {item.isFolder && (
           <span style={{
             fontSize: 13,

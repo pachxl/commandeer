@@ -185,6 +185,7 @@ export default function App() {
       resetRef={resetRef}
       commandHotkeyRef={commandHotkeyRef}
       onToggleGameMode={toggleGameMode}
+      gameModeEnabled={gameModeEnabled}
       claudeUsageVisible={claudeUsageVisible}
       systemStatsVisible={systemStatsVisible}
     />
