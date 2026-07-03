@@ -1467,7 +1467,6 @@ export default function Palette({
         primaryAction={primaryAction}
         onOpenSettings={handleOpenSettings}
         settingsVisible={!!settingsCmd}
-        inStep={!!currentStep}
         gameModeEnabled={gameModeEnabled}
         onToggleGameMode={onToggleGameMode}
       />

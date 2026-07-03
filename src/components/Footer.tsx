@@ -6,18 +6,16 @@ interface FooterProps {
   primaryAction: string | null
   onOpenSettings?: () => void
   settingsVisible?: boolean
-  inStep?: boolean
   gameModeEnabled?: boolean
   onToggleGameMode?: () => void
 }
 
-// Raycast-style footer: primary action + contextual keyboard hints.
+// Raycast-style footer: primary action + footer controls.
 export default function Footer({
   selectedItem,
   primaryAction,
   onOpenSettings,
   settingsVisible,
-  inStep,
   gameModeEnabled,
   onToggleGameMode,
 }: FooterProps) {
@@ -72,13 +70,6 @@ export default function Footer({
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-        {selectedItem && (
-          <span style={hintStyle}>
-            <kbd style={kbdStyle}>Ctrl</kbd>
-            <kbd style={kbdStyle}>K</kbd>
-            <span style={{ marginLeft: 3 }}>Actions</span>
-          </span>
-        )}
         {onToggleGameMode && (
           <button
             type="button"
@@ -87,27 +78,35 @@ export default function Footer({
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 3,
-              background: 'transparent',
+              gap: 4,
+              padding: '2px 8px',
+              borderRadius: 4,
               border: 'none',
-              padding: 0,
+              background: 'transparent',
               color: gameModeEnabled ? 'var(--accent)' : 'var(--text-dim)',
               fontFamily: 'var(--font-ui)',
               fontSize: 11,
               cursor: 'pointer',
+              flexShrink: 0,
+              outline: 'none',
               boxShadow: 'none',
               WebkitAppearance: 'none',
             }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+              e.currentTarget.style.color = gameModeEnabled ? 'var(--accent)' : 'var(--text)'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.color = gameModeEnabled ? 'var(--accent)' : 'var(--text-dim)'
+            }}
           >
-            <kbd style={kbdStyle}>Ctrl</kbd>
-            <kbd style={kbdStyle}>G</kbd>
+            <div style={{ width: 14, height: 14, display: 'flex' }}>
+              <div dangerouslySetInnerHTML={{ __html: getIconSvg('gamepad', 'currentColor', 14) ?? '' }} style={{ display: 'flex' }} />
+            </div>
             <span>{gameModeEnabled ? 'Game On' : 'Game'}</span>
           </button>
         )}
-        <span style={hintStyle}>
-          <kbd style={kbdStyle}>Esc</kbd>
-          <span style={{ marginLeft: 3 }}>{inStep ? 'Back' : 'Close'}</span>
-        </span>
 
         {settingsVisible && (
           <button
@@ -149,12 +148,6 @@ export default function Footer({
       </div>
     </div>
   )
-}
-
-const hintStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 3,
 }
 
 const kbdStyle: React.CSSProperties = {
