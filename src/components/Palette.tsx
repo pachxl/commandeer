@@ -1025,6 +1025,12 @@ export default function Palette({
       return
     }
 
+    if (e.key === ',' && (e.ctrlKey || e.metaKey) && settingsCmd?.createRootStep) {
+      e.preventDefault()
+      handleOpenSettings()
+      return
+    }
+
     if (e.key === 'Backspace' && !state.query) {
       e.preventDefault()
       if (state.stepStack.length > 0) {

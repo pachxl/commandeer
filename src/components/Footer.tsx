@@ -112,7 +112,7 @@ export default function Footer({
           <button
             type="button"
             onClick={onOpenSettings}
-            title="Settings"
+            title="Settings (Ctrl+,)"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -143,6 +143,7 @@ export default function Footer({
               <div dangerouslySetInnerHTML={{ __html: getIconSvg('settings', 'currentColor', 14) ?? '' }} style={{ display: 'flex' }} />
             </div>
             <span>Settings</span>
+            <kbd style={kbdStyle}>,</kbd>
           </button>
         )}
       </div>
