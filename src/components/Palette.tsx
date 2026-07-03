@@ -249,7 +249,7 @@ const AT_PREFIXES = [
   { token: '@find', icon: 'folder', description: 'Find files across your computer' },
   { token: '@search', icon: 'folder', description: 'Search the focused Explorer folder' },
   { token: '@web', icon: 'search', description: 'Search the web' },
-  { token: '@calc', icon: 'calculator', description: 'Calculate an expression (40+2, 100 usd to eur, #ff6363)' },
+  { token: '@calc', icon: 'calculator', description: 'Calculate an expression (40+2, 100 usd to eur)' },
   { token: '@time', icon: 'clock', description: 'Convert time zones (4pm bst to est)' },
 ]
 

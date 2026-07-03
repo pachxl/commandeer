@@ -1,7 +1,6 @@
 import type { Command, CommandProvider } from '../types'
 import { getRates, openUrl } from '../lib/tauri'
 import { evaluateSmart, type CurrencyRates } from '../lib/math'
-import { tryColor } from '../lib/color'
 
 // FX rates for currency conversions. Fetched once (the Rust side caches them
 // for a day and serves offline), kept in module scope so search() stays sync
@@ -28,12 +27,10 @@ export interface CalcDisplay {
 }
 
 // One-stop evaluation for the @calc prefix and the Tools Calculator step:
-// colors first, then expressions/units/currency.
+// expressions/units/currency.
 export function evaluateCalcQuery(query: string): CalcDisplay | null {
   const trimmed = query.trim()
   if (!trimmed) return null
-  const color = tryColor(trimmed)
-  if (color) return { display: color.label, sublabel: color.sublabel, copy: color.copyValue }
   const result = evaluateSmart(trimmed, currencyRates())
   return result ? { display: result.label, sublabel: result.sublabel, copy: result.label } : null
 }
@@ -45,35 +42,6 @@ export const calculatorProvider: CommandProvider = {
   search: async (query: string): Promise<Command[]> => {
     const trimmed = query.trim()
     if (!trimmed) return []
-
-    const color = tryColor(trimmed)
-    if (color) {
-      return [
-        {
-          id: 'calculator:color',
-          label: color.label,
-          description: color.sublabel,
-          icon: 'calculator',
-          source: 'calculator',
-          color: color.color,
-          keywords: [query],
-          action: async () => {
-            await navigator.clipboard.writeText(color.copyValue)
-          },
-        },
-        {
-          id: 'calculator:google',
-          label: `Google "${query}"`,
-          description: 'Search this expression on Google',
-          icon: 'search',
-          source: 'calculator',
-          keywords: [query],
-          action: async () => {
-            await openUrl(`https://www.google.com/search?q=${encodeURIComponent(query)}`)
-          },
-        },
-      ]
-    }
 
     const result = evaluateSmart(query, currencyRates())
     if (result === null) return []
