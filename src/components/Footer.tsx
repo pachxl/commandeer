@@ -4,11 +4,13 @@ import { getIconSvg, hasIcon } from './Icon'
 interface FooterProps {
   selectedItem: PaletteItem | null
   primaryAction: string | null
+  onOpenSettings?: () => void
+  settingsVisible?: boolean
 }
 
 // Raycast-style footer: the selected item's icon and its primary (Enter)
 // action on the left.
-export default function Footer({ selectedItem, primaryAction }: FooterProps) {
+export default function Footer({ selectedItem, primaryAction, onOpenSettings, settingsVisible }: FooterProps) {
   const icon = selectedItem?.icon ?? ''
   const isDataUrl = icon.startsWith('data:')
   const isNamedIcon = hasIcon(icon)
@@ -58,6 +60,42 @@ export default function Footer({ selectedItem, primaryAction }: FooterProps) {
           </>
         )}
       </div>
+
+      {settingsVisible && (
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          title="Settings"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '2px 8px',
+            borderRadius: 4,
+            border: '1px solid var(--border)',
+            background: 'transparent',
+            color: 'var(--text-dim)',
+            fontFamily: 'var(--font-ui)',
+            fontSize: 11,
+            cursor: 'pointer',
+            flexShrink: 0,
+            outline: 'none',
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+            e.currentTarget.style.color = 'var(--text)'
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = 'transparent'
+            e.currentTarget.style.color = 'var(--text-dim)'
+          }}
+        >
+          <div style={{ width: 14, height: 14, display: 'flex' }}>
+            <div dangerouslySetInnerHTML={{ __html: getIconSvg('settings', 'currentColor', 14) ?? '' }} style={{ display: 'flex' }} />
+          </div>
+          <span>Settings</span>
+        </button>
+      )}
     </div>
   )
 }

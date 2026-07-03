@@ -655,15 +655,18 @@ export default function Palette({
   }
   const noMatches = matchedItems.length === 0
 
-  // The Settings row is always the last item at root, query or not
+  const visibleItems = matchedItems.slice(0, 50)
+  const clampedIndex = Math.min(state.selectedIndex, Math.max(0, visibleItems.length - 1))
+  const selectedItem = visibleItems[clampedIndex] ?? null
+
+  // Settings is reachable from a fixed footer button instead of the results list
   const settingsCmd = !currentStep && !isInputStep && atRaw === null
     ? commands.find(c => c.id === SETTINGS_COMMAND_ID)
     : undefined
-  const visibleItems = settingsCmd
-    ? [...matchedItems.slice(0, 50), ...commandsToItems([settingsCmd])]
-    : matchedItems.slice(0, 50)
-  const clampedIndex = Math.min(state.selectedIndex, Math.max(0, visibleItems.length - 1))
-  const selectedItem = visibleItems[clampedIndex] ?? null
+  const handleOpenSettings = useCallback(() => {
+    if (!settingsCmd?.createRootStep) return
+    dispatch({ type: 'PUSH_STEP', step: settingsCmd.createRootStep(configRef.current) })
+  }, [settingsCmd])
   const primaryAction = selectedItem
     ? (selectedItem.actionLabel
       ?? (selectedItem.isFolder
@@ -1376,7 +1379,12 @@ export default function Palette({
 
       {claudeUsageVisible && <ClaudeUsage />}
       {systemStatsVisible && <SystemStatsPanel />}
-      <Footer selectedItem={selectedItem} primaryAction={primaryAction} />
+      <Footer
+        selectedItem={selectedItem}
+        primaryAction={primaryAction}
+        onOpenSettings={handleOpenSettings}
+        settingsVisible={!!settingsCmd}
+      />
     </div>
   )
 }
