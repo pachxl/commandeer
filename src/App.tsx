@@ -84,7 +84,9 @@ export default function App() {
         ...(appCmds.length > 0 ? [virtualFolderCommand('Apps', appCmds)] : []),
         ...(systemCmds.length > 0 ? [virtualFolderCommand('System', systemCmds)] : []),
         ...(toolsChildren.length > 0 ? [toolsFolderCommand(toolsChildren)] : []),
-        ...(snippetCmds.length > 0 ? [virtualFolderCommand('Snippets', snippetCmds)] : []),
+        // Dynamic children: the folder re-reads snippets on every step load,
+        // so adds/removes show up without leaving the folder
+        ...(snippetCmds.length > 0 ? [virtualFolderCommand('Snippets', () => loadSnippetCommands())] : []),
         ...snippetCmds,
         ...webSearchCmds,
         ...providerCmds,

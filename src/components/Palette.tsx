@@ -697,6 +697,19 @@ export default function Palette({
   // normal selection path for step rows
   const handleSelectRef = useRef<((item: PaletteItem) => Promise<void>) | null>(null)
 
+  // Re-run the current step's load in place, for action-panel handlers that
+  // mutate the data behind the visible list (e.g. deleting a snippet while
+  // inside the Snippets folder). Ref so buildActions' stable closure always
+  // sees the live step.
+  const reloadStepRef = useRef<() => void>(() => {})
+  reloadStepRef.current = () => {
+    const step = currentStep
+    if (!step?.load) return
+    step.load(configRef.current)
+      .then(items => dispatch({ type: 'SET_ITEMS', stepId: step.id, items, preserveSelection: true }))
+      .catch(err => dispatch({ type: 'SET_ERROR', error: String(err) }))
+  }
+
   // Ctrl+K action panel: secondary actions for the highlighted item, keyed off
   // its provider source
   const buildActions = useCallback((item: PaletteItem): ActionItem[] => {
@@ -760,6 +773,7 @@ export default function Palette({
             const all = await readSnippets()
             await writeSnippets(all.filter(s => s.id !== snippet.id))
             appEvents.refreshCommands?.()
+            reloadStepRef.current()
             toast('Snippet deleted', 'success')
           },
         })
