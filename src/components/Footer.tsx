@@ -79,6 +79,7 @@ export default function Footer({ selectedItem, primaryAction, onOpenSettings, se
             fontSize: 11,
             cursor: 'pointer',
             flexShrink: 0,
+            outline: 'none',
           }}
           onMouseEnter={e => {
             e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
