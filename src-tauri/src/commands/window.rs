@@ -37,7 +37,11 @@ pub async fn set_window_transparency(transparency: f64, window: tauri::Window) -
 
     #[cfg(not(target_os = "windows"))]
     {
+        // Linux never reaches here: Wayland has no whole-window alpha, so the
+        // frontend applies CSS opacity to the webview root instead (the window
+        // background is fully transparent, making that visually equivalent).
+        // See setWindowTransparency in src/lib/tauri.ts.
         let _ = (transparency, window);
-        Err("window transparency is only implemented on Windows".to_string())
+        Err("native window transparency is only implemented on Windows".to_string())
     }
 }

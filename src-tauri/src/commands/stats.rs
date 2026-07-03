@@ -1,7 +1,10 @@
-//! Minimal system stats for the palette's task-manager widget: CPU from
-//! GetSystemTimes deltas, RAM from GlobalMemoryStatusEx, GPU from the same
-//! PDH performance counters Task Manager reads. State (previous CPU sample,
-//! open PDH query) persists between polls.
+//! Minimal system stats for the palette's task-manager widget.
+//! Windows: CPU from GetSystemTimes deltas, RAM from GlobalMemoryStatusEx,
+//! GPU from the same PDH performance counters Task Manager reads.
+//! Linux: CPU from /proc/stat deltas, RAM from /proc/meminfo, GPU from
+//! amdgpu's sysfs busy percentage or nvidia-smi.
+//! State (previous CPU sample, open PDH query / detected GPU source)
+//! persists between polls.
 
 use serde::Serialize;
 use std::sync::Mutex;
@@ -17,8 +20,9 @@ pub struct SystemStats {
     pub gpu: Option<f32>,
 }
 
-/// (idle, kernel+user) cumulative 100ns ticks from the previous poll
-#[cfg(target_os = "windows")]
+/// (idle, total) cumulative CPU ticks from the previous poll — 100ns units on
+/// Windows (kernel+user, kernel includes idle), jiffies on Linux
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 static PREV_CPU: Mutex<Option<(u64, u64)>> = Mutex::new(None);
 
 /// Open PDH (query, counter) handles; Err-like None after a failed init so
@@ -138,9 +142,139 @@ fn gpu_percent() -> Option<f32> {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn cpu_percent() -> f32 {
+    // First line of /proc/stat: "cpu  user nice system idle iowait irq softirq steal ..."
+    let stat = match std::fs::read_to_string("/proc/stat") {
+        Ok(s) => s,
+        Err(_) => return 0.0,
+    };
+    let vals: Vec<u64> = stat
+        .lines()
+        .next()
+        .unwrap_or("")
+        .split_whitespace()
+        .skip(1)
+        .filter_map(|v| v.parse().ok())
+        .collect();
+    if vals.len() < 4 {
+        return 0.0;
+    }
+    // iowait counts as idle, like most task managers
+    let idle = vals[3] + vals.get(4).copied().unwrap_or(0);
+    let total: u64 = vals.iter().sum();
+
+    let mut prev = PREV_CPU.lock().unwrap();
+    let pct = match *prev {
+        Some((prev_idle, prev_total)) if total > prev_total => {
+            let total_d = (total - prev_total) as f64;
+            let idle_d = idle.saturating_sub(prev_idle) as f64;
+            (((total_d - idle_d) / total_d) * 100.0) as f32
+        }
+        _ => 0.0,
+    };
+    *prev = Some((idle, total));
+    pct.clamp(0.0, 100.0)
+}
+
+#[cfg(target_os = "linux")]
+fn memory() -> (u64, u64, f32) {
+    fn kib(line: &str) -> u64 {
+        line.split_whitespace()
+            .nth(1)
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0)
+            * 1024
+    }
+
+    let info = match std::fs::read_to_string("/proc/meminfo") {
+        Ok(s) => s,
+        Err(_) => return (0, 0, 0.0),
+    };
+    let (mut total, mut avail) = (0u64, 0u64);
+    for line in info.lines() {
+        if line.starts_with("MemTotal:") {
+            total = kib(line);
+        } else if line.starts_with("MemAvailable:") {
+            avail = kib(line);
+        }
+        if total > 0 && avail > 0 {
+            break;
+        }
+    }
+    if total == 0 {
+        return (0, 0, 0.0);
+    }
+    let used = total.saturating_sub(avail);
+    (used, total, ((used as f64 / total as f64) * 100.0) as f32)
+}
+
+#[cfg(target_os = "linux")]
+enum GpuSource {
+    /// amdgpu (and some others) expose a ready-made 0-100 busy percentage
+    Amd(std::path::PathBuf),
+    /// NVIDIA proprietary driver; queried via nvidia-smi
+    NvidiaSmi,
+}
+
+/// Detected GPU source; outer None = not probed yet, inner None = no usable
+/// source (so we don't re-probe every poll)
+#[cfg(target_os = "linux")]
+static GPU_SOURCE: Mutex<Option<Option<GpuSource>>> = Mutex::new(None);
+
+#[cfg(target_os = "linux")]
+fn nvidia_smi_utilization() -> Option<f32> {
+    let out = std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    // One line per GPU; report the busiest
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.trim().parse::<f32>().ok())
+        .fold(None, |acc: Option<f32>, v| Some(acc.map_or(v, |a| a.max(v))))
+        .map(|v| v.clamp(0.0, 100.0))
+}
+
+#[cfg(target_os = "linux")]
+fn detect_gpu_source() -> Option<GpuSource> {
+    if let Ok(cards) = std::fs::read_dir("/sys/class/drm") {
+        for entry in cards.flatten() {
+            let path = entry.path().join("device/gpu_busy_percent");
+            if path.exists() {
+                return Some(GpuSource::Amd(path));
+            }
+        }
+    }
+    if nvidia_smi_utilization().is_some() {
+        return Some(GpuSource::NvidiaSmi);
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn gpu_percent() -> Option<f32> {
+    let mut guard = GPU_SOURCE.lock().unwrap();
+    match guard.get_or_insert_with(detect_gpu_source) {
+        Some(GpuSource::Amd(path)) => std::fs::read_to_string(path)
+            .ok()?
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .map(|v| v.clamp(0.0, 100.0)),
+        Some(GpuSource::NvidiaSmi) => nvidia_smi_utilization(),
+        None => None,
+    }
+}
+
+// Async so the poll runs off the main thread: nvidia-smi is a subprocess
+// (tens of ms, more if the dGPU was runtime-suspended) and must not jank the UI
 #[tauri::command]
-pub fn system_stats() -> SystemStats {
-    #[cfg(target_os = "windows")]
+pub async fn system_stats() -> SystemStats {
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
         let (mem_used, mem_total, mem_percent) = memory();
         SystemStats {
@@ -152,6 +286,6 @@ pub fn system_stats() -> SystemStats {
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     SystemStats { cpu: 0.0, mem_used: 0, mem_total: 0, mem_percent: 0.0, gpu: None }
 }

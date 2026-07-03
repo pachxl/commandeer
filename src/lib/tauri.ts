@@ -256,7 +256,18 @@ export interface Theme {
 export const readThemes = () =>
   invoke<Theme[]>('read_themes')
 
+const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
+
 export const setWindowTransparency = (transparency: number) => {
+  if (IS_LINUX) {
+    // Wayland/cosmic-comp has no whole-window alpha (and GTK3 toplevel opacity
+    // is a no-op there). The window background is already fully transparent,
+    // so fading the webview root is visually equivalent to the Windows
+    // layered-window alpha.
+    const t = Math.min(1, Math.max(0, transparency))
+    document.documentElement.style.opacity = String(1 - t)
+    return Promise.resolve()
+  }
   const win = getCurrentWindow()
   return invoke<void>('set_window_transparency', { transparency, window: win })
 }
