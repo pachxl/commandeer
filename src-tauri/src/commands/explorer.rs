@@ -1,7 +1,8 @@
-//! File search in the active Explorer folder: resolve which folder was open
-//! in the File Explorer window that had focus before the palette was shown
-//! (via the IShellWindows COM enumeration), and list a folder's contents
-//! recursively for the palette to filter client-side.
+//! File search in the active file-manager folder: resolve which folder was
+//! open in the File Explorer (Windows, via the IShellWindows COM enumeration)
+//! or Finder (macOS, via AppleScript) window that had focus before the palette
+//! was shown, and list a folder's contents recursively for the palette to
+//! filter client-side.
 
 use serde::Serialize;
 use std::sync::Mutex;
@@ -100,6 +101,71 @@ pub fn capture_location() {
             *LAST_LOCATION.lock().unwrap() = loc;
         });
     }
+
+    #[cfg(target_os = "macos")]
+    {
+        // Only ask Finder when it is the app the palette opened over: the
+        // AppleScript below needs the one-time Automation permission, so it
+        // must not fire on every palette show over unrelated apps.
+        if !frontmost_is_finder() {
+            return;
+        }
+        std::thread::spawn(|| {
+            let loc = finder_front_window_path();
+            *LAST_LOCATION.lock().unwrap() = loc;
+        });
+    }
+}
+
+/// Whether the frontmost application (the one the palette is about to cover)
+/// is Finder. Cheap NSWorkspace lookup, no permissions involved.
+#[cfg(target_os = "macos")]
+fn frontmost_is_finder() -> bool {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    unsafe {
+        let Some(cls) = AnyClass::get("NSWorkspace") else {
+            return false;
+        };
+        let ws: *mut AnyObject = msg_send![cls, sharedWorkspace];
+        if ws.is_null() {
+            return false;
+        }
+        let front: *mut AnyObject = msg_send![ws, frontmostApplication];
+        if front.is_null() {
+            return false;
+        }
+        let bundle_id: *mut AnyObject = msg_send![front, bundleIdentifier];
+        if bundle_id.is_null() {
+            return false;
+        }
+        let cstr: *const std::os::raw::c_char = msg_send![bundle_id, UTF8String];
+        if cstr.is_null() {
+            return false;
+        }
+        std::ffi::CStr::from_ptr(cstr).to_bytes() == b"com.apple.finder"
+    }
+}
+
+/// Folder shown in Finder's front window, via AppleScript (the same channel
+/// Empty Trash uses; first use triggers the one-time Automation prompt).
+/// Virtual locations (Recents, AirDrop, Trash, a window-less Desktop focus)
+/// fail the `as alias` coercion and yield None — the frontend then falls back
+/// to the home folder.
+#[cfg(target_os = "macos")]
+fn finder_front_window_path() -> Option<String> {
+    let out = std::process::Command::new("osascript")
+        .args([
+            "-e",
+            "tell application \"Finder\" to POSIX path of (target of front Finder window as alias)",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if path.is_empty() { None } else { Some(path) }
 }
 
 /// Folder open in the File Explorer window that was focused when the palette

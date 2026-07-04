@@ -6,16 +6,17 @@ use tauri_plugin_global_shortcut::ShortcutState;
 /// Distance (logical px) from the top of the screen to the top of the palette on
 /// Wayland. The surface is anchored to the top edge, so this stays fixed while
 /// the height grows downward.
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 const PALETTE_TOP_MARGIN: i32 = 150;
 
 /// Resize the palette to `height` logical px. On the Wayland layer-shell surface
 /// the size is taken from the GTK window's size request (it has no anchors), and
 /// changing it reconfigures the surface in place — no unmap, no flicker. On
-/// Windows the frontend resizes via setSize instead, so this is a no-op there.
+/// Windows and macOS the frontend resizes via setSize instead, so this is a
+/// no-op there.
 #[tauri::command]
 fn resize_palette(app: tauri::AppHandle, height: i32) {
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
         use gtk::prelude::*;
         if let Some(win) = app.get_webview_window("palette") {
@@ -24,7 +25,8 @@ fn resize_palette(app: tauri::AppHandle, height: i32) {
             }
         }
     }
-    #[cfg(target_os = "windows")]
+    // Windows and macOS resize via the frontend's setSize, so this is a no-op.
+    #[cfg(not(target_os = "linux"))]
     let _ = (&app, height);
 }
 
@@ -84,6 +86,30 @@ fn position_on_cursor_monitor(win: &tauri::WebviewWindow) {
     }
 }
 
+/// macOS equivalent of `position_on_cursor_monitor`, built on Tauri's
+/// cross-platform monitor APIs instead of Win32. Center horizontally on the
+/// display under the cursor with the top at ~20% of that display's work area
+/// (below the menu bar). All physical pixels, matching `outer_size` /
+/// `set_position`.
+#[cfg(target_os = "macos")]
+fn position_on_cursor_monitor(win: &tauri::WebviewWindow) {
+    let Ok(cursor) = win.cursor_position() else {
+        return;
+    };
+    let monitor = match win.monitor_from_point(cursor.x, cursor.y) {
+        Ok(Some(m)) => m,
+        _ => match win.primary_monitor() {
+            Ok(Some(m)) => m,
+            _ => return,
+        },
+    };
+    let area = monitor.work_area();
+    let width = win.outer_size().map(|s| s.width as i32).unwrap_or(669);
+    let x = area.position.x + (area.size.width as i32 - width) / 2;
+    let y = area.position.y + (area.size.height as i32) / 5;
+    let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
 /// Linux/X11 sessions get no layer-shell surface, so nothing positions the
 /// palette at map time; mirror the Windows behavior with portable Tauri APIs
 /// (centered on the cursor's monitor, top at ~20% height). No-op on Wayland.
@@ -119,7 +145,7 @@ fn toggle_palette(app: &tauri::AppHandle) {
             // Snapshot the focused Explorer folder now (resolves on a worker
             // thread) so the frontend's Search Folder check is instant.
             commands::explorer::capture_location();
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             position_on_cursor_monitor(&win);
             #[cfg(target_os = "linux")]
             position_palette_x11(app, &win);
@@ -135,7 +161,7 @@ pub(crate) fn show_palette(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("palette") {
         commands::paste::capture_foreground();
         commands::explorer::capture_location();
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         position_on_cursor_monitor(&win);
         #[cfg(target_os = "linux")]
         position_palette_x11(app, &win);
@@ -162,7 +188,8 @@ fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 /// Tray icon with Show / Start at Login / Quit — the only way to quit or
-/// rediscover the app once the palette is hidden. On Linux this goes through
+/// rediscover the app once the palette is hidden (especially on macOS, where
+/// the app is an Accessory with no Dock icon). On Linux this goes through
 /// StatusNotifier/libappindicator (runtime dep: libappindicator-gtk3; COSMIC
 /// shows it in the Status Area applet), and failure is non-fatal — the
 /// palette still works via the global shortcut / relaunch toggle.
@@ -209,6 +236,30 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             "quit" => app.exit(0),
             _ => {}
         });
+    #[cfg(target_os = "macos")]
+    {
+        // Menu-bar icons are template images on macOS: alpha-only glyphs the
+        // system tints for light/dark menu bars and selection. The colored app
+        // icon would read as an opaque square, so use a dedicated monochrome
+        // glyph (18pt @2x) and fall back to the app icon only if it fails to
+        // decode.
+        const TRAY_TEMPLATE: &[u8] = include_bytes!("../icons/tray-template.png");
+        match image::load_from_memory(TRAY_TEMPLATE) {
+            Ok(img) => {
+                let rgba = img.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                tray = tray
+                    .icon(tauri::image::Image::new_owned(rgba.into_raw(), w, h))
+                    .icon_as_template(true);
+            }
+            Err(_) => {
+                if let Some(icon) = app.default_window_icon() {
+                    tray = tray.icon(icon.clone());
+                }
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
     }
@@ -279,10 +330,10 @@ pub fn run() {
                     }
                 }
             }
-            // Windows only: dismiss the screenshot overlay on click-away. On
+            // Windows/macOS: dismiss the screenshot overlay on click-away. On
             // Linux the overlay layer's focus semantics are quirky (a spurious
             // unfocus would make the tool unusable), so Esc is the only out.
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             if win.label() == "screenshot" {
                 if let WindowEvent::Focused(false) = event {
                     if std::env::var_os("COMMANDEER_NO_AUTOHIDE").is_none()
@@ -335,7 +386,7 @@ pub fn run() {
             // later via set_game_mode) plus any per-command shortcuts.
             commands::shortcuts::setup_shortcuts(app.app_handle())?;
 
-            #[cfg(not(target_os = "windows"))]
+            #[cfg(target_os = "linux")]
             {
                 // Ensure a working default desktop keybinding (COSMIC/GNOME)
                 // even before the frontend calls set_game_mode; the frontend
@@ -426,6 +477,48 @@ pub fn run() {
                                 &pref as *const _ as *const _,
                                 std::mem::size_of_val(&pref) as u32,
                             );
+                        }
+                    }
+                }
+            }
+
+            #[cfg(target_os = "macos")]
+            {
+                // A command palette is a background agent: no Dock icon and no
+                // Cmd-Tab entry. The tray icon and global hotkey are the entry
+                // points (mirrors Raycast/Spotlight).
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+                // Translucent NSVisualEffect background + rounded corners for the
+                // palette — the macOS analogue of the Windows acrylic effect.
+                // Best-effort: any failure leaves the plain transparent window.
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+                if let Some(win) = app.get_webview_window("palette") {
+                    let _ = apply_vibrancy(
+                        &win,
+                        NSVisualEffectMaterial::HudWindow,
+                        Some(NSVisualEffectState::Active),
+                        Some(12.0),
+                    );
+                }
+
+                // The screenshot overlay must cover the *whole* display,
+                // including the menu-bar strip. At a normal window level AppKit
+                // both draws the menu bar over it and may clamp the frame below
+                // the bar (constrainFrameRect), which would misalign the
+                // region-to-pixel mapping. Raise it to the screen-saver level
+                // (1000) — only normal-level windows are constrained — and let
+                // it join every Space, fullscreen apps included. Safe to do
+                // once here: hide/show doesn't reset either property.
+                if let Some(win) = app.get_webview_window("screenshot") {
+                    if let Ok(ns_window) = win.ns_window() {
+                        use objc2::runtime::AnyObject;
+                        let ns_window = ns_window as *mut AnyObject;
+                        unsafe {
+                            let _: () = objc2::msg_send![ns_window, setLevel: 1000isize];
+                            // canJoinAllSpaces (1<<0) | fullScreenAuxiliary (1<<8)
+                            let _: () =
+                                objc2::msg_send![ns_window, setCollectionBehavior: (1u64 | (1u64 << 8))];
                         }
                     }
                 }

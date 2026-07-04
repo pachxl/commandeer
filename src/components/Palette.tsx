@@ -12,7 +12,7 @@ import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
 import { evaluateCalcQuery } from '../providers/calculator'
 import { tryTimeConversion } from '../lib/timezones'
-import { IS_LINUX, envInfo, openPath, openUrl, pasteToPrevious, readSnippets, setCommandHotkey, writeClipboardText, writeSnippets, type ClipboardItem, type CommandOverride, type Snippet } from '../lib/tauri'
+import { IS_LINUX, IS_MAC, envInfo, openPath, openUrl, pasteToPrevious, readSnippets, setCommandHotkey, writeClipboardText, writeSnippets, type ClipboardItem, type CommandOverride, type Snippet } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
@@ -254,11 +254,11 @@ const LAST_CMD_KEY = 'commandeer:last'
 // Root-level @ prefixes. Typing '@' (or a partial token) lists these as
 // suggestions; a completed token followed by a space activates the mode.
 //   @find   → global file search (FTS5 index → Everything → walkdir)
-//   @search → file search in the focused Explorer folder
+//   @search → file search in the focused Explorer/Finder folder
 //   @web    → web search in the browser
 const AT_PREFIXES = [
   { token: '@find', icon: 'folder', description: 'Find files across your computer' },
-  { token: '@search', icon: 'folder', description: IS_LINUX ? 'Search your home folder' : 'Search the focused Explorer folder' },
+  { token: '@search', icon: 'folder', description: IS_LINUX ? 'Search your home folder' : IS_MAC ? 'Search the focused Finder folder' : 'Search the focused Explorer folder' },
   { token: '@web', icon: 'search', description: 'Search the web' },
   { token: '@calc', icon: 'calculator', description: 'Calculate an expression (40+2, 100 usd to eur)' },
   { token: '@time', icon: 'clock', description: 'Convert time zones (4pm bst to est)' },
@@ -1310,13 +1310,15 @@ export default function Palette({
         background: 'var(--bg)',
         backdropFilter: 'blur(60px) saturate(180%)',
         WebkitBackdropFilter: 'blur(60px) saturate(180%)',
+        // Windows rounds the OS window itself via DWM (DWMWCP_ROUND), so only
+        // round in CSS on platforms that don't: macOS 12px (matches the
+        // vibrancy radius applied natively), Linux 8px (layer-shell surface
+        // has no compositor rounding).
+        borderRadius: IS_MAC ? 12 : IS_LINUX ? 8 : undefined,
         display: 'flex',
         flexDirection: 'column',
         fontFamily: 'var(--font)',
         overflow: 'hidden',
-        // Windows rounds the OS window itself via DWM (DWMWCP_ROUND); the Linux
-        // layer-shell surface has no compositor rounding, so round it here.
-        borderRadius: IS_LINUX ? 8 : undefined,
         color: 'var(--text)',
       }}
       onKeyDown={handleKeyDown}

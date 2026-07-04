@@ -3,7 +3,8 @@ pub mod claude;
 pub mod clipboard;
 pub mod config;
 pub mod deeplink;
-#[cfg(not(target_os = "windows"))]
+// Linux-only (not merely non-Windows): pulls in gtk/gio, which macOS lacks.
+#[cfg(target_os = "linux")]
 pub mod desktop;
 pub mod explorer;
 pub mod file_index;

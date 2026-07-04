@@ -34,7 +34,15 @@ pub async fn system_action(action: SystemAction, app: tauri::AppHandle) -> Resul
             .map_err(|e| format!("system action channel closed: {e}"))?
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        tokio::task::spawn_blocking(move || mac::run(action))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+
+    #[cfg(target_os = "linux")]
     {
         let _ = app;
         tokio::task::spawn_blocking(move || linux::run(action))
@@ -46,7 +54,7 @@ pub async fn system_action(action: SystemAction, app: tauri::AppHandle) -> Resul
 /// Linux implementations shell out to the standard session/systemd tools so
 /// they work across desktops; polkit allows suspend/poweroff/reboot for local
 /// active sessions without prompting. Failures surface the tool's stderr.
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 mod linux {
     use super::SystemAction;
 
@@ -156,6 +164,51 @@ mod linux {
             SystemAction::Restart => run_cmd("systemctl", &["reboot"]),
             SystemAction::Logout => logout(),
             SystemAction::EmptyTrash => empty_trash(),
+        }
+    }
+}
+
+/// macOS actions shell out: `pmset` for power (no privileges needed) and
+/// AppleScript for session actions — System Events shuts down/restarts/logs
+/// out *gracefully* (apps get to save), unlike `shutdown(8)`, which also needs
+/// root. The System Events and Finder scripts each trigger a one-time
+/// Automation permission prompt on first use.
+#[cfg(target_os = "macos")]
+mod mac {
+    use super::SystemAction;
+
+    fn run_cmd(program: &str, args: &[&str]) -> Result<(), String> {
+        let out = std::process::Command::new(program)
+            .args(args)
+            .output()
+            .map_err(|e| format!("{program} failed to run: {e}"))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "{program} failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ))
+        }
+    }
+
+    fn osascript(script: &str) -> Result<(), String> {
+        run_cmd("osascript", &["-e", script])
+    }
+
+    pub fn run(action: SystemAction) -> Result<(), String> {
+        match action {
+            // Sleeps the display; with the default "require password after
+            // sleep" setting that is the lock screen.
+            SystemAction::Lock => run_cmd("pmset", &["displaysleepnow"]),
+            SystemAction::Sleep => run_cmd("pmset", &["sleepnow"]),
+            SystemAction::Hibernate => {
+                Err("Hibernate is not a separate action on macOS (sleep already writes a safe-sleep image)".to_string())
+            }
+            SystemAction::Shutdown => osascript("tell application \"System Events\" to shut down"),
+            SystemAction::Restart => osascript("tell application \"System Events\" to restart"),
+            SystemAction::Logout => osascript("tell application \"System Events\" to log out"),
+            SystemAction::EmptyTrash => osascript("tell application \"Finder\" to empty trash"),
         }
     }
 }

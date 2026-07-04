@@ -22,8 +22,9 @@ pub struct AppConfig {
     /// Alternate global hotkey used in game mode (e.g. "Alt+Space")
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub global_hotkey_game: Option<String>,
-    /// Global hotkey that starts the region screenshot (default "PrintScreen";
-    /// registered on Windows — Linux uses a managed COSMIC binding instead)
+    /// Global hotkey that starts the region screenshot (default "Insert" on
+    /// Windows; macOS has no default because PrintScreen keys don't exist.
+    /// Linux uses a managed COSMIC binding instead.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub screenshot_hotkey: Option<String>,
 }

@@ -5,8 +5,9 @@
 //! Capture backends: on Linux a four-tool fallback chain of external CLIs
 //! (`cosmic-screenshot` → `gnome-screenshot` → `spectacle` → `grim`), the
 //! first one present wins; on Windows a GDI BitBlt of the full virtual screen
-//! (all monitors). The frozen frame is written to `<app-cache>/frame.png` and
-//! served to the overlay webview via the asset protocol.
+//! (all monitors); on macOS `screencapture -R` of the cursor monitor. The
+//! frozen frame is written to `<app-cache>/frame.png` and served to the
+//! overlay webview via the asset protocol.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -17,8 +18,9 @@ pub struct Capture {
     pub frame_path: PathBuf,
     pub width: u32,
     pub height: u32,
-    /// Physical origin of the captured virtual screen (for overlay positioning).
-    #[cfg(target_os = "windows")]
+    /// Physical origin of the captured area — the virtual screen on Windows,
+    /// the cursor monitor on macOS (for overlay positioning).
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     pub monitor_origin: (i32, i32),
 }
 
@@ -46,7 +48,7 @@ fn frame_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("frame.png"))
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
     let dest = frame_path(app)?;
     let dir = dest.parent().unwrap().to_path_buf();
@@ -61,13 +63,63 @@ fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
     })
 }
 
+/// Built-in `screencapture` of the monitor under the cursor. `-R` takes the
+/// rect in global logical points (Tauri's monitor APIs report physical pixels,
+/// so divide by the scale factor); the PNG comes out at native Retina pixels,
+/// matching the physical sizing the overlay uses. Capturing other apps'
+/// windows needs the Screen Recording permission — without it macOS silently
+/// yields just the wallpaper (and prompts once for dev builds, per invoking
+/// binary).
+#[cfg(target_os = "macos")]
+fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
+    let dest = frame_path(app)?;
+
+    let cursor = app.cursor_position().map_err(|e| e.to_string())?;
+    let monitor = app
+        .monitor_from_point(cursor.x, cursor.y)
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())
+        .ok_or("no monitor found")?;
+    let scale = monitor.scale_factor();
+    let pos = monitor.position();
+    let size = monitor.size();
+    let rect = format!(
+        "-R{},{},{},{}",
+        (pos.x as f64 / scale).round(),
+        (pos.y as f64 / scale).round(),
+        (size.width as f64 / scale).round(),
+        (size.height as f64 / scale).round(),
+    );
+
+    let out = std::process::Command::new("screencapture")
+        .args(["-x", "-t", "png", &rect])
+        .arg(&dest)
+        .output()
+        .map_err(|e| format!("screencapture failed to run: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "screencapture failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+
+    let (width, height) = image::image_dimensions(&dest).map_err(|e| e.to_string())?;
+    Ok(Capture {
+        frame_path: dest,
+        width,
+        height,
+        monitor_origin: (pos.x, pos.y),
+    })
+}
+
 /// Grab the screen into `dest` with the first available backend:
 /// cosmic-screenshot (COSMIC portal CLI), then the DE/compositor natives —
 /// gnome-screenshot, spectacle (KDE), grim (wlroots). A tool that isn't
 /// installed just advances the chain; a tool that runs and fails aborts with
 /// its stderr. (The XDG Screenshot portal is deliberately not shelled to:
 /// its reply arrives as a D-Bus signal that `gdbus call` can't wait for.)
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn capture_screen_to(dest: &std::path::Path, dir: &std::path::Path) -> Result<(), String> {
     let mut missing: Vec<&str> = Vec::new();
 
@@ -421,9 +473,18 @@ pub fn show_screenshot_overlay(app: AppHandle) -> Result<(), String> {
     // sizes it to the output — nothing to position. On X11 there is no layer
     // shell: cover the captured area from the origin (the fallback capture
     // tools grab the whole screen).
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     if std::env::var_os("WAYLAND_DISPLAY").is_none() {
         let _ = win.set_position(tauri::PhysicalPosition::new(0, 0));
+        let _ = win.set_size(tauri::PhysicalSize::new(capture.width, capture.height));
+    }
+
+    // macOS: cover the captured monitor (WKWebView repaints without the
+    // WebView2 black-flash problem, so positioning here is fine).
+    #[cfg(target_os = "macos")]
+    {
+        let (x, y) = capture.monitor_origin;
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
         let _ = win.set_size(tauri::PhysicalSize::new(capture.width, capture.height));
     }
 
@@ -508,7 +569,7 @@ pub async fn finish_screenshot(app: AppHandle, region: Region) -> Result<String,
 /// would die with its Clipboard object here. When neither tool is installed,
 /// fall back to arboard on a detached thread held open by `wait()` (same
 /// pattern as clipboard.rs::set_clipboard_detached).
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn copy_image_to_clipboard(path: &std::path::Path, img: &image::RgbaImage) -> Result<(), String> {
     let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
 
@@ -569,7 +630,9 @@ fn copy_image_to_clipboard(path: &std::path::Path, img: &image::RgbaImage) -> Re
     }
 }
 
-#[cfg(target_os = "windows")]
+/// Windows and macOS keep serving clipboard offers after the process moves on,
+/// so arboard's image offer works directly.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn copy_image_to_clipboard(_path: &std::path::Path, img: &image::RgbaImage) -> Result<(), String> {
     let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
     cb.set_image(arboard::ImageData {

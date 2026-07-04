@@ -109,8 +109,9 @@ export const writeOverrides = (overrides: Record<string, CommandOverride>) =>
 export const setGlobalHotkey = (hotkey: string, gameHotkey: string | null, gameMode: boolean) =>
   invoke<void>('set_global_hotkey', { update: { hotkey, game_hotkey: gameHotkey }, gameMode })
 
-// Global hotkey that starts the region screenshot (Windows only; default 'Insert').
-// Rejects (throws) if the binding string doesn't parse.
+// Global hotkey that starts the region screenshot (Windows/macOS; default 'Insert'
+// on Windows, none on macOS because PrintScreen keys don't exist). Rejects (throws)
+// if the binding string doesn't parse.
 export const setScreenshotHotkey = (hotkey: string) =>
   invoke<void>('set_screenshot_hotkey', { hotkey })
 
@@ -310,6 +311,7 @@ export const readThemes = () =>
   invoke<Theme[]>('read_themes')
 
 export const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
+export const IS_MAC = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
 
 // Runtime environment facts from the backend (Wayland vs X11 can't be sniffed
 // from the user agent). Fetched once and cached for the session.
@@ -329,7 +331,8 @@ export const setWindowTransparency = (transparency: number) => {
     // Wayland/cosmic-comp has no whole-window alpha (and GTK3 toplevel opacity
     // is a no-op there). The window background is already fully transparent,
     // so fading the webview root is visually equivalent to the Windows
-    // layered-window alpha.
+    // layered-window alpha. macOS instead sets the native NSWindow alphaValue
+    // (see set_window_transparency in commands/window.rs).
     const t = Math.min(1, Math.max(0, transparency))
     document.documentElement.style.opacity = String(1 - t)
     return Promise.resolve()

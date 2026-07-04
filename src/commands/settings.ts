@@ -6,10 +6,11 @@ import { dataDir, getAutostart, openPath, setAutostart, setScreenshotHotkey, set
 import { appEvents } from '../lib/appEvents'
 import { applyTheme, applyThemeByName, getAllThemes, type Theme } from '../lib/themes'
 
-// The screenshot hotkey is a Windows-only global shortcut; on Linux the
-// trigger is a managed COSMIC binding, so we hide the setting there.
+// The screenshot hotkey is a global shortcut on Windows and macOS; on Linux
+// the trigger is a managed COSMIC binding, so we hide the setting there.
 const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
-const DEFAULT_SCREENSHOT_HOTKEY = 'Insert'
+const IS_MAC = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
+const DEFAULT_SCREENSHOT_HOTKEY = IS_MAC ? '' : 'Insert'
 
 function settingsStep(config: AppConfig): Step {
   const transparencyPercent = Math.round((config.transparency ?? 0) * 100)

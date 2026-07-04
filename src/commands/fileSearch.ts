@@ -1,8 +1,10 @@
-// "@search" prefix search over the folder open in the previously-focused File
-// Explorer window. The whole tree is loaded once (parallel walk in Rust,
-// capped), then every keystroke filters client-side — no IPC while typing.
+// "@search" prefix search over the folder open in the previously-focused
+// file-manager window (File Explorer on Windows, Finder on macOS). The whole
+// tree is loaded once (parallel walk in Rust, capped), then every keystroke
+// filters client-side — no IPC while typing.
 // On Linux there is no way to ask the compositor which file-manager folder is
-// focused, so @search predictably falls back to the home folder instead.
+// focused, so @search predictably falls back to the home folder instead — as
+// does macOS when Finder wasn't the frontmost app.
 import type { PaletteItem } from '../types'
 import { envInfo, explorerLocation, listFilesRecursive, openPath, type FileEntry } from '../lib/tauri'
 
@@ -30,7 +32,7 @@ export async function loadActiveFolderItems(): Promise<PaletteItem[]> {
   let folder = await explorerLocation()
   if (!folder) {
     const env = await envInfo()
-    if (env.os === 'linux' && env.home) folder = env.home
+    if ((env.os === 'linux' || env.os === 'macos') && env.home) folder = env.home
   }
   if (!folder) throw new Error('No File Explorer folder is focused')
   const files = await listFilesRecursive(folder, FILE_CAP)

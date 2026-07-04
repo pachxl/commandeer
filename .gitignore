@@ -8,8 +8,8 @@ src-tauri/target/
 # Tauri generated
 src-tauri/gen/
 
-# Binary (built artifact, not source)
-bin/commandeer.exe
+# Binary build artifacts (not source)
+bin/
 
 # Env / local config
 .env

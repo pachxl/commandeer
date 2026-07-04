@@ -20,8 +20,9 @@ pub struct ScriptInfo {
 /// Whether a directory entry should be surfaced as a runnable command.
 ///
 /// Windows: batch/command scripts, shell shortcuts, and VS Code workspaces.
-/// Unix: shell scripts, `.desktop` launchers, VS Code workspaces, AppImages,
-/// or any regular file with the executable bit set.
+/// macOS/Linux: shell scripts, VS Code workspaces, or any regular file with the
+/// executable bit set. Linux additionally surfaces `.desktop` launchers and
+/// AppImages; macOS additionally surfaces `.command` Terminal scripts.
 fn is_script_file(path: &Path) -> bool {
     let ext = path.extension().and_then(|x| x.to_str());
 
@@ -33,19 +34,24 @@ fn is_script_file(path: &Path) -> bool {
         )
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
+        #[cfg(target_os = "linux")]
         if matches!(
             ext,
             Some("sh") | Some("desktop") | Some("code-workspace") | Some("AppImage")
         ) {
             return true;
         }
+        #[cfg(target_os = "macos")]
+        if matches!(ext, Some("sh") | Some("command") | Some("code-workspace")) {
+            return true;
+        }
         is_executable(path)
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     path.is_file()
@@ -55,7 +61,7 @@ fn is_executable(path: &Path) -> bool {
 }
 
 // .desktop parsing/icon helpers live in the shared desktop module.
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 use super::desktop::{resolve_desktop_icon, resolve_desktop_name};
 
 fn collect_script_files(dir: &Path, folder: Option<String>) -> Vec<ScriptInfo> {
@@ -75,8 +81,8 @@ fn collect_script_files(dir: &Path, folder: Option<String>) -> Vec<ScriptInfo> {
                 .unwrap_or_default();
             let stem = path.file_stem()?.to_string_lossy().into_owned();
 
-            // Unix: a .desktop entry's Name= is friendlier than its filename.
-            #[cfg(not(target_os = "windows"))]
+            // Linux: a .desktop entry's Name= is friendlier than its filename.
+            #[cfg(target_os = "linux")]
             let stem = if ext == "desktop" {
                 resolve_desktop_name(&path).unwrap_or(stem)
             } else {
@@ -100,8 +106,8 @@ fn collect_script_files(dir: &Path, folder: Option<String>) -> Vec<ScriptInfo> {
                 None
             };
 
-            // Unix: fall back to the icon declared inside a .desktop entry.
-            #[cfg(not(target_os = "windows"))]
+            // Linux: fall back to the icon declared inside a .desktop entry.
+            #[cfg(target_os = "linux")]
             let icon = icon.or_else(|| {
                 if ext == "desktop" {
                     resolve_desktop_icon(&path)
@@ -406,6 +412,7 @@ pub async fn run_script(path: String) -> Result<(), String> {
             .unwrap_or("")
             .to_lowercase();
 
+        #[cfg(target_os = "linux")]
         if ext == "desktop" {
             // Launch through gio when present, else parse Exec= ourselves.
             return super::desktop::launch_desktop_file(script_path);
@@ -413,6 +420,13 @@ pub async fn run_script(path: String) -> Result<(), String> {
 
         let mut cmd = if ext == "code-workspace" {
             let mut c = std::process::Command::new("code");
+            c.arg(&path);
+            c
+        } else if cfg!(target_os = "macos") && ext == "command" {
+            // Open in Terminal via LaunchServices, like double-clicking it —
+            // direct exec would run it invisibly. (Checked before the
+            // executable-bit test: .command files usually carry it.)
+            let mut c = std::process::Command::new("open");
             c.arg(&path);
             c
         } else if is_executable(script_path) {
@@ -425,7 +439,8 @@ pub async fn run_script(path: String) -> Result<(), String> {
             c
         } else {
             // Fall back to the desktop's default handler for the file type.
-            let mut c = std::process::Command::new("xdg-open");
+            let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+            let mut c = std::process::Command::new(opener);
             c.arg(&path);
             c
         };

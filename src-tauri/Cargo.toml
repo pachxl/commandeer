@@ -11,7 +11,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "protocol-asset"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
@@ -61,18 +61,36 @@ windows = { version = "0.58", features = [
     "Win32_System_Variant",
 ] }
 
+# Clipboard-history encryption at rest (Windows uses DPAPI instead; Linux and
+# macOS encrypt with ChaCha20-Poly1305 — key in the Secret Service via
+# `keyring` on Linux, in a 0600 key file on macOS; see clipboard/crypto.rs for
+# why not the Keychain)
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+chacha20poly1305 = "0.10"
+
+# Linux-only (not merely non-Windows): GTK/layer-shell must NOT be pulled in on
+# macOS, which is also "not windows". macOS uses native window APIs instead.
 [target.'cfg(target_os = "linux")'.dependencies]
 # kill(2) for the process-list "kill" action
 libc = "0.2"
-# Clipboard-history encryption at rest (Windows uses DPAPI; Linux stores the
-# key in the Secret Service via `keyring`, falling back to a 0600 key file)
-chacha20poly1305 = "0.10"
 keyring = { version = "3", features = ["sync-secret-service"] }
-
-[target.'cfg(not(windows))'.dependencies]
 # Render the palette as a wlr-layer-shell surface on Linux/Wayland: lets the
 # compositor center it and makes transparent regions truly invisible (no
 # toplevel border/tint), and allows in-place resize without an unmap flash.
 gtk = "0.18"
 # v0_6 enables set_keyboard_mode (KeyboardMode::OnDemand); our system lib is 0.10.
 gtk-layer-shell = { version = "0.8", features = ["v0_6"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Translucent NSVisualEffect background + rounded corners for the palette
+# (the macOS analogue of the Windows "acrylic" windowEffect).
+window-vibrancy = "0.5"
+# Set NSWindow.alphaValue for the transparency slider (msg_send). Version pinned
+# to match window-vibrancy's objc2 so only one copy is built.
+objc2 = "0.5"
+# Synthesize the ⌘V keystroke for paste-to-previous (CGEvent).
+core-graphics = "0.24"
+# Process list for the process manager (the macOS analogue of EnumProcesses).
+sysinfo = "0.33"
+# kill(2) for the process manager's force-kill.
+libc = "0.2"

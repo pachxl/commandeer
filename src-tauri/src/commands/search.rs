@@ -36,7 +36,15 @@ pub async fn path_icon(path: String) -> Option<String> {
         .ok()
         .flatten()
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        tokio::task::spawn_blocking(move || crate::commands::icons::icon_for_path(&path))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    #[cfg(target_os = "linux")]
     {
         tokio::task::spawn_blocking(move || linux_icons::cached_icon_for_path(&path))
             .await
@@ -48,7 +56,7 @@ pub async fn path_icon(path: String) -> Option<String> {
 /// Server-side icon cache mirroring the frontend's: keyed per extension for
 /// ordinary files (one theme lookup covers every .rs file), per path for
 /// .desktop entries and extensionless files, whose icons are individual.
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 mod linux_icons {
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -315,11 +323,11 @@ pub async fn search_files(
                         icon: None,
                     })
                     .collect();
-                #[cfg(target_os = "windows")]
+                #[cfg(any(target_os = "windows", target_os = "macos"))]
                 for r in &mut out {
                     r.icon = crate::commands::icons::icon_for_path(&r.path);
                 }
-                #[cfg(not(target_os = "windows"))]
+                #[cfg(target_os = "linux")]
                 for r in &mut out {
                     r.icon = linux_icons::cached_icon_for_path(&r.path);
                 }
@@ -423,11 +431,11 @@ pub async fn search_files(
             }
         }
 
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         for r in &mut results {
             r.icon = crate::commands::icons::icon_for_path(&r.path);
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "linux")]
         for r in &mut results {
             r.icon = linux_icons::cached_icon_for_path(&r.path);
         }
