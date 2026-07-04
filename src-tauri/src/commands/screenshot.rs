@@ -229,17 +229,22 @@ async fn start_inner(app: &AppHandle, mut delay_ms: u64) -> Result<(), String> {
         height: capture.height,
     };
 
-    // Position/size the (still hidden) overlay BEFORE handing the frame to the
-    // webview: resizing at show time makes WebView2 clear to its background
-    // color until the renderer catches up — a fullscreen black flash on every
-    // monitor. Sized now, the frame is laid out and painted at the final size
-    // by the time show_screenshot_overlay runs, so showing presents finished
-    // pixels.
+    // Position/size the overlay and show it CLOAKED before handing the frame
+    // to the webview. WebView2 only renders while its window is visible, and
+    // a cloaked window is composited without being displayed — so the frame
+    // image loads, rasterizes and is presented to the DWM surface entirely
+    // off-screen. The webview then reports the actual on-screen paint of the
+    // <img> (element timing) and reveal_screenshot_overlay drops the cloak,
+    // which is atomic: the overlay pops in fully formed, no black or stale
+    // frame. (Resizing at show time, or showing before the paint, both flash.)
     #[cfg(target_os = "windows")]
     if let Some(win) = app.get_webview_window("screenshot") {
         let (x, y) = capture.monitor_origin;
         let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
         let _ = win.set_size(tauri::PhysicalSize::new(capture.width, capture.height));
+        set_cloak(&win, true);
+        let _ = win.show();
+        let _ = win.set_focus();
     }
 
     {

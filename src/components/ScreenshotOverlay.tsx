@@ -48,6 +48,25 @@ export default function ScreenshotOverlay() {
   }, [])
 
   useEffect(() => {
+    // Reveal (uncloak) only once the frame <img> has actually been PRESENTED:
+    // element-timing entries are queued after the paint reaches the screen,
+    // unlike onLoad/rAF, which race the GPU rasterization of the huge frame
+    // texture — revealing on those flashed black for a few frames. Each
+    // capture is a new image resource (cache-busted src), so a fresh entry
+    // fires every time.
+    let po: PerformanceObserver | null = null
+    try {
+      po = new PerformanceObserver(() => {
+        requestAnimationFrame(() => void revealScreenshotOverlay())
+      })
+      po.observe({ type: 'element', buffered: true } as PerformanceObserverInit)
+    } catch {
+      // No element timing support: the onLoad timer / Rust fallback reveal.
+    }
+    return () => po?.disconnect()
+  }, [])
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setDrag(null)
@@ -127,20 +146,14 @@ export default function ScreenshotOverlay() {
       {frame && (
         <img
           src={frame.src}
+          // Marks the frame for the element-timing observer above.
+          {...({ elementtiming: 'shot-frame' } as Record<string, string>)}
           onLoad={() => {
-            // Show-then-reveal handshake: the window is shown DWM-cloaked
-            // (composited, not displayed), we wait for a real paint of the
-            // frame (double rAF — reliable now the window counts as visible),
-            // then uncloak. Anything before that first paint (stale surface,
-            // resize clear) stays off-screen. The timeout covers throttled
-            // rAF; the Rust 1500 ms fallback covers everything else.
-            void showScreenshotOverlay().then(() => {
-              const painted = new Promise<void>(resolve =>
-                requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-              )
-              const timeout = new Promise<void>(resolve => setTimeout(resolve, 250))
-              return Promise.race([painted, timeout]).then(() => revealScreenshotOverlay())
-            })
+            // The window was already shown cloaked at capture time (Windows) —
+            // this is a no-op there and the show path on Linux. The timer is a
+            // reveal fallback in case the element-timing entry never fires.
+            void showScreenshotOverlay()
+            setTimeout(() => void revealScreenshotOverlay(), 500)
           }}
           draggable={false}
           style={{
