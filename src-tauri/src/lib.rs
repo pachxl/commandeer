@@ -64,6 +64,30 @@ fn position_on_cursor_monitor(win: &tauri::WebviewWindow) {
     }
 }
 
+/// macOS equivalent of `position_on_cursor_monitor`, built on Tauri's
+/// cross-platform monitor APIs instead of Win32. Center horizontally on the
+/// display under the cursor with the top at ~20% of that display's work area
+/// (below the menu bar). All physical pixels, matching `outer_size` /
+/// `set_position`.
+#[cfg(target_os = "macos")]
+fn position_on_cursor_monitor(win: &tauri::WebviewWindow) {
+    let Ok(cursor) = win.cursor_position() else {
+        return;
+    };
+    let monitor = match win.monitor_from_point(cursor.x, cursor.y) {
+        Ok(Some(m)) => m,
+        _ => match win.primary_monitor() {
+            Ok(Some(m)) => m,
+            _ => return,
+        },
+    };
+    let area = monitor.work_area();
+    let width = win.outer_size().map(|s| s.width as i32).unwrap_or(669);
+    let x = area.position.x + (area.size.width as i32 - width) / 2;
+    let y = area.position.y + (area.size.height as i32) / 5;
+    let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
 /// Show the palette if hidden, hide it if visible.
 fn toggle_palette(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("palette") {
@@ -76,7 +100,7 @@ fn toggle_palette(app: &tauri::AppHandle) {
             // Snapshot the focused Explorer folder now (resolves on a worker
             // thread) so the frontend's Search Folder check is instant.
             commands::explorer::capture_location();
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             position_on_cursor_monitor(&win);
             let _ = win.show();
             let _ = win.set_focus();
@@ -90,7 +114,7 @@ pub(crate) fn show_palette(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("palette") {
         commands::paste::capture_foreground();
         commands::explorer::capture_location();
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         position_on_cursor_monitor(&win);
         let _ = win.show();
         let _ = win.set_focus();
