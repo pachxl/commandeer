@@ -11,7 +11,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "protocol-asset"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
@@ -61,7 +61,9 @@ windows = { version = "0.58", features = [
     "Win32_System_Variant",
 ] }
 
-[target.'cfg(not(windows))'.dependencies]
+# Linux-only (not merely non-Windows): GTK/layer-shell must NOT be pulled in on
+# macOS, which is also "not windows". macOS uses native window APIs instead.
+[target.'cfg(target_os = "linux")'.dependencies]
 # Render the palette as a wlr-layer-shell surface on Linux/Wayland: lets the
 # compositor center it and makes transparent regions truly invisible (no
 # toplevel border/tint), and allows in-place resize without an unmap flash.

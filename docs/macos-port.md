@@ -1,8 +1,9 @@
 # Commandeer → macOS port plan
 
-Status: **planning** (no code changes yet). Commandeer currently targets
-**Windows** and **Linux (Wayland/COSMIC)**; this document is the plan for adding
-**macOS** as a third supported target from the same codebase.
+Status: **Phase 1 complete** — Commandeer compiles, links, and launches on macOS
+with a transparent palette window. Phases 2–4 (UX parity, feature backends,
+packaging) remain. Commandeer targets **Windows**, **Linux (Wayland/COSMIC)**,
+and now **macOS** from the same codebase.
 
 ## The core idea (how it stays "in-line" across platforms)
 
@@ -35,42 +36,59 @@ is genuinely identical on both, like the `PermissionsExt` use in `fs.rs`).
   audio/system/process/paste → errors), so they compile on macOS as-is with the
   same feature gaps Linux has.
 
-## Phase 0 — Toolchain (prerequisite)
+## Phase 0 — Toolchain (prerequisite) — DONE
 
-- [ ] Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-      (Xcode Command Line Tools already present)
-- [ ] `source ~/.cargo/env`; confirm `cargo --version`
-- [ ] `bun install` (done)
-- [ ] Bun/Node already installed
+- [x] Install Rust via rustup (1.96.1). Xcode Command Line Tools already present.
+      Installed with `--no-modify-path`; `. "$HOME/.cargo/env"` added to `~/.zshenv`.
+- [x] `cargo --version` confirmed
+- [x] `bun install`
+- [x] Bun/Node already installed
 
-## Phase 1 — Make it compile & launch (structural)
+## Phase 1 — Make it compile & launch (structural) — DONE
 
-Goal: an app that *runs* on macOS with the same feature gaps Linux has. This is
-the bulk of the feasibility risk, and it's small.
+Goal: an app that *runs* on macOS with the same feature gaps Linux has. Achieved
+in a single session; the feasibility risk was as small as expected.
 
-- [ ] **`src-tauri/Cargo.toml`** — regate the GTK block:
+- [x] **`src-tauri/Cargo.toml`** — regated the GTK block:
       `[target.'cfg(not(windows))'.dependencies]` (gtk, gtk-layer-shell) →
       `[target.'cfg(target_os = "linux")'.dependencies]`. Stops macOS from
-      building GTK.
-- [ ] **`src-tauri/src/lib.rs`** — every `#[cfg(not(target_os = "windows"))]`
-      block that uses `gtk`/`gtk_layer_shell` becomes `#[cfg(target_os = "linux")]`:
+      building GTK. (`tauri-build` also auto-added the `macos-private-api` cargo
+      feature once the config below was set.)
+- [x] **`src-tauri/src/lib.rs`** — every `#[cfg(not(target_os = "windows"))]`
+      block that used `gtk`/`gtk_layer_shell` is now `#[cfg(target_os = "linux")]`:
   - `PALETTE_TOP_MARGIN` const
-  - `resize_palette` body (Linux-only; macOS/Windows resize via the frontend)
-  - the layer-shell setup in `.setup()`
+  - `resize_palette` body (Linux-only; the no-op `let _` arm is now
+    `cfg(not(target_os = "linux"))` so both Windows and macOS keep params used)
+  - the layer-shell + WAYLAND setup in `.setup()`
   - `update_cosmic_shortcut` and its calls in `set_game_mode`/`setup`
-- [ ] **`src-tauri/src/lib.rs`** — add a `#[cfg(target_os = "macos")]` setup arm.
-      Minimum to launch: nothing special (the palette window is already
-      `transparent`, `decorations:false`, `alwaysOnTop`, `center`). Rounded
+- [x] **macOS setup arm** — none needed to launch: the palette is already
+      `transparent`, `decorations:false`, `alwaysOnTop`, `center`. Rounded
       corners / vibrancy come in Phase 2.
-- [ ] **`src-tauri/tauri.conf.json`** — palette `windowEffects` uses `"acrylic"`
-      (Windows-only, ignored on mac). Later swap for a macOS material
-      (`"hudWindow"` / `"popover"`).
-- [ ] **`src/lib/tauri.ts`** (wherever `IS_LINUX` lives) — add `IS_MAC`
-      (`navigator.userAgent.includes('Mac')`). macOS follows the **Windows**
-      sizing path (frontend `setSize`), not the Linux layer-shell path.
-- [ ] `npm run tauri dev` → iterate until it launches. Expected: palette opens
-      via global shortcut; launcher/audio/screenshot/etc. dead (same as Linux).
-      This confirms macOS is a supported target.
+- [x] **`src-tauri/tauri.conf.json`** — added `"macOSPrivateApi": true` under
+      `app`. **Required**: without it macOS logs "window is set to be transparent
+      but macos-private-api is not enabled" and the palette isn't transparent.
+      (Note: this uses private Apple APIs → not Mac App Store distributable, which
+      is fine here.) The Windows-only `"acrylic"` windowEffect is ignored on mac;
+      swap for a macOS material (`"hudWindow"`/`"popover"`) in Phase 2.
+- [x] **Frontend — no change needed.** `IS_LINUX` keys off
+      `userAgent.includes('Linux')`, which is *false* on macOS, so all three
+      `IS_LINUX` branches (palette sizing, window transparency, screenshot-hotkey
+      setting) already resolve to the Windows-style path on Mac. macOS uses native
+      `setSize` for palette resize automatically.
+- [x] `npm run tauri dev` launches: `cargo build` is clean (exit 0, 3 harmless
+      dead-code warnings), app runs without panic, file index scans, transparent
+      window confirmed. macOS is a supported target.
+
+### Known non-blocking gaps after Phase 1 (expected; addressed in later phases)
+
+- Global hotkey default is Ctrl+Space — on macOS this often collides with input-
+  source switching / Spotlight; verify and/or change default in Phase 2.
+- `set_window_transparency` command returns an error on macOS (Windows-only
+  native path); the transparency *setting* is a no-op. Give macOS the Linux-style
+  CSS-opacity fallback or a native impl in Phase 2/3.
+- Screenshot / launcher / audio / system / process / paste are stubs or Linux-only
+  shell-outs → Phase 3.
+- No tray icon on macOS (tray is Windows-only) → Phase 2.
 
 ## Phase 2 — Core UX parity
 

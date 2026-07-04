@@ -6,16 +6,17 @@ use tauri_plugin_global_shortcut::ShortcutState;
 /// Distance (logical px) from the top of the screen to the top of the palette on
 /// Wayland. The surface is anchored to the top edge, so this stays fixed while
 /// the height grows downward.
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 const PALETTE_TOP_MARGIN: i32 = 150;
 
 /// Resize the palette to `height` logical px. On the Wayland layer-shell surface
 /// the size is taken from the GTK window's size request (it has no anchors), and
 /// changing it reconfigures the surface in place — no unmap, no flicker. On
-/// Windows the frontend resizes via setSize instead, so this is a no-op there.
+/// Windows and macOS the frontend resizes via setSize instead, so this is a
+/// no-op there.
 #[tauri::command]
 fn resize_palette(app: tauri::AppHandle, height: i32) {
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
         use gtk::prelude::*;
         if let Some(win) = app.get_webview_window("palette") {
@@ -24,7 +25,8 @@ fn resize_palette(app: tauri::AppHandle, height: i32) {
             }
         }
     }
-    #[cfg(target_os = "windows")]
+    // Windows and macOS resize via the frontend's setSize, so this is a no-op.
+    #[cfg(not(target_os = "linux"))]
     let _ = (&app, height);
 }
 
@@ -171,7 +173,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 /// instance, which toggles the palette). We manage that binding here so it
 /// mirrors the Windows shortcut: Ctrl+Space normally, Alt+Space in game mode.
 /// Only our own entry is touched; any other custom shortcuts are preserved.
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn update_cosmic_shortcut(game_mode: bool) {
     let home = match std::env::var_os("HOME") {
         Some(h) => h,
@@ -234,7 +236,7 @@ fn set_game_mode(enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
     // Re-register the configured hotkeys (game hotkey when enabled).
     commands::shortcuts::reload_shortcuts(&app, enabled)?;
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
         update_cosmic_shortcut(enabled);
     }
@@ -344,7 +346,7 @@ pub fn run() {
             // later via set_game_mode) plus any per-command shortcuts.
             commands::shortcuts::setup_shortcuts(app.app_handle())?;
 
-            #[cfg(not(target_os = "windows"))]
+            #[cfg(target_os = "linux")]
             {
                 // Ensure a working default COSMIC binding even before the frontend
                 // calls set_game_mode; the frontend then refines it for game mode.
