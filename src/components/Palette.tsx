@@ -12,7 +12,7 @@ import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
 import { evaluateCalcQuery } from '../providers/calculator'
 import { tryTimeConversion } from '../lib/timezones'
-import { IS_LINUX, IS_MAC, envInfo, openPath, openUrl, pasteToPrevious, readSnippets, revealPath, setCommandHotkey, writeClipboardText, writeSnippets, type ClipboardItem, type CommandOverride, type Snippet } from '../lib/tauri'
+import { IS_LINUX, IS_MAC, envInfo, openPath, openUrl, pasteToPrevious, readQuicklinks, readNotes, readSnippets, revealPath, setCommandHotkey, writeClipboardText, writeSnippets, writeQuicklinks, writeNotes, type Bookmark, type ClipboardItem, type CommandOverride, type Note, type Quicklink, type Snippet } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
@@ -824,6 +824,54 @@ export default function Palette({
       case 'system':
         runPrimary('run', 'Run command')
         break
+      case 'quicklink': {
+        const q = item.data as Quicklink
+        runPrimary('open', 'Open link')
+        pushCopy('Copy URL', q.url, 'C')
+        actions.push({
+          id: 'delete',
+          label: 'Delete quick link',
+          shortcut: '⌫',
+          icon: 'trash',
+          handler: async () => {
+            const all = await readQuicklinks()
+            await writeQuicklinks(all.filter(x => x.id !== q.id))
+            appEvents.refreshCommands?.()
+            reloadStepRef.current()
+            toast('Quick link deleted', 'success')
+          },
+        })
+        break
+      }
+      case 'note': {
+        const n = item.data as Note
+        runPrimary('copy', 'Copy note')
+        actions.push({
+          id: 'delete',
+          label: 'Delete note',
+          shortcut: '⌫',
+          icon: 'trash',
+          handler: async () => {
+            const all = await readNotes()
+            await writeNotes(all.filter(x => x.id !== n.id))
+            appEvents.refreshCommands?.()
+            reloadStepRef.current()
+            toast('Note deleted', 'success')
+          },
+        })
+        break
+      }
+      case 'bookmark': {
+        const b = item.data as Bookmark
+        actions.push({
+          id: 'open',
+          label: 'Open in browser',
+          shortcut: '↵',
+          handler: async () => { await openUrl(b.url); await getCurrentWindow().hide() },
+        })
+        pushCopy('Copy URL', b.url, 'C')
+        break
+      }
       default:
         runPrimary('open', 'Open')
         pushCopy('Copy name', item.label, 'C')

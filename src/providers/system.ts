@@ -1,5 +1,5 @@
 import type { Command, CommandProvider, Step } from '../types'
-import { IS_LINUX, IS_MAC, systemAction, type SystemActionId } from '../lib/tauri'
+import { IS_LINUX, IS_MAC, setDarkMode, systemAction, type SystemActionId } from '../lib/tauri'
 
 // Same feature, different vocabulary: Windows' "Recycle Bin" is "Trash"
 // everywhere else.
@@ -67,9 +67,34 @@ export const systemProvider: CommandProvider = {
   id: 'system',
   name: 'System',
   priority: 40,
-  getCommands: () =>
-    SYSTEM_COMMANDS
+  getCommands: () => {
+    const base = SYSTEM_COMMANDS
       // Hibernate isn't a macOS concept (the backend rejects it); don't list it.
       .filter(sc => !(IS_MAC && sc.id === 'hibernate'))
-      .map(actionCommand),
+      .map(actionCommand)
+
+    return [
+      ...base,
+      {
+        id: 'system:dark-mode-on',
+        label: 'Enable Dark Mode',
+        description: 'Switch the system to dark appearance',
+        icon: 'moon',
+        source: 'system' as const,
+        folderName: 'System',
+        keywords: ['dark', 'mode', 'appearance', 'theme'],
+        action: async () => { await setDarkMode(true) },
+      },
+      {
+        id: 'system:dark-mode-off',
+        label: 'Enable Light Mode',
+        description: 'Switch the system to light appearance',
+        icon: 'sun',
+        source: 'system' as const,
+        folderName: 'System',
+        keywords: ['light', 'mode', 'appearance', 'theme'],
+        action: async () => { await setDarkMode(false) },
+      },
+    ]
+  },
 }

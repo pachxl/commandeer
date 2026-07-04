@@ -1,4 +1,6 @@
+pub mod appearance;
 pub mod audio;
+pub mod bookmarks;
 pub mod claude;
 pub mod clipboard;
 pub mod config;

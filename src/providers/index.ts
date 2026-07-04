@@ -4,9 +4,12 @@
 // only the newer feature families register here.
 import type { AppConfig, Command, CommandProvider } from '../types'
 import { appLauncherProvider } from './appLauncher'
+import { bookmarksProvider } from './bookmarks'
 import { calculatorProvider } from './calculator'
 import { clipboardProvider } from './clipboard'
+import { notesProvider } from './notes'
 import { processesProvider } from './processes'
+import { quicklinksProvider } from './quicklinks'
 import { screenshotProvider } from './screenshot'
 import { systemProvider } from './system'
 import { toolsProvider } from './tools'
@@ -21,6 +24,9 @@ export const providers: CommandProvider[] = [
   toolsProvider,
   screenshotProvider,
   calculatorProvider,
+  bookmarksProvider,
+  quicklinksProvider,
+  notesProvider,
 ]
 
 export async function loadProviderCommands(config: AppConfig): Promise<Command[]> {

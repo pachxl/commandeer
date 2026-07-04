@@ -4,6 +4,8 @@ import { loadScriptCommands, scriptsToCommands, webSearchCommand } from './comma
 import { loadSnippetCommands } from './commands/snippets'
 import { settingsCommand } from './commands/settings'
 import { loadProviderCommands } from './providers'
+import { loadQuicklinkCommands } from './providers/quicklinks'
+import { loadNoteCommands } from './providers/notes'
 import { killProcessCommand } from './providers/processes'
 import { toolsFolderCommand, virtualFolderCommand } from './providers/tools'
 import { appEvents } from './lib/appEvents'
@@ -69,6 +71,14 @@ export default function App() {
         console.error(err)
         return [] as Command[]
       })
+      const quicklinkCmds = await loadQuicklinkCommands().catch(err => {
+        console.error(err)
+        return [] as Command[]
+      })
+      const noteCmds = await loadNoteCommands().catch(err => {
+        console.error(err)
+        return [] as Command[]
+      })
       const providerCmds = await loadProviderCommands(configRef.current).catch(err => {
         console.error(err)
         return [] as Command[]
@@ -79,6 +89,8 @@ export default function App() {
       const toolsChildren = [...providerCmds, ...webSearchCmds].filter(c => c.folderName === 'Tools')
       const appCmds = providerCmds.filter(c => c.folderName === 'Apps')
       const systemCmds = providerCmds.filter(c => c.folderName === 'System')
+      const quicklinkChildren = quicklinkCmds.filter(c => c.folderName === 'Quick Links')
+      const noteChildren = noteCmds.filter(c => c.folderName === 'Notes')
       setCommands([
         ...cmds,
         ...(appCmds.length > 0 ? [virtualFolderCommand('Apps', appCmds)] : []),
@@ -87,7 +99,11 @@ export default function App() {
         // Dynamic children: the folder re-reads snippets on every step load,
         // so adds/removes show up without leaving the folder
         ...(snippetCmds.length > 0 ? [virtualFolderCommand('Snippets', () => loadSnippetCommands())] : []),
+        ...(quicklinkChildren.length > 0 ? [virtualFolderCommand('Quick Links', () => loadQuicklinkCommands())] : []),
+        ...(noteChildren.length > 0 ? [virtualFolderCommand('Notes', () => loadNoteCommands())] : []),
         ...snippetCmds,
+        ...quicklinkCmds,
+        ...noteCmds,
         ...webSearchCmds,
         ...providerCmds,
         settingsCommand(configRef.current),

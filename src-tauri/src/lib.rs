@@ -544,6 +544,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::appearance::set_dark_mode,
             commands::config::read_config,
             commands::config::write_config,
             commands::fs::list_scripts,
@@ -555,6 +556,8 @@ pub fn run() {
             commands::store::write_snippets,
             commands::store::read_quicklinks,
             commands::store::write_quicklinks,
+            commands::store::read_notes,
+            commands::store::write_notes,
             commands::store::read_overrides,
             commands::store::write_overrides,
             commands::store::read_themes,
@@ -567,6 +570,7 @@ pub fn run() {
             commands::explorer::list_files_recursive,
             commands::launcher::list_apps,
             commands::launcher::run_app,
+            commands::bookmarks::list_bookmarks,
             commands::search::search_files,
             commands::search::file_info,
             commands::search::path_icon,

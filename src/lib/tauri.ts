@@ -75,6 +75,27 @@ export const readQuicklinks = () =>
 export const writeQuicklinks = (quicklinks: Quicklink[]) =>
   invoke<void>('write_quicklinks', { quicklinks })
 
+export interface Note {
+  id: string
+  title: string
+  content: string
+}
+
+export const readNotes = () =>
+  invoke<Note[]>('read_notes')
+
+export const writeNotes = (notes: Note[]) =>
+  invoke<void>('write_notes', { notes })
+
+export interface Bookmark {
+  name: string
+  url: string
+  browser: string
+}
+
+export const listBookmarks = () =>
+  invoke<Bookmark[]>('list_bookmarks')
+
 export interface ClipboardItem {
   id: string
   text: string
@@ -127,6 +148,9 @@ export const getCommandHotkey = (commandId: string) =>
 
 export const setAutostart = (enabled: boolean) =>
   invoke<void>('set_autostart', { enabled })
+
+export const setDarkMode = (enabled: boolean) =>
+  invoke<void>('set_dark_mode', { enabled })
 
 export const getAutostart = () =>
   invoke<boolean>('get_autostart')

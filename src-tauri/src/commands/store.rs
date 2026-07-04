@@ -19,6 +19,13 @@ pub struct Snippet {
     pub text: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Note {
+    pub id: String,
+    pub title: String,
+    pub content: String,
+}
+
 fn app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -31,6 +38,10 @@ fn quicklinks_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn snippets_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app_data_dir(app)?.join("snippets.json"))
+}
+
+fn notes_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app_data_dir(app)?.join("notes.json"))
 }
 
 fn read_json_file<T>(path: &PathBuf) -> Result<Vec<T>, String>
@@ -103,6 +114,16 @@ pub async fn read_snippets(app: tauri::AppHandle) -> Result<Vec<Snippet>, String
 #[tauri::command]
 pub async fn write_snippets(app: tauri::AppHandle, snippets: Vec<Snippet>) -> Result<(), String> {
     write_json_file(&snippets_path(&app)?, &snippets)
+}
+
+#[tauri::command]
+pub async fn read_notes(app: tauri::AppHandle) -> Result<Vec<Note>, String> {
+    read_json_file(&notes_path(&app)?)
+}
+
+#[tauri::command]
+pub async fn write_notes(app: tauri::AppHandle, notes: Vec<Note>) -> Result<(), String> {
+    write_json_file(&notes_path(&app)?, &notes)
 }
 
 /// User theme: a name plus the CSS variable map applied to :root.

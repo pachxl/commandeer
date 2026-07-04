@@ -10,6 +10,7 @@ export type CommandSource =
   | 'snippet'
   | 'clipboard'
   | 'bookmark'
+  | 'note'
 
 export interface PaletteAccessory {
   text?: string
