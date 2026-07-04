@@ -60,6 +60,17 @@ fn read_chromium_bookmarks(path: &Path, browser: &str, out: &mut Vec<Bookmark>) 
     }
 }
 
+/// Read every bookmarks store inside a single Chromium profile directory.
+///
+/// A local-only profile writes a plain `Bookmarks` JSON file. A signed-in
+/// profile stores its account-synced bookmarks in `AccountBookmarks` instead
+/// (and may not write `Bookmarks` at all). Both use the identical schema, so we
+/// read whichever exist; the later dedup-by-URL collapses any overlap.
+fn read_chromium_profile(profile_dir: &Path, browser: &str, out: &mut Vec<Bookmark>) {
+    read_chromium_bookmarks(&profile_dir.join("Bookmarks"), browser, out);
+    read_chromium_bookmarks(&profile_dir.join("AccountBookmarks"), browser, out);
+}
+
 fn firefox_profile_dir(parent: &Path) -> Option<PathBuf> {
     let entries = std::fs::read_dir(parent).ok()?;
     let mut fallback = None;
@@ -150,10 +161,18 @@ fn chromium_browser_paths(home: &Path) -> Vec<(String, PathBuf)> {
     {
         if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
             let base = PathBuf::from(local_app_data);
-            browsers.push(("Chrome".to_string(), base.join("Google/Chrome")));
-            browsers.push(("Chrome Canary".to_string(), base.join("Google/Chrome SxS")));
-            browsers.push(("Edge".to_string(), base.join("Microsoft/Edge")));
-            browsers.push(("Brave".to_string(), base.join("BraveSoftware/Brave-Browser")));
+            // On Windows, Chromium browsers nest their profiles under a
+            // "User Data" subdirectory (macOS/Linux put them at the root).
+            browsers.push(("Chrome".to_string(), base.join("Google/Chrome/User Data")));
+            browsers.push((
+                "Chrome Canary".to_string(),
+                base.join("Google/Chrome SxS/User Data"),
+            ));
+            browsers.push(("Edge".to_string(), base.join("Microsoft/Edge/User Data")));
+            browsers.push((
+                "Brave".to_string(),
+                base.join("BraveSoftware/Brave-Browser/User Data"),
+            ));
         }
     }
 
@@ -206,18 +225,14 @@ pub async fn list_bookmarks(app: tauri::AppHandle) -> Result<Vec<Bookmark>, Stri
             // "Profile 1", etc. Read Default if present; also read Profile N.
             let default_profile = root.join("Default");
             if default_profile.exists() {
-                read_chromium_bookmarks(&default_profile.join("Bookmarks"), &name, &mut out);
+                read_chromium_profile(&default_profile, &name, &mut out);
             }
             if let Ok(entries) = std::fs::read_dir(&root) {
                 for entry in entries.flatten() {
                     let file_name = entry.file_name();
                     let fname = file_name.to_string_lossy();
                     if fname.starts_with("Profile ") {
-                        read_chromium_bookmarks(
-                            &entry.path().join("Bookmarks"),
-                            &name,
-                            &mut out,
-                        );
+                        read_chromium_profile(&entry.path(), &name, &mut out);
                     }
                 }
             }
