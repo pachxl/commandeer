@@ -275,6 +275,7 @@ const PROVIDER_DEBOUNCE_MS = 150
 // which can be resized in place; a plain setSize is enough. On Windows we also
 // lock min == max so the user can't drag-resize it.
 const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
+const IS_MAC = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
 
 interface PaletteProps {
   config: AppConfig
@@ -1315,6 +1316,10 @@ export default function Palette({
         background: 'var(--bg)',
         backdropFilter: 'blur(60px) saturate(180%)',
         WebkitBackdropFilter: 'blur(60px) saturate(180%)',
+        // Windows rounds the native window frame (DWM, in the Rust setup), so
+        // only round in CSS on platforms that don't: macOS (matches the 12px
+        // vibrancy radius applied natively) and Linux (layer-shell surface).
+        borderRadius: IS_MAC || IS_LINUX ? 12 : undefined,
         display: 'flex',
         flexDirection: 'column',
         fontFamily: 'var(--font)',
