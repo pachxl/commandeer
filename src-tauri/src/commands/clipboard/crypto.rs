@@ -113,10 +113,36 @@ pub fn decrypt(ciphertext: &[u8]) -> Result<Vec<u8>, String> {
         return Err("clipboard entry too short".to_string());
     }
     let (nonce, ct) = body.split_at(12);
-    let cipher = ChaCha20Poly1305::new(key()?.as_slice().into());
-    cipher
-        .decrypt(nonce.into(), ct)
-        .map_err(|e| format!("clipboard decrypt failed: {e}"))
+
+    // Try the primary key, then any other key source present on disk / in the
+    // keyring. A transient Secret Service outage can fall back to a file key
+    // (or vice versa), leaving some rows encrypted under keyring and others
+    // under the file; trying every available key keeps all rows decryptable.
+    let mut candidates: Vec<[u8; 32]> = Vec::new();
+    let mut push = |k: [u8; 32]| {
+        if !candidates.contains(&k) {
+            candidates.push(k);
+        }
+    };
+    if let Ok(k) = key() {
+        push(k);
+    }
+    if let Some(k) = existing_keyring_key() {
+        push(k);
+    }
+    if let Some(k) = existing_file_key() {
+        push(k);
+    }
+    if candidates.is_empty() {
+        return Err("clipboard decrypt failed: no key available".to_string());
+    }
+    for k in &candidates {
+        let cipher = ChaCha20Poly1305::new(k.as_slice().into());
+        if let Ok(pt) = cipher.decrypt(nonce.into(), ct) {
+            return Ok(pt);
+        }
+    }
+    Err("clipboard decrypt failed: no matching key".to_string())
 }
 
 /// The 32-byte data key: from the Secret Service when available (created on
@@ -153,18 +179,45 @@ fn keyring_key() -> Result<[u8; 32], String> {
     }
 }
 
-/// Fallback when no Secret Service daemon is running (headless, minimal WMs):
-/// a raw key file readable only by the user, alongside the clipboard db.
+/// Read the keyring key if one already exists, without creating a new one.
+/// Used at decrypt time to try an alternate key source.
 #[cfg(target_os = "linux")]
-fn file_key() -> Result<[u8; 32], String> {
+fn existing_keyring_key() -> Option<[u8; 32]> {
+    let entry = keyring::Entry::new("commandeer", "clipboard-key").ok()?;
+    hex_decode(&entry.get_password().ok()?)
+}
+
+/// Read the key file if it already exists, without creating one.
+#[cfg(target_os = "linux")]
+fn existing_file_key() -> Option<[u8; 32]> {
+    std::fs::read(key_file_path().ok()?)
+        .ok()?
+        .as_slice()
+        .try_into()
+        .ok()
+}
+
+/// Location of the fallback key file, alongside the clipboard db.
+#[cfg(target_os = "linux")]
+fn key_file_path() -> Result<std::path::PathBuf, String> {
     let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
     let data_home = std::env::var("XDG_DATA_HOME")
         .ok()
         .filter(|v| !v.is_empty())
         .unwrap_or(format!("{home}/.local/share"));
-    let dir = std::path::PathBuf::from(data_home).join("dev.commandeer.app");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join("clipboard.key");
+    Ok(std::path::PathBuf::from(data_home)
+        .join("dev.commandeer.app")
+        .join("clipboard.key"))
+}
+
+/// Fallback when no Secret Service daemon is running (headless, minimal WMs):
+/// a raw key file readable only by the user, alongside the clipboard db.
+#[cfg(target_os = "linux")]
+fn file_key() -> Result<[u8; 32], String> {
+    let path = key_file_path()?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
 
     if let Ok(bytes) = std::fs::read(&path) {
         return bytes

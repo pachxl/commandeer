@@ -82,6 +82,12 @@ mod linux {
                     "dbus-send",
                     &[
                         "--session",
+                        // --type=method_call actually calls Lock (without it
+                        // dbus-send emits a signal); --print-reply makes a
+                        // missing destination a non-zero exit so the next
+                        // fallback runs (plain method_call exits 0 regardless).
+                        "--type=method_call",
+                        "--print-reply",
                         "--dest=org.freedesktop.ScreenSaver",
                         "/org/freedesktop/ScreenSaver",
                         "org.freedesktop.ScreenSaver.Lock",

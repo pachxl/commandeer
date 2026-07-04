@@ -2,10 +2,11 @@
 //! overlay window, let the user drag a region, then copy it to the clipboard
 //! and save it under Pictures/Screenshots.
 //!
-//! Capture backends: `cosmic-screenshot` (portal CLI) on Linux, GDI BitBlt of
-//! the cursor monitor on Windows. The frozen frame is written to
-//! `<app-cache>/frame.png` and served to the overlay webview via the asset
-//! protocol.
+//! Capture backends: on Linux a four-tool fallback chain of external CLIs
+//! (`cosmic-screenshot` → `gnome-screenshot` → `spectacle` → `grim`), the
+//! first one present wins; on Windows a GDI BitBlt of the full virtual screen
+//! (all monitors). The frozen frame is written to `<app-cache>/frame.png` and
+//! served to the overlay webview via the asset protocol.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -559,7 +560,12 @@ fn copy_image_to_clipboard(path: &std::path::Path, img: &image::RgbaImage) -> Re
     });
     match rx.recv_timeout(std::time::Duration::from_millis(500)) {
         Ok(result) => result,
-        Err(_) => Ok(()), // offer is live and being served
+        // Timeout: the thread is still alive and serving the selection = success.
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Ok(()),
+        // Disconnected: the arboard thread panicked without sending = failure.
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err("clipboard thread died before setting the image".to_string())
+        }
     }
 }
 

@@ -175,7 +175,12 @@ pub(crate) fn set_clipboard_detached(text: String) -> Result<(), String> {
     });
     match rx.recv_timeout(std::time::Duration::from_millis(300)) {
         Ok(result) => result,
-        Err(_) => Ok(()), // still serving the selection = success
+        // Timeout: the thread is still alive serving the selection = success.
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Ok(()),
+        // Disconnected: the arboard thread panicked without sending = failure.
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err("clipboard thread died before setting the selection".to_string())
+        }
     }
 }
 
