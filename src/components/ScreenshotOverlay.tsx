@@ -8,6 +8,9 @@ import { convertFileSrc } from '@tauri-apps/api/core'
 import {
   cancelScreenshot,
   finishScreenshot,
+  hideScreenshotOverlay,
+  IS_LINUX,
+  onScreenshotClear,
   onScreenshotFrame,
   revealScreenshotOverlay,
   showScreenshotOverlay,
@@ -28,6 +31,18 @@ interface Drag {
 const VEIL = 'rgba(0, 0, 0, 0.45)'
 // Drags smaller than this (CSS px) are treated as a stray click, not a snip.
 const MIN_DRAG = 4
+
+// Linux: resolve after the cleared (frame-less, fully transparent) state has
+// actually been composited — WebKitGTK replays the last composite as the first
+// frame at the next map, so hiding before this paint would flash the previous
+// capture the next time the overlay shows. Windows solves the same problem
+// with DWM cloaking instead, so there the wait would only add latency.
+const afterClearPaint = () =>
+  IS_LINUX
+    ? new Promise<void>(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      })
+    : Promise.resolve()
 
 export default function ScreenshotOverlay() {
   const [frame, setFrame] = useState<Frame | null>(null)
@@ -71,11 +86,26 @@ export default function ScreenshotOverlay() {
       if (e.key === 'Escape') {
         setDrag(null)
         setFrame(null)
-        void cancelScreenshot()
+        void afterClearPaint().then(() => cancelScreenshot())
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => {
+    // Linux re-trigger: Rust asks the still-visible overlay to clear before it
+    // captures a fresh frame; we hide ourselves once the clear has painted
+    // (Rust force-hides after its pre-capture delay as a fallback).
+    const unlisten = onScreenshotClear(() => {
+      finishing.current = false
+      setDrag(null)
+      setFrame(null)
+      void afterClearPaint().then(() => hideScreenshotOverlay())
+    })
+    return () => {
+      unlisten.then(fn => fn())
+    }
   }, [])
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
@@ -105,12 +135,15 @@ export default function ScreenshotOverlay() {
       finishing.current = true
       setDrag(null)
       setFrame(null)
-      void finishScreenshot({
+      const region = {
         x: Math.round(left * scaleX),
         y: Math.round(top * scaleY),
         w: Math.max(1, Math.round(w * scaleX)),
         h: Math.max(1, Math.round(h * scaleY)),
-      }).catch(err => console.error('finish_screenshot failed:', err))
+      }
+      void afterClearPaint()
+        .then(() => finishScreenshot(region))
+        .catch(err => console.error('finish_screenshot failed:', err))
     },
     [drag, frame]
   )
@@ -137,7 +170,10 @@ export default function ScreenshotOverlay() {
         overflow: 'hidden',
         cursor: 'crosshair',
         userSelect: 'none',
-        background: '#000',
+        // Linux: the window is transparent and the cleared state must composite
+        // as fully invisible (see afterClearPaint); an opaque backdrop would
+        // turn the pre-paint frame at map time into a black flash instead.
+        background: IS_LINUX ? 'transparent' : '#000',
       }}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
@@ -196,9 +232,11 @@ export default function ScreenshotOverlay() {
             {Math.max(1, Math.round(sel.width * scaleX))} × {Math.max(1, Math.round(sel.height * scaleY))}
           </div>
         </div>
-      ) : (
+      ) : frame ? (
+        // Full-screen veil only while a frame is up: the cleared state (frame
+        // null) must render nothing so it composites fully transparent.
         <div style={{ position: 'absolute', inset: 0, background: VEIL, pointerEvents: 'none' }} />
-      )}
+      ) : null}
     </div>
   )
 }

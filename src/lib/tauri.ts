@@ -162,8 +162,19 @@ export const finishScreenshot = (region: ScreenshotRegion) =>
 export const cancelScreenshot = () =>
   invoke<void>('cancel_screenshot')
 
+// Linux only: hide the overlay window after the webview has painted a cleared
+// (transparent) frame — the composite WebKitGTK replays at the next map then
+// shows nothing instead of the previous capture.
+export const hideScreenshotOverlay = () =>
+  invoke<void>('hide_screenshot_overlay')
+
 export const onScreenshotFrame = (callback: (frame: ScreenshotFrame) => void) =>
   listen<ScreenshotFrame>('screenshot-frame', event => callback(event.payload))
+
+// Linux only: Rust asks the visible overlay to clear itself before a
+// re-triggered capture (it then hides via hideScreenshotOverlay).
+export const onScreenshotClear = (callback: () => void) =>
+  listen<void>('screenshot-clear', () => callback())
 
 export const readSnippets = () =>
   invoke<Snippet[]>('read_snippets')
@@ -295,7 +306,7 @@ export interface Theme {
 export const readThemes = () =>
   invoke<Theme[]>('read_themes')
 
-const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
+export const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
 
 export const setWindowTransparency = (transparency: number) => {
   if (IS_LINUX) {

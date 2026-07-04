@@ -213,13 +213,31 @@ async fn start_inner(app: &AppHandle, mut delay_ms: u64) -> Result<(), String> {
     for label in ["palette", "screenshot"] {
         if let Some(win) = app.get_webview_window(label) {
             if win.is_visible().unwrap_or(false) {
-                let _ = win.hide();
+                // Linux: the overlay clears itself to a fully transparent frame
+                // before hiding (see the screenshot-clear listener) so the
+                // webview's last composite — which WebKitGTK replays as the
+                // first frame at the next map — is invisible instead of the
+                // old capture. The hide after the sleep below is the fallback
+                // if the webview never answers.
+                #[cfg(not(target_os = "windows"))]
+                let deferred = label == "screenshot" && app.emit_to(label, "screenshot-clear", ()).is_ok();
+                #[cfg(target_os = "windows")]
+                let deferred = false;
+                if !deferred {
+                    let _ = win.hide();
+                }
                 delay_ms = delay_ms.max(220);
             }
         }
     }
     if delay_ms > 0 {
         tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+    }
+    // Ensure the overlay really is unmapped before we capture (idempotent; the
+    // preferred path is the webview hiding itself after its clear paint).
+    #[cfg(not(target_os = "windows"))]
+    if let Some(win) = app.get_webview_window("screenshot") {
+        let _ = win.hide();
     }
 
     let capture = capture_frame(app)?;
@@ -357,6 +375,17 @@ pub fn reveal_screenshot_overlay(app: AppHandle) -> Result<(), String> {
     #[cfg(not(target_os = "windows"))]
     let _ = app;
     Ok(())
+}
+
+/// Hide the overlay window without touching the pending capture. Called by the
+/// webview after it has painted a cleared (fully transparent) frame, so the
+/// composite WebKitGTK replays at the next map shows nothing instead of the
+/// previous capture.
+#[tauri::command]
+pub fn hide_screenshot_overlay(app: AppHandle) {
+    if let Some(win) = app.get_webview_window("screenshot") {
+        let _ = win.hide();
+    }
 }
 
 /// Crop the frozen frame to `region` (image pixels), save a timestamped PNG
