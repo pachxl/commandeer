@@ -71,14 +71,6 @@ export default function App() {
         console.error(err)
         return [] as Command[]
       })
-      const quicklinkCmds = await loadQuicklinkCommands().catch(err => {
-        console.error(err)
-        return [] as Command[]
-      })
-      const noteCmds = await loadNoteCommands().catch(err => {
-        console.error(err)
-        return [] as Command[]
-      })
       const providerCmds = await loadProviderCommands(configRef.current).catch(err => {
         console.error(err)
         return [] as Command[]
@@ -89,8 +81,8 @@ export default function App() {
       const toolsChildren = [...providerCmds, ...webSearchCmds].filter(c => c.folderName === 'Tools')
       const appCmds = providerCmds.filter(c => c.folderName === 'Apps')
       const systemCmds = providerCmds.filter(c => c.folderName === 'System')
-      const quicklinkChildren = quicklinkCmds.filter(c => c.folderName === 'Quick Links')
-      const noteChildren = noteCmds.filter(c => c.folderName === 'Notes')
+      const quicklinkChildren = providerCmds.filter(c => c.folderName === 'Quick Links')
+      const noteChildren = providerCmds.filter(c => c.folderName === 'Notes')
       setCommands([
         ...cmds,
         ...(appCmds.length > 0 ? [virtualFolderCommand('Apps', appCmds)] : []),
@@ -102,8 +94,6 @@ export default function App() {
         ...(quicklinkChildren.length > 0 ? [virtualFolderCommand('Quick Links', () => loadQuicklinkCommands())] : []),
         ...(noteChildren.length > 0 ? [virtualFolderCommand('Notes', () => loadNoteCommands())] : []),
         ...snippetCmds,
-        ...quicklinkCmds,
-        ...noteCmds,
         ...webSearchCmds,
         ...providerCmds,
         settingsCommand(configRef.current),
