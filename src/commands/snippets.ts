@@ -14,7 +14,8 @@ function snippetCommand(snippet: Snippet): Command {
     actionLabel: 'Paste to active app',
     data: snippet,
     action: async () => {
-      await pasteToPrevious(snippet.text)
+      const pasted = await pasteToPrevious(snippet.text)
+      if (!pasted) appEvents.toast?.('Copied — press Ctrl+V to paste', 'success')
     },
   }
 }

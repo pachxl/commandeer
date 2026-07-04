@@ -1,4 +1,5 @@
 import type { Command, CommandProvider, PaletteItem, Step } from '../types'
+import { appEvents } from '../lib/appEvents'
 import { clearClipboardHistory, pasteToPrevious, readClipboardHistory, type ClipboardItem } from '../lib/tauri'
 
 function clipboardType(text: string): string {
@@ -37,7 +38,8 @@ function clipboardHistoryStep(): Step {
     load: async () => loadHistory(),
     onSelect: async (item) => {
       const clipboardItem = item.data as ClipboardItem
-      await pasteToPrevious(clipboardItem.text)
+      const pasted = await pasteToPrevious(clipboardItem.text)
+      if (!pasted) appEvents.toast?.('Copied — press Ctrl+V to paste', 'success')
       return { type: 'done' }
     },
   }

@@ -1,5 +1,9 @@
 import type { Command, CommandProvider, Step } from '../types'
-import { systemAction, type SystemActionId } from '../lib/tauri'
+import { IS_LINUX, systemAction, type SystemActionId } from '../lib/tauri'
+
+// Same feature, different vocabulary: Windows' "Recycle Bin" is "Trash"
+// everywhere else.
+const TRASH_NOUN = IS_LINUX ? 'Trash' : 'Recycle Bin'
 
 interface SystemCommand {
   id: SystemActionId
@@ -23,8 +27,8 @@ const SYSTEM_COMMANDS: SystemCommand[] = [
     confirm: 'Shut down the computer now?' },
   { id: 'logout', label: 'Log Out', description: 'Log out of your account', icon: 'logout', keywords: ['logout', 'sign out'],
     confirm: 'Log out of this session? Unsaved work will be lost.' },
-  { id: 'empty-trash', label: 'Empty Trash', description: 'Empty the recycle bin', icon: 'trash', keywords: ['trash', 'recycle bin', 'empty'],
-    confirm: 'Permanently delete everything in the Recycle Bin?' },
+  { id: 'empty-trash', label: 'Empty Trash', description: `Empty the ${TRASH_NOUN.toLowerCase()}`, icon: 'trash', keywords: ['trash', 'recycle bin', 'empty'],
+    confirm: `Permanently delete everything in the ${TRASH_NOUN}?` },
 ]
 
 function confirmStep(sc: SystemCommand): Step {

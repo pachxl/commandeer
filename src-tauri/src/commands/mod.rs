@@ -3,11 +3,15 @@ pub mod claude;
 pub mod clipboard;
 pub mod config;
 pub mod deeplink;
+#[cfg(not(target_os = "windows"))]
+pub mod desktop;
 pub mod explorer;
 pub mod file_index;
 pub mod fs;
 pub mod icons;
 pub mod launcher;
+#[cfg(target_os = "linux")]
+pub mod linux_shortcuts;
 pub mod process;
 pub mod rates;
 pub mod screenshot;

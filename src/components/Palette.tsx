@@ -12,7 +12,7 @@ import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
 import { evaluateCalcQuery } from '../providers/calculator'
 import { tryTimeConversion } from '../lib/timezones'
-import { openPath, openUrl, pasteToPrevious, readSnippets, setCommandHotkey, writeClipboardText, writeSnippets, type ClipboardItem, type CommandOverride, type Snippet } from '../lib/tauri'
+import { IS_LINUX, envInfo, openPath, openUrl, pasteToPrevious, readSnippets, setCommandHotkey, writeClipboardText, writeSnippets, type ClipboardItem, type CommandOverride, type Snippet } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
@@ -258,7 +258,7 @@ const LAST_CMD_KEY = 'commandeer:last'
 //   @web    → web search in the browser
 const AT_PREFIXES = [
   { token: '@find', icon: 'folder', description: 'Find files across your computer' },
-  { token: '@search', icon: 'folder', description: 'Search the focused Explorer folder' },
+  { token: '@search', icon: 'folder', description: IS_LINUX ? 'Search your home folder' : 'Search the focused Explorer folder' },
   { token: '@web', icon: 'search', description: 'Search the web' },
   { token: '@calc', icon: 'calculator', description: 'Calculate an expression (40+2, 100 usd to eur)' },
   { token: '@time', icon: 'clock', description: 'Convert time zones (4pm bst to est)' },
@@ -271,10 +271,6 @@ const FIND_DEBOUNCE_MS = 120
 // calculator, apps, …)
 const PROVIDER_DEBOUNCE_MS = 150
 
-// On Linux the palette is a wlr-layer-shell surface (set up in the Rust backend),
-// which can be resized in place; a plain setSize is enough. On Windows we also
-// lock min == max so the user can't drag-resize it.
-const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
 
 interface PaletteProps {
   config: AppConfig
@@ -788,7 +784,8 @@ export default function Palette({
             shortcut: '↵',
             handler: async () => {
               try {
-                await pasteToPrevious(clip.text)
+                const pasted = await pasteToPrevious(clip.text)
+                if (!pasted) toast('Copied — press Ctrl+V to paste', 'success')
               } catch (err) {
                 toast('Failed to paste', 'error')
                 throw err
@@ -1256,10 +1253,11 @@ export default function Palette({
   // tauri.conf.json. Re-asserted on focus because a size set while hidden
   // isn't always honoured.
   //
-  // Linux/Wayland (cosmic-comp): a mapped window can't be resized at all, so we
-  // don't try — the window is a fixed, tall, border/shadow-less transparent
-  // surface and only this content panel is opaque, so it *looks* content-sized
-  // with no OS resize (and therefore no flicker). Nothing to do here.
+  // Linux/Wayland (cosmic-comp): the palette is a layer-shell surface whose
+  // size comes from the GTK size request, so resizes go through the backend's
+  // resize_palette (in-place, no flicker). Linux/X11 has no layer shell — the
+  // window is a normal toplevel positioned by the backend on show, so it uses
+  // the same setSize path as Windows.
   const containerRef = useRef<HTMLDivElement>(null)
   const lastHeightRef = useRef(0)
   const applySize = useCallback(async () => {
@@ -1268,10 +1266,7 @@ export default function Palette({
     const h = Math.ceil(el.getBoundingClientRect().height)
     if (!h || Math.abs(h - lastHeightRef.current) < 2) return
     lastHeightRef.current = h
-    if (IS_LINUX) {
-      // Layer-shell surface: the compositor keeps it centered (no anchors) and
-      // resizes it in place (no flicker). Its size comes from the GTK size
-      // request, so go through the backend rather than setSize.
+    if (IS_LINUX && (await envInfo()).wayland) {
       await invoke('resize_palette', { height: h })
       return
     }
