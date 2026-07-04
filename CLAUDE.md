@@ -28,6 +28,18 @@ Linux dev/test notes:
 - Screenshots: `cosmic-screenshot --interactive=false --notify=false --save-dir DIR`.
 - Icons in `src-tauri/icons/*.png` must be RGBA — RGB fails the `generate_context!` macro on Linux.
 
+## Shipping changes
+
+After **every** completed task, bug fix, or feature — once the work is done and verified — ship it: **(1) commit and push, (2) rebuild the release binary, (3) restart the running process** on the new binary. The running app should always reflect committed code. Use the `ship-change` skill (`.claude/skills/ship-change/SKILL.md`), which encodes the exact per-OS steps (Windows/macOS/Linux):
+
+- Commit with the repo's footer lines and `git push` (this repo ships from `main`).
+- Rebuild with `npm run tauri build -- --no-bundle` (Linux/macOS: `source ~/.cargo/env` first; Windows: `npm run release`) — only a release build is representative.
+- Restart: kill the old process, then relaunch — `pkill -x commandeer` + `./src-tauri/target/release/commandeer` on Linux/macOS, `Stop-Process -Name commandeer` + the built exe on Windows. Kill before launching, since launching alone just toggles the palette (single-instance plugin).
+
+This is also enforced by a **Stop hook** (`.claude/hooks/ship-reminder.mjs`, wired in `.claude/settings.json`): when a turn ends with uncommitted changes it blocks once and asks the model to decide whether the work is a complete feature/fix and ship it — it never auto-commits, and it stays silent on a clean tree. The hook is Node (shell-neutral) so it runs identically on all three OSes. If any step fails (build error, rejected push), stop and surface it rather than reporting the change as shipped.
+
+Everything under `.claude/` (this skill, the hook, project settings) is committed and shared across systems; only `.claude/settings.local.json` is gitignored for personal overrides.
+
 ## Architecture
 
 Two always-running Tauri windows that hide/show rather than launching per use: the palette (label `palette`, transparent, undecorated) and the screenshot overlay (label `screenshot`, opaque fullscreen). A tray icon (Windows-only) and the global hotkey / single-instance toggle are the entry points.
