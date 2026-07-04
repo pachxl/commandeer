@@ -236,6 +236,30 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             "quit" => app.exit(0),
             _ => {}
         });
+    #[cfg(target_os = "macos")]
+    {
+        // Menu-bar icons are template images on macOS: alpha-only glyphs the
+        // system tints for light/dark menu bars and selection. The colored app
+        // icon would read as an opaque square, so use a dedicated monochrome
+        // glyph (18pt @2x) and fall back to the app icon only if it fails to
+        // decode.
+        const TRAY_TEMPLATE: &[u8] = include_bytes!("../icons/tray-template.png");
+        match image::load_from_memory(TRAY_TEMPLATE) {
+            Ok(img) => {
+                let rgba = img.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                tray = tray
+                    .icon(tauri::image::Image::new_owned(rgba.into_raw(), w, h))
+                    .icon_as_template(true);
+            }
+            Err(_) => {
+                if let Some(icon) = app.default_window_icon() {
+                    tray = tray.icon(icon.clone());
+                }
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
     }

@@ -1,9 +1,9 @@
 import type { Command, CommandProvider, Step } from '../types'
-import { IS_LINUX, systemAction, type SystemActionId } from '../lib/tauri'
+import { IS_LINUX, IS_MAC, systemAction, type SystemActionId } from '../lib/tauri'
 
 // Same feature, different vocabulary: Windows' "Recycle Bin" is "Trash"
 // everywhere else.
-const TRASH_NOUN = IS_LINUX ? 'Trash' : 'Recycle Bin'
+const TRASH_NOUN = IS_LINUX || IS_MAC ? 'Trash' : 'Recycle Bin'
 
 interface SystemCommand {
   id: SystemActionId
@@ -67,5 +67,9 @@ export const systemProvider: CommandProvider = {
   id: 'system',
   name: 'System',
   priority: 40,
-  getCommands: () => SYSTEM_COMMANDS.map(actionCommand),
+  getCommands: () =>
+    SYSTEM_COMMANDS
+      // Hibernate isn't a macOS concept (the backend rejects it); don't list it.
+      .filter(sc => !(IS_MAC && sc.id === 'hibernate'))
+      .map(actionCommand),
 }

@@ -35,7 +35,8 @@ macOS dev/test notes:
 - The app is an Accessory (no Dock icon / Cmd-Tab entry). Use the tray icon or the global hotkey to surface it.
 - Default toggle hotkey is `Cmd+Shift+Space` (Spotlight owns `Cmd+Space`, input-source switching owns `Ctrl+Space`).
 - Screenshot capture and paste-to-previous require permission grants: **Screen Recording** for screenshots, **Accessibility** for paste. Until granted the commands fail with instructions rather than silently no-oping.
-- Shutdown/Restart/Logout/Empty Trash trigger a one-time **Automation** prompt on first use (System Events / Finder).
+- Shutdown/Restart/Logout/Empty Trash trigger a one-time **Automation** prompt on first use (System Events / Finder). `@search` over the focused Finder folder uses the same Finder Automation channel (and only queries Finder when the palette opened over it; otherwise it falls back to the home folder like Linux).
+- Clipboard history is encrypted at rest on all three platforms: DPAPI on Windows; ChaCha20-Poly1305 on Linux (key in the Secret Service, 0600 key-file fallback) and macOS (0600 key file next to the db). **Do not move the macOS key to the Keychain** while the app ships ad-hoc-signed: Keychain ACLs bind to the code signature, so every rebuild re-prompts — and the prompt fires during setup and blocks launch (verified on-device).
 - `npm run release` produces a signed/unsigned `bin/commandeer.app` bundle; right-click → Open the first time if unsigned.
 
 ## Shipping changes

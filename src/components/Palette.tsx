@@ -254,11 +254,11 @@ const LAST_CMD_KEY = 'commandeer:last'
 // Root-level @ prefixes. Typing '@' (or a partial token) lists these as
 // suggestions; a completed token followed by a space activates the mode.
 //   @find   → global file search (FTS5 index → Everything → walkdir)
-//   @search → file search in the focused Explorer folder
+//   @search → file search in the focused Explorer/Finder folder
 //   @web    → web search in the browser
 const AT_PREFIXES = [
   { token: '@find', icon: 'folder', description: 'Find files across your computer' },
-  { token: '@search', icon: 'folder', description: IS_LINUX ? 'Search your home folder' : 'Search the focused Explorer folder' },
+  { token: '@search', icon: 'folder', description: IS_LINUX ? 'Search your home folder' : IS_MAC ? 'Search the focused Finder folder' : 'Search the focused Explorer folder' },
   { token: '@web', icon: 'search', description: 'Search the web' },
   { token: '@calc', icon: 'calculator', description: 'Calculate an expression (40+2, 100 usd to eur)' },
   { token: '@time', icon: 'clock', description: 'Convert time zones (4pm bst to est)' },

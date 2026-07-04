@@ -61,15 +61,18 @@ windows = { version = "0.58", features = [
     "Win32_System_Variant",
 ] }
 
+# Clipboard-history encryption at rest (Windows uses DPAPI instead; Linux and
+# macOS encrypt with ChaCha20-Poly1305 — key in the Secret Service via
+# `keyring` on Linux, in a 0600 key file on macOS; see clipboard/crypto.rs for
+# why not the Keychain)
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+chacha20poly1305 = "0.10"
+
 # Linux-only (not merely non-Windows): GTK/layer-shell must NOT be pulled in on
 # macOS, which is also "not windows". macOS uses native window APIs instead.
 [target.'cfg(target_os = "linux")'.dependencies]
 # kill(2) for the process-list "kill" action
 libc = "0.2"
-# Clipboard-history encryption at rest (Windows uses DPAPI; Linux stores the
-# key in the Secret Service via `keyring`, falling back to a 0600 key file;
-# macOS currently keeps history unencrypted — see clipboard/crypto.rs)
-chacha20poly1305 = "0.10"
 keyring = { version = "3", features = ["sync-secret-service"] }
 # Render the palette as a wlr-layer-shell surface on Linux/Wayland: lets the
 # compositor center it and makes transparent regions truly invisible (no

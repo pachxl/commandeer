@@ -222,6 +222,11 @@ interactive verification (see below).
   instructions rather than no-opping.
 - Shutdown/Restart/Logout/Empty Trash: one-time **Automation** prompts on
   first use (System Events / Finder).
+- @search over a Finder folder: the same Finder **Automation** prompt on
+  first use. Verified headlessly that the palette stays responsive while the
+  prompt is pending (the osascript runs on a worker thread and @search falls
+  back to the home folder until it resolves); the actual folder pick needs
+  the grant.
 
 ## Phase 4 — Packaging & sync hygiene — DONE
 
@@ -250,6 +255,38 @@ interactive verification (see below).
 - [x] **Platform-gate cleanup** — `commands/fs.rs` now uses explicit
       `target_os = "linux"` / `target_os = "macos"` gates instead of bare
       `not(windows)` branches, matching the port rule.
+
+## Post-port parity pass (2026-07-04)
+
+Gaps found comparing the finished port against the Windows/Linux arms after
+the Linux-parity merge landed:
+
+- [x] **@search on macOS** — was broken (`capture_location` was Windows-only,
+      the home-folder fallback Linux-only, so macOS threw "No File Explorer
+      folder is focused"). Now: when the palette opens over Finder, the front
+      Finder window's folder is resolved via AppleScript (same Automation
+      channel as Empty Trash; only queried when Finder was frontmost so the
+      one-time prompt can't fire over unrelated apps); otherwise @search falls
+      back to the home folder like Linux. Wording is Finder-specific on mac.
+- [x] **Clipboard history encryption at rest** — was plaintext on macOS while
+      Windows (DPAPI) and Linux (ChaCha20 + Secret Service) encrypted. The
+      Linux ChaCha20-Poly1305 arm now covers macOS, with the key in a 0600
+      key file (`~/Library/Application Support/dev.commandeer.app/
+      clipboard.key`) and the same one-time plaintext re-encryption migration.
+      Round-trip + legacy-passthrough tests added. **Keychain deliberately not
+      used**: its ACLs bind to the code signature, and an ad-hoc-signed binary
+      gets a new signature every rebuild, so each rebuild re-prompted — with
+      the prompt firing inside setup and blocking launch entirely (observed
+      on-device via a process sample stuck in SecKeychainFindGenericPassword).
+      Revisit only with a stable Developer ID signature.
+- [x] **System folder fixes** — "Empty Recycle Bin" is now "Empty Trash" on
+      macOS, and Hibernate (which the backend rejects as not a macOS concept)
+      is no longer listed.
+- [x] **Menu-bar template icon** — the tray now uses a monochrome `>_` glyph
+      (`icons/tray-template.png`, 18pt @2x, alpha-only) with
+      `icon_as_template`, so macOS tints it correctly for light/dark menu
+      bars; Windows/Linux keep the colored app icon. (Closes the Phase 2
+      follow-up note.)
 
 ## Effort estimate
 
