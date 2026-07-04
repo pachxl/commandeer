@@ -115,21 +115,29 @@ Screen Recording permission):
       the colored app icon; a monochrome **template** image would look more native
       in the macOS menu bar (follow-up).
 
-Deferred to Phase 2b (more involved / higher risk, and most valuable once paste
-works):
+### Phase 2b — DONE (except nspanel, deferred with rationale)
 
-- [ ] **Non-activating panel (Raycast feel):** add the `tauri-nspanel` plugin so
-      the palette is an `NSPanel` that shows over fullscreen apps and doesn't
-      activate the app / steal the previous app's active state (important for
-      paste-to-previous once that lands in Phase 3).
-- [ ] **Window positioning** (`position_on_cursor_monitor`): add a macOS arm so
-      the palette opens on the display under the cursor. Currently relies on
-      `center: true` (opens centered on the current display). Cleanest option —
-      unify Windows + macOS on Tauri's cross-platform monitor + cursor APIs.
-- [ ] **`set_window_transparency`** returns an error on macOS (Windows-only native
-      path). Give macOS the Linux-style CSS-opacity fallback (add an `IS_MAC`
-      branch in `src/lib/tauri.ts`) or a native impl, so the transparency setting
-      isn't a no-op that rejects.
+- [x] **Window positioning** — added a macOS `position_on_cursor_monitor` in
+      `lib.rs` on Tauri's cross-platform `cursor_position` / `monitor_from_point`
+      / `work_area` APIs. The palette opens centered on the display under the
+      cursor, top at ~20% of the work area. The Win32 path is left untouched (no
+      Windows regression); both show paths call it on `windows|macos`.
+- [x] **`set_window_transparency`** — macOS now routes through the Linux-style
+      CSS-opacity fallback (added `IS_MAC` in `src/lib/tauri.ts`) instead of the
+      Windows-only native invoke that errored. The transparency setting works.
+- [ ] **Non-activating panel (`tauri-nspanel`) — DEFERRED to Phase 3.** Rationale:
+      1. The plugin is **git-only** (branch-pinned, not on crates.io) — a
+         dependency-stability decision worth making deliberately, not by default.
+      2. Its main payoff — *not* stealing the previously-focused app's active
+         state — only matters for **paste-to-previous**, which is a Phase 3
+         feature. Bundling nspanel with that work lets it be verified end-to-end.
+      3. Its other benefit (show over fullscreen / on all spaces) is a
+         `collectionBehavior` tweak; both benefits are inherently interactive and
+         can't be verified in a headless/CI build, so they belong with hands-on
+         paste testing.
+      Until then the palette is a normal always-on-top window: it works, it just
+      activates the app on show and won't float over another app's fullscreen
+      space.
 
 ## Phase 3 — Feature backends (each independent; fill in over time)
 
