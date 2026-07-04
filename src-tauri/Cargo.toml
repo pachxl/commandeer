@@ -75,3 +75,6 @@ gtk-layer-shell = { version = "0.8", features = ["v0_6"] }
 # Translucent NSVisualEffect background + rounded corners for the palette
 # (the macOS analogue of the Windows "acrylic" windowEffect).
 window-vibrancy = "0.5"
+# Set NSWindow.alphaValue for the transparency slider (msg_send). Version pinned
+# to match window-vibrancy's objc2 so only one copy is built.
+objc2 = "0.5"

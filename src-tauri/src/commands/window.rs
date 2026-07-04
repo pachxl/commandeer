@@ -35,7 +35,31 @@ pub async fn set_window_transparency(transparency: f64, window: tauri::Window) -
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        // Native NSWindow alpha — the macOS analogue of the Windows LWA_ALPHA
+        // above. Setting alphaValue makes the whole window (vibrancy + content)
+        // genuinely translucent, revealing the desktop behind, instead of just
+        // fading the webview onto the opaque vibrancy layer (which reads as a
+        // blurred wallpaper patch, not transparency). AppKit must be touched on
+        // the main thread; the raw NSWindow pointer isn't Send, so it crosses
+        // the closure boundary as a usize.
+        let alpha = 1.0 - transparency.clamp(0.0, 1.0);
+        let ns_window = window
+            .ns_window()
+            .map_err(|_| "Failed to get NSWindow".to_string())? as usize;
+        window
+            .run_on_main_thread(move || {
+                use objc2::runtime::AnyObject;
+                let ns_window = ns_window as *mut AnyObject;
+                unsafe {
+                    let _: () = objc2::msg_send![ns_window, setAlphaValue: alpha];
+                }
+            })
+            .map_err(|e| e.to_string())
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         // Linux never reaches here: Wayland has no whole-window alpha, so the
         // frontend applies CSS opacity to the webview root instead (the window

@@ -293,15 +293,14 @@ export const readThemes = () =>
   invoke<Theme[]>('read_themes')
 
 const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
-const IS_MAC = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
 
 export const setWindowTransparency = (transparency: number) => {
-  if (IS_LINUX || IS_MAC) {
+  if (IS_LINUX) {
     // Wayland/cosmic-comp has no whole-window alpha (and GTK3 toplevel opacity
-    // is a no-op there); macOS has no native layered-window alpha command
-    // (the palette is a transparent window + vibrancy). In both cases the
-    // window background is already transparent, so fading the webview root is
-    // visually equivalent to the Windows layered-window alpha.
+    // is a no-op there). The window background is already fully transparent,
+    // so fading the webview root is visually equivalent to the Windows
+    // layered-window alpha. macOS instead sets the native NSWindow alphaValue
+    // (see set_window_transparency in commands/window.rs).
     const t = Math.min(1, Math.max(0, transparency))
     document.documentElement.style.opacity = String(1 - t)
     return Promise.resolve()
