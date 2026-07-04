@@ -70,3 +70,8 @@ windows = { version = "0.58", features = [
 gtk = "0.18"
 # v0_6 enables set_keyboard_mode (KeyboardMode::OnDemand); our system lib is 0.10.
 gtk-layer-shell = { version = "0.8", features = ["v0_6"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Translucent NSVisualEffect background + rounded corners for the palette
+# (the macOS analogue of the Windows "acrylic" windowEffect).
+window-vibrancy = "0.5"

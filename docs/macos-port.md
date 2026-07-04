@@ -90,23 +90,46 @@ in a single session; the feasibility risk was as small as expected.
   shell-outs → Phase 3.
 - No tray icon on macOS (tray is Windows-only) → Phase 2.
 
-## Phase 2 — Core UX parity
+## Phase 2 — Core UX parity — IN PROGRESS
 
-- [ ] **Window positioning** (`position_on_cursor_monitor`): add a macOS arm.
-      Cleanest option — replace both with Tauri's cross-platform
-      `app.cursor_position()` + `available_monitors()` and pick the containing
-      monitor (could unify Windows too).
-- [ ] **Non-activating panel (Raycast feel):** add the `tauri-nspanel` plugin
-      (community, Tauri v2) so the palette is an `NSPanel` that shows over
-      fullscreen apps and doesn't steal focus/activate the app. Optional but this
-      is what makes it feel native.
-- [ ] **Vibrancy + rounded corners:** `NSVisualEffectView` material via
-      `windowEffects`; corner radius via the panel.
-- [ ] **Global hotkey:** `global-shortcut` works natively on macOS — verify
-      registration. Note Cmd+Space collides with Spotlight; pick a default or
-      keep it configurable (plumbing already exists).
-- [ ] **Tray icon** (`setup_tray`, currently Windows-only): enable for macOS;
-      Tauri tray works. Icons must be RGBA.
+Done in this pass (compiles clean; app launches, toggles the palette via the
+single-instance path, and survives show/hide with no panic — visual confirmation
+of vibrancy/tray is left to on-device testing since screen capture needs the
+Screen Recording permission):
+
+- [x] **Global hotkey default** — macOS now defaults to `Cmd+Shift+Space`
+      (Ctrl+Space = input-source switch, Cmd+Space = Spotlight). Per-platform
+      const in `shortcuts.rs`; still user-configurable.
+- [x] **Vibrancy + rounded corners** — added the `window-vibrancy` crate
+      (macOS-target dep) and apply `NSVisualEffectMaterial::HudWindow` +
+      12px radius to the palette in a `#[cfg(target_os = "macos")]` setup arm.
+      Best-effort (`let _`), so failure just falls back to the plain transparent
+      window. Material is easy to tweak if HudWindow reads wrong under the Light
+      theme.
+- [x] **Background agent** — `set_activation_policy(Accessory)` on macOS: no Dock
+      icon, no Cmd-Tab entry (matches Raycast/Spotlight). The tray + hotkey are
+      the entry points.
+- [x] **Tray icon** — `setup_tray` gate widened to
+      `any(target_os = "windows", target_os = "macos")` (Show / Start at Login /
+      Quit). Autostart already uses `MacosLauncher::LaunchAgent`. NOTE: it reuses
+      the colored app icon; a monochrome **template** image would look more native
+      in the macOS menu bar (follow-up).
+
+Deferred to Phase 2b (more involved / higher risk, and most valuable once paste
+works):
+
+- [ ] **Non-activating panel (Raycast feel):** add the `tauri-nspanel` plugin so
+      the palette is an `NSPanel` that shows over fullscreen apps and doesn't
+      activate the app / steal the previous app's active state (important for
+      paste-to-previous once that lands in Phase 3).
+- [ ] **Window positioning** (`position_on_cursor_monitor`): add a macOS arm so
+      the palette opens on the display under the cursor. Currently relies on
+      `center: true` (opens centered on the current display). Cleanest option —
+      unify Windows + macOS on Tauri's cross-platform monitor + cursor APIs.
+- [ ] **`set_window_transparency`** returns an error on macOS (Windows-only native
+      path). Give macOS the Linux-style CSS-opacity fallback (add an `IS_MAC`
+      branch in `src/lib/tauri.ts`) or a native impl, so the transparency setting
+      isn't a no-op that rejects.
 
 ## Phase 3 — Feature backends (each independent; fill in over time)
 

@@ -24,7 +24,13 @@ fn active() -> &'static Mutex<ActiveShortcuts> {
     ACTIVE.get_or_init(|| Mutex::new(ActiveShortcuts::default()))
 }
 
+#[cfg(not(target_os = "macos"))]
 const DEFAULT_HOTKEY: &str = "Ctrl+Space";
+// macOS: Ctrl+Space is the system input-source switcher and Cmd+Space is
+// Spotlight, so neither is usable out of the box. Default to Cmd+Shift+Space,
+// which is normally free. (User-configurable via Settings → Global Hotkey.)
+#[cfg(target_os = "macos")]
+const DEFAULT_HOTKEY: &str = "Cmd+Shift+Space";
 const DEFAULT_GAME_HOTKEY: &str = "Alt+Space";
 // Insert, not PrintScreen: RegisterHotKey(VK_SNAPSHOT) "succeeds" but never
 // fires because PrintScreen emits no WM_KEYDOWN, so WM_HOTKEY is never sent.

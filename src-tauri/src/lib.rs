@@ -115,9 +115,10 @@ fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 /// Tray icon with Show / Start at Login / Quit — the only way to quit or
-/// rediscover the app once the palette is hidden. Windows-only for now; the
-/// Linux build would need libappindicator and is untested there.
-#[cfg(target_os = "windows")]
+/// rediscover the app once the palette is hidden (especially on macOS, where the
+/// app is an Accessory with no Dock icon). Windows + macOS; the Linux build would
+/// need libappindicator and is untested there.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     use tauri::menu::{CheckMenuItem, MenuBuilder, MenuItem};
     use tauri::tray::TrayIconBuilder;
@@ -339,7 +340,7 @@ pub fn run() {
                 });
             }
 
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             setup_tray(app)?;
 
             // Configurable base hotkey (default Ctrl+Space; game mode applied
@@ -437,6 +438,27 @@ pub fn run() {
                             );
                         }
                     }
+                }
+            }
+
+            #[cfg(target_os = "macos")]
+            {
+                // A command palette is a background agent: no Dock icon and no
+                // Cmd-Tab entry. The tray icon and global hotkey are the entry
+                // points (mirrors Raycast/Spotlight).
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+                // Translucent NSVisualEffect background + rounded corners for the
+                // palette — the macOS analogue of the Windows acrylic effect.
+                // Best-effort: any failure leaves the plain transparent window.
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+                if let Some(win) = app.get_webview_window("palette") {
+                    let _ = apply_vibrancy(
+                        &win,
+                        NSVisualEffectMaterial::HudWindow,
+                        Some(NSVisualEffectState::Active),
+                        Some(12.0),
+                    );
                 }
             }
 
