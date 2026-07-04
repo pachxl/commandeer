@@ -9,6 +9,7 @@ import {
   cancelScreenshot,
   finishScreenshot,
   onScreenshotFrame,
+  revealScreenshotOverlay,
   showScreenshotOverlay,
   type ScreenshotFrame,
 } from '../lib/tauri'
@@ -127,16 +128,19 @@ export default function ScreenshotOverlay() {
         <img
           src={frame.src}
           onLoad={() => {
-            // onLoad means fetched, not painted — showing here can flash the
-            // previous capture's stale surface for a frame. Wait for a real
-            // paint (double rAF; runs while hidden because native window
-            // occlusion is disabled via additionalBrowserArgs). The timeout
-            // covers rAF being throttled anyway; worst case is the old flash.
-            const painted = new Promise<void>(resolve =>
-              requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-            )
-            const timeout = new Promise<void>(resolve => setTimeout(resolve, 200))
-            void Promise.race([painted, timeout]).then(() => showScreenshotOverlay())
+            // Show-then-reveal handshake: the window is shown DWM-cloaked
+            // (composited, not displayed), we wait for a real paint of the
+            // frame (double rAF — reliable now the window counts as visible),
+            // then uncloak. Anything before that first paint (stale surface,
+            // resize clear) stays off-screen. The timeout covers throttled
+            // rAF; the Rust 1500 ms fallback covers everything else.
+            void showScreenshotOverlay().then(() => {
+              const painted = new Promise<void>(resolve =>
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+              )
+              const timeout = new Promise<void>(resolve => setTimeout(resolve, 250))
+              return Promise.race([painted, timeout]).then(() => revealScreenshotOverlay())
+            })
           }}
           draggable={false}
           style={{

@@ -153,6 +153,9 @@ export const startScreenshot = (delayMs?: number) =>
 export const showScreenshotOverlay = () =>
   invoke<void>('show_screenshot_overlay')
 
+export const revealScreenshotOverlay = () =>
+  invoke<void>('reveal_screenshot_overlay')
+
 export const finishScreenshot = (region: ScreenshotRegion) =>
   invoke<string>('finish_screenshot', { region })
 

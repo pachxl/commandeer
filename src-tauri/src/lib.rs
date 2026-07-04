@@ -479,6 +479,7 @@ pub fn run() {
             commands::window::set_window_transparency,
             commands::screenshot::start_screenshot,
             commands::screenshot::show_screenshot_overlay,
+            commands::screenshot::reveal_screenshot_overlay,
             commands::screenshot::finish_screenshot,
             commands::screenshot::cancel_screenshot,
             commands::shortcuts::set_global_hotkey,

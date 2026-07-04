@@ -268,18 +268,47 @@ async fn start_inner(app: &AppHandle, mut delay_ms: u64) -> Result<(), String> {
             .get_webview_window("screenshot")
             .and_then(|w| w.is_visible().ok())
             .unwrap_or(false);
-        if pending && !visible {
-            eprintln!("screenshot: overlay did not self-show, forcing show");
-            if let Err(e) = show_screenshot_overlay(app.clone()) {
-                eprintln!("screenshot: fallback show failed: {e}");
+        if pending {
+            if !visible {
+                eprintln!("screenshot: overlay did not self-show, forcing show");
+                if let Err(e) = show_screenshot_overlay(app.clone()) {
+                    eprintln!("screenshot: fallback show failed: {e}");
+                }
             }
+            // Always uncloak: if the frontend's paint handshake never arrived,
+            // the window could otherwise sit shown-but-cloaked (invisible yet
+            // eating input) indefinitely.
+            let _ = reveal_screenshot_overlay(app.clone());
         }
     });
     Ok(())
 }
 
+/// DWM-cloak (or uncloak) the overlay: a cloaked window is fully composited
+/// but not displayed, so the webview can lay out and present the frame while
+/// nothing reaches the screen. Flipping the cloak off is atomic in DWM — the
+/// finished pixels appear with no intermediate black/stale frame.
+#[cfg(target_os = "windows")]
+fn set_cloak(win: &tauri::WebviewWindow, cloak: bool) {
+    use windows::Win32::Foundation::{BOOL, HWND};
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CLOAK};
+    if let Ok(hwnd) = win.hwnd() {
+        let value = BOOL::from(cloak);
+        unsafe {
+            let _ = DwmSetWindowAttribute(
+                HWND(hwnd.0 as *mut _),
+                DWMWA_CLOAK,
+                &value as *const _ as *const _,
+                std::mem::size_of::<BOOL>() as u32,
+            );
+        }
+    }
+}
+
 /// Called by the overlay webview once the frame <img> has decoded — showing
-/// only now avoids a flash of the previous frame or an empty window.
+/// only now avoids a flash of the previous frame or an empty window. The
+/// window is shown *cloaked*; the webview then confirms a real paint and
+/// calls `reveal_screenshot_overlay`, which uncloaks.
 #[tauri::command]
 pub fn show_screenshot_overlay(app: AppHandle) -> Result<(), String> {
     let state = app.state::<ScreenshotState>();
@@ -304,8 +333,25 @@ pub fn show_screenshot_overlay(app: AppHandle) -> Result<(), String> {
     // repainted at the new size. On Linux the layer-shell surface is anchored
     // to all four edges, so the compositor sizes it to the output.
 
+    #[cfg(target_os = "windows")]
+    set_cloak(&win, true);
+
     win.show().map_err(|e| e.to_string())?;
     win.set_focus().map_err(|e| e.to_string())
+}
+
+/// Uncloak the (already shown) overlay once the webview has actually painted
+/// the frame. Idempotent; on Linux the show path never cloaks so this is a
+/// no-op.
+#[tauri::command]
+pub fn reveal_screenshot_overlay(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    if let Some(win) = app.get_webview_window("screenshot") {
+        set_cloak(&win, false);
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+    Ok(())
 }
 
 /// Crop the frozen frame to `region` (image pixels), save a timestamped PNG
