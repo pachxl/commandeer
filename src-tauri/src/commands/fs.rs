@@ -20,9 +20,9 @@ pub struct ScriptInfo {
 /// Whether a directory entry should be surfaced as a runnable command.
 ///
 /// Windows: batch/command scripts, shell shortcuts, and VS Code workspaces.
-/// Unix: shell scripts, `.desktop` launchers, VS Code workspaces, AppImages
-/// (macOS: `.command` Terminal scripts), or any regular file with the
-/// executable bit set.
+/// macOS/Linux: shell scripts, VS Code workspaces, or any regular file with the
+/// executable bit set. Linux additionally surfaces `.desktop` launchers and
+/// AppImages; macOS additionally surfaces `.command` Terminal scripts.
 fn is_script_file(path: &Path) -> bool {
     let ext = path.extension().and_then(|x| x.to_str());
 
@@ -34,8 +34,9 @@ fn is_script_file(path: &Path) -> bool {
         )
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
+        #[cfg(target_os = "linux")]
         if matches!(
             ext,
             Some("sh") | Some("desktop") | Some("code-workspace") | Some("AppImage")
@@ -43,14 +44,14 @@ fn is_script_file(path: &Path) -> bool {
             return true;
         }
         #[cfg(target_os = "macos")]
-        if ext == Some("command") {
+        if matches!(ext, Some("sh") | Some("command") | Some("code-workspace")) {
             return true;
         }
         is_executable(path)
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     path.is_file()
@@ -61,7 +62,7 @@ fn is_executable(path: &Path) -> bool {
 
 /// Read a single key from the `[Desktop Entry]` group of a .desktop file.
 /// Localized variants (e.g. `Name[de]=`) are ignored in favour of the default.
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn desktop_entry_value(content: &str, key: &str) -> Option<String> {
     let prefix = format!("{key}=");
     let mut in_entry = false;
@@ -79,7 +80,7 @@ fn desktop_entry_value(content: &str, key: &str) -> Option<String> {
 }
 
 /// Human-friendly name declared inside a .desktop file (`Name=`).
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn resolve_desktop_name(path: &Path) -> Option<String> {
     let content = fs::read_to_string(path).ok()?;
     let name = desktop_entry_value(&content, "Name")?;
@@ -91,7 +92,7 @@ fn resolve_desktop_name(path: &Path) -> Option<String> {
 }
 
 /// Resolve the `Icon=` of a .desktop file to a base64 data URL, if findable.
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn resolve_desktop_icon(path: &Path) -> Option<String> {
     let content = fs::read_to_string(path).ok()?;
     let icon = desktop_entry_value(&content, "Icon")?;
@@ -119,7 +120,7 @@ fn resolve_desktop_icon(path: &Path) -> Option<String> {
 }
 
 /// Best-effort lookup of a freedesktop icon name across the common theme roots.
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn find_themed_icon(name: &str) -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
 
@@ -178,8 +179,8 @@ fn collect_script_files(dir: &Path, folder: Option<String>) -> Vec<ScriptInfo> {
                 .unwrap_or_default();
             let stem = path.file_stem()?.to_string_lossy().into_owned();
 
-            // Unix: a .desktop entry's Name= is friendlier than its filename.
-            #[cfg(not(target_os = "windows"))]
+            // Linux: a .desktop entry's Name= is friendlier than its filename.
+            #[cfg(target_os = "linux")]
             let stem = if ext == "desktop" {
                 resolve_desktop_name(&path).unwrap_or(stem)
             } else {
@@ -203,8 +204,8 @@ fn collect_script_files(dir: &Path, folder: Option<String>) -> Vec<ScriptInfo> {
                 None
             };
 
-            // Unix: fall back to the icon declared inside a .desktop entry.
-            #[cfg(not(target_os = "windows"))]
+            // Linux: fall back to the icon declared inside a .desktop entry.
+            #[cfg(target_os = "linux")]
             let icon = icon.or_else(|| {
                 if ext == "desktop" {
                     resolve_desktop_icon(&path)

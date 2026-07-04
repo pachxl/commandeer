@@ -1,11 +1,13 @@
 # Commandeer → macOS port plan
 
-Status: **Phases 1–3 complete** — Commandeer runs on macOS with UX parity
-(vibrancy, tray, hotkey, positioning) and native feature backends (launcher,
-screenshot, paste, audio, system actions, processes). Phase 4 (packaging &
-sync hygiene) remains, plus on-device permission grants to verify
-screenshot/paste end-to-end. Commandeer targets **Windows**, **Linux
-(Wayland/COSMIC)**, and now **macOS** from the same codebase.
+Status: **Phases 1–4 complete** — Commandeer runs on macOS with UX parity
+(vibrancy, tray, hotkey, positioning), native feature backends (launcher,
+screenshot, paste, audio, system actions, processes), packaging (`.app`
+bundle, `.icns`, `CFBundleURLTypes`), sync hygiene (cross-platform `release`
+script, CI matrix), and file-search / system-stats parity. On-device
+permission grants remain to verify screenshot/paste end-to-end. Commandeer
+targets **Windows**, **Linux (Wayland/COSMIC)**, and **macOS** from the same
+codebase.
 
 ## The core idea (how it stays "in-line" across platforms)
 
@@ -221,20 +223,33 @@ interactive verification (see below).
 - Shutdown/Restart/Logout/Empty Trash: one-time **Automation** prompts on
   first use (System Events / Finder).
 
-## Phase 4 — Packaging & sync hygiene
+## Phase 4 — Packaging & sync hygiene — DONE
 
-- [ ] **`package.json` `release` script** — hardcodes `commandeer.exe`. Add a
-      macOS branch producing `.app`/`.dmg` (`tauri build` emits these;
-      `bundle.targets: "all"` is set).
-- [ ] **`tauri.conf.json` `bundle`** — add a macOS icon (`.icns`) alongside `.ico`.
-- [ ] **Deep link** — `commandeer://` on macOS needs `CFBundleURLTypes` in the
-      bundle Info.plist (deep-link plugin config); runtime `register()` may not
-      persist unbundled.
-- [ ] **Update `CLAUDE.md`** — its "cross-platform: Windows and Linux" line and
-      Platform-split section need a macOS column so future work stays consistent.
-- [ ] **Consider CI** — a GitHub Actions matrix (`windows-latest` +
-      `macos-latest`, later `ubuntu`) running `npm run build` + `cargo build` per
-      push is the real guardrail that keeps platforms in-line automatically.
+- [x] **`package.json` `release` script** — replaced the Windows-only one-liner
+      with `scripts/release.js`, which builds the right artifact per platform:
+      `.exe` on Windows, raw binary on Linux, `.app` bundle on macOS.
+- [x] **`tauri.conf.json` `bundle`** — added `icons/icon.icns` and
+      `bundle.macOS.info.CFBundleURLTypes` for `commandeer://` deep links.
+- [x] **Deep link** — `CFBundleURLTypes` is now in the generated Info.plist;
+      runtime `register()` covers dev/unbundled runs.
+- [x] **Update `CLAUDE.md`** — added macOS to the project description, commands,
+      dev notes, architecture, screenshot, and platform-split sections.
+- [x] **CI** — added `.github/workflows/ci.yml` with a matrix of
+      `ubuntu-latest` / `windows-latest` / `macos-latest` running the frontend
+      type-check and Rust build + tests.
+- [x] **macOS file-search icons** — implemented `NSWorkspace.iconForFile:` in
+      `commands/icons.rs`; `path_icon` and file-search results now resolve icons
+      on macOS.
+- [x] **macOS system stats** — implemented CPU + memory in `commands/stats.rs`
+      using `sysinfo` (already a dependency for process enumeration); GPU is
+      intentionally absent because no reliable unprivileged cross-vendor metric
+      exists on macOS.
+- [x] **macOS screenshot hotkey** — Tauri's global shortcut is now registered on
+      macOS when the user configures one (no default, to avoid conflicts with
+      system shortcuts); the settings UI is shown on macOS as well.
+- [x] **Platform-gate cleanup** — `commands/fs.rs` now uses explicit
+      `target_os = "linux"` / `target_os = "macos"` gates instead of bare
+      `not(windows)` branches, matching the port rule.
 
 ## Effort estimate
 

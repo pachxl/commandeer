@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Commandeer is a Raycast-style command palette built with Tauri 2 (React/TypeScript frontend, Rust backend). It is **cross-platform: Windows and Linux (Wayland/COSMIC)** — originally Windows-only, later ported. It is **still in active development** with new features being added regularly; keep this file updated as the app evolves.
+Commandeer is a Raycast-style command palette built with Tauri 2 (React/TypeScript frontend, Rust backend). It is **cross-platform: Windows, Linux (Wayland/COSMIC), and macOS** — originally Windows-only, then ported to Linux, then to macOS. It is **still in active development** with new features being added regularly; keep this file updated as the app evolves.
 
 There is no test suite or linter configured. `npm run build` runs `tsc` and is the type-check.
 
@@ -18,7 +18,10 @@ npm run tauri build -- --no-bundle   # release build (on Linux: source ~/.cargo/
                                      # NEVER `cargo build --release` directly: without the tauri
                                      # CLI the binary is dev-mode and loads localhost:5173
 npm run build                        # tsc + vite build (frontend only; use as the type-check)
-npm run release                      # Windows-only: build + copy commandeer.exe to bin/
+npm run release                      # cross-platform release build + copy artifact to bin/
+                                     #   Windows: commandeer.exe
+                                     #   Linux:   commandeer binary
+                                     #   macOS:   commandeer.app bundle
 ```
 
 Linux dev/test notes:
@@ -28,13 +31,20 @@ Linux dev/test notes:
 - Screenshots: `cosmic-screenshot --interactive=false --notify=false --save-dir DIR`.
 - Icons in `src-tauri/icons/*.png` must be RGBA — RGB fails the `generate_context!` macro on Linux.
 
+macOS dev/test notes:
+- The app is an Accessory (no Dock icon / Cmd-Tab entry). Use the tray icon or the global hotkey to surface it.
+- Default toggle hotkey is `Cmd+Shift+Space` (Spotlight owns `Cmd+Space`, input-source switching owns `Ctrl+Space`).
+- Screenshot capture and paste-to-previous require permission grants: **Screen Recording** for screenshots, **Accessibility** for paste. Until granted the commands fail with instructions rather than silently no-oping.
+- Shutdown/Restart/Logout/Empty Trash trigger a one-time **Automation** prompt on first use (System Events / Finder).
+- `npm run release` produces a signed/unsigned `bin/commandeer.app` bundle; right-click → Open the first time if unsigned.
+
 ## Architecture
 
-Two always-running Tauri windows that hide/show rather than launching per use: the palette (label `palette`, transparent, undecorated) and the screenshot overlay (label `screenshot`, opaque fullscreen). A tray icon (Windows-only) and the global hotkey / single-instance toggle are the entry points.
+Two always-running Tauri windows that hide/show rather than launching per use: the palette (label `palette`, transparent, undecorated) and the screenshot overlay (label `screenshot`, opaque fullscreen). A tray icon (Windows + macOS) and the global hotkey / single-instance toggle are the entry points.
 
 ### Screenshot tool
 
-Lightshot-style region capture: trigger → Rust freezes the screen to `<app-cache>/frame.png` (`cosmic-screenshot` CLI on Linux, GDI BitBlt of the cursor monitor on Windows) → the `screenshot` window (same JS bundle; `main.tsx` branches on window label to `ScreenshotOverlay.tsx`) shows the frame under a dim veil → drag a region → Rust crops, saves to `~/Pictures/Screenshots`, and copies PNG to the clipboard (`wl-copy` on Linux, arboard on Windows). Esc cancels. Backend in `commands/screenshot.rs`. Triggers: `commandeer://screenshot` deep link (bound to PrtScn via a second managed COSMIC shortcut line on Linux), a configurable global shortcut on Windows (`screenshot_hotkey` config, **default `Insert`**, editable via Settings → Screenshot Hotkey), and a Tools → Take Screenshot palette command. **Do not default the Windows shortcut to PrintScreen**: `RegisterHotKey(VK_SNAPSHOT)` returns success but never fires `WM_HOTKEY` because PrtScn emits no `WM_KEYDOWN` — so it silently does nothing. Any ordinary key (Insert, Fn keys, letters+modifiers) works. The frame is encoded as fast/unfiltered PNG (transient file, reloaded once then deleted) — ~50 ms capture on a 2560×1440 release build; the unoptimized dev build is ~15× slower, so judge screenshot latency only from a release build. The overlay shows only after the frontend reports the frame `<img>` decoded (1500 ms Rust-side fallback; `show_screenshot_overlay` is idempotent so the onload path and the fallback can't double-show and flicker), and on Linux is a 4-edge-anchored, exclusive-keyboard layer-shell surface.
+Lightshot-style region capture: trigger → Rust freezes the screen to `<app-cache>/frame.png` (`cosmic-screenshot` CLI on Linux, GDI BitBlt of the cursor monitor on Windows, `screencapture -R` of the cursor monitor on macOS) → the `screenshot` window (same JS bundle; `main.tsx` branches on window label to `ScreenshotOverlay.tsx`) shows the frame under a dim veil → drag a region → Rust crops, saves to `~/Pictures/Screenshots`, and copies PNG to the clipboard (`wl-copy` on Linux, arboard on Windows/macOS). Esc cancels. Backend in `commands/screenshot.rs`. Triggers: `commandeer://screenshot` deep link (bound to PrtScn via a second managed COSMIC shortcut line on Linux), a configurable global shortcut on Windows/macOS (`screenshot_hotkey` config, **default `Insert` on Windows**, editable via Settings → Screenshot Hotkey), and a Tools → Take Screenshot palette command. **Do not default the Windows shortcut to PrintScreen**: `RegisterHotKey(VK_SNAPSHOT)` returns success but never fires `WM_HOTKEY` because PrtScn emits no `WM_KEYDOWN` — so it silently does nothing. Any ordinary key (Insert, Fn keys, letters+modifiers) works. macOS has no default screenshot hotkey because Mac keyboards lack PrintScreen and the common system shortcuts are `Cmd+Shift+3/4/5`. The frame is encoded as fast/unfiltered PNG (transient file, reloaded once then deleted) — ~50 ms capture on a 2560×1440 release build; the unoptimized dev build is ~15× slower, so judge screenshot latency only from a release build. The overlay shows only after the frontend reports the frame `<img>` decoded (1500 ms Rust-side fallback; `show_screenshot_overlay` is idempotent so the onload path and the fallback can't double-show and flicker), and on Linux is a 4-edge-anchored, exclusive-keyboard layer-shell surface.
 
 ### Frontend (`src/`)
 
@@ -46,7 +56,7 @@ Everything hangs off three types in `src/types.ts`:
 
 `App.tsx` builds the command list (grouping `folderName`-tagged commands under virtual folders) and hands it to `components/Palette.tsx` (~1500 lines), which owns the step stack, query state, fuzzy ranking (fzf + frecency in `src/lib/`), keyboard handling, and the Ctrl+K action panel. `src/lib/tauri.ts` is the single wrapper around all Rust `invoke` calls. `src/lib/appEvents.ts` is a mutable bridge so settings commands can flip App-level state without prop drilling.
 
-User-facing "commands" also come from a scripts directory on disk (configurable `scripts_dir`; `.ps1`/`.lnk` on Windows, `.sh`/`.desktop`/`.AppImage`/executables on Linux), scanned by the Rust side.
+User-facing "commands" also come from a scripts directory on disk (configurable `scripts_dir`; `.ps1`/`.lnk` on Windows, `.sh`/`.desktop`/`.AppImage`/executables on Linux, `.sh`/`.command`/executables on macOS), scanned by the Rust side.
 
 ### Backend (`src-tauri/src/`)
 
@@ -54,10 +64,10 @@ User-facing "commands" also come from a scripts directory on disk (configurable 
 
 ### Platform split
 
-All OS-specific code is behind `#[cfg(target_os = "windows")]` / `#[cfg(not(windows))]` in Rust and an `IS_LINUX` (user-agent) check in the frontend. The two platforms differ most in:
+All OS-specific code is behind `#[cfg(target_os = "windows")]` / `#[cfg(target_os = "linux")]` / `#[cfg(target_os = "macos")]` in Rust and `IS_LINUX` / `IS_MAC` (user-agent) checks in the frontend. Never use a bare `#[cfg(not(windows))]` branch for Linux/macOS-specific code — gate each OS explicitly (or `unix` only when the code is genuinely identical, like `PermissionsExt`). The three platforms differ most in:
 
-- **Window sizing/positioning.** Windows: frontend `setSize` + min/max + cursor-monitor positioning. Linux/Wayland: cosmic-comp ignores client resizes/moves of mapped toplevels, so the palette is rendered as a **wlr-layer-shell overlay** (gtk-layer-shell, set up in `lib.rs`), anchored to the top edge with a fixed margin; the frontend measures content height and calls the `resize_palette` Rust command, which changes the GTK size request to resize in place without flicker. `html,body,#root` are content-height on purpose so this measurement works.
-- **Launching & icons.** Windows uses PowerShell/shell32 (`.lnk` icon extraction); Linux parses `.desktop` files and launches via direct exec / `sh` / `gio launch` / `xdg-open`.
-- **Global hotkey.** See Linux notes above; `set_game_mode` in `lib.rs` rewrites the COSMIC custom-shortcut config on Linux.
+- **Window sizing/positioning.** Windows: frontend `setSize` + min/max + cursor-monitor positioning. Linux/Wayland: cosmic-comp ignores client resizes/moves of mapped toplevels, so the palette is rendered as a **wlr-layer-shell overlay** (gtk-layer-shell, set up in `lib.rs`), anchored to the top edge with a fixed margin; the frontend measures content height and calls the `resize_palette` Rust command, which changes the GTK size request to resize in place without flicker. `html,body,#root` are content-height on purpose so this measurement works. macOS: a normal always-on-top transparent window positioned via Tauri monitor APIs; vibrancy and rounded corners are applied with `window-vibrancy`.
+- **Launching & icons.** Windows uses PowerShell/shell32 (`.lnk` icon extraction); Linux parses `.desktop` files and launches via direct exec / `sh` / `gio launch` / `xdg-open`; macOS scans `.app` bundles and launches via `open`. File-search icons use the same shell APIs (`SHGetFileInfoW` on Windows, `NSWorkspace.iconForFile:` on macOS).
+- **Global hotkey.** See Linux/macOS notes above; `set_game_mode` in `lib.rs` rewrites the COSMIC custom-shortcut config on Linux and switches the registered base hotkey everywhere.
 
 Config is JSON read/written by the Rust side (`commands/config.rs`; `scripts_dir` defaults per-platform). Lightweight UI prefs (game mode, widget visibility, script cache) live in webview `localStorage`.

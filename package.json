@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "release": "tauri build --no-bundle && bun -e \"await Bun.$`mkdir -p bin`; await Bun.$`cp src-tauri/target/release/commandeer.exe bin/commandeer.exe`\""
+    "release": "node scripts/release.cjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.10.1",

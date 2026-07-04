@@ -286,6 +286,90 @@ pub async fn system_stats() -> SystemStats {
         }
     }
 
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let (mem_used, mem_total, mem_percent) = memory();
+        SystemStats {
+            cpu: cpu_percent(),
+            mem_used,
+            mem_total,
+            mem_percent,
+            gpu: gpu_percent(),
+        }
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     SystemStats { cpu: 0.0, mem_used: 0, mem_total: 0, mem_percent: 0.0, gpu: None }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    #[tokio::test]
+    async fn smoke_system_stats() {
+        let stats = super::system_stats().await;
+        assert!((0.0..=100.0).contains(&stats.cpu), "cpu {} out of range", stats.cpu);
+        assert!(stats.mem_total > 0, "mem_total should be positive");
+        assert!(stats.mem_used <= stats.mem_total, "mem_used > mem_total");
+        assert!(
+            (0.0..=100.0).contains(&stats.mem_percent),
+            "mem_percent {} out of range",
+            stats.mem_percent
+        );
+    }
+}
+
+/// macOS system stats backed by `sysinfo` (already pulled in for process.rs).
+/// A single cached `System` instance is kept across polls so CPU usage has a
+/// previous sample to delta against.
+#[cfg(target_os = "macos")]
+static MAC_SYS: Mutex<Option<sysinfo::System>> = Mutex::new(None);
+
+#[cfg(target_os = "macos")]
+fn cpu_percent() -> f32 {
+    use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind};
+
+    let mut guard = MAC_SYS.lock().unwrap();
+    let sys = guard.get_or_insert_with(|| {
+        sysinfo::System::new_with_specifics(
+            RefreshKind::nothing()
+                .with_cpu(CpuRefreshKind::everything())
+                .with_memory(MemoryRefreshKind::nothing()),
+        )
+    });
+    sys.refresh_cpu_usage();
+    let cpus = sys.cpus();
+    if cpus.is_empty() {
+        return 0.0;
+    }
+    let total: f32 = cpus.iter().map(|c| c.cpu_usage()).sum();
+    (total / cpus.len() as f32).clamp(0.0, 100.0)
+}
+
+#[cfg(target_os = "macos")]
+fn memory() -> (u64, u64, f32) {
+    use sysinfo::{MemoryRefreshKind, RefreshKind};
+
+    let mut guard = MAC_SYS.lock().unwrap();
+    let sys = guard.get_or_insert_with(|| {
+        sysinfo::System::new_with_specifics(
+            RefreshKind::nothing().with_memory(MemoryRefreshKind::nothing()),
+        )
+    });
+    sys.refresh_memory();
+    let total = sys.total_memory();
+    let used = sys.used_memory();
+    let pct = if total > 0 {
+        ((used as f64 / total as f64) * 100.0) as f32
+    } else {
+        0.0
+    };
+    (used, total, pct)
+}
+
+#[cfg(target_os = "macos")]
+fn gpu_percent() -> Option<f32> {
+    // No reliable, unprivileged cross-vendor GPU utilization metric on macOS.
+    // ioreg/powermetrics exist but require root or report vendor-specific keys;
+    // returning None keeps the widget hidden rather than showing stale zeroes.
+    None
 }

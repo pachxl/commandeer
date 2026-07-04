@@ -36,7 +36,15 @@ pub async fn path_icon(path: String) -> Option<String> {
         .ok()
         .flatten()
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        tokio::task::spawn_blocking(move || crate::commands::icons::icon_for_path(&path))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    #[cfg(target_os = "linux")]
     {
         let _ = path;
         None
@@ -280,7 +288,7 @@ pub async fn search_files(
                         icon: None,
                     })
                     .collect();
-                #[cfg(target_os = "windows")]
+                #[cfg(any(target_os = "windows", target_os = "macos"))]
                 for r in &mut out {
                     r.icon = crate::commands::icons::icon_for_path(&r.path);
                 }
@@ -384,7 +392,7 @@ pub async fn search_files(
             }
         }
 
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         for r in &mut results {
             r.icon = crate::commands::icons::icon_for_path(&r.path);
         }

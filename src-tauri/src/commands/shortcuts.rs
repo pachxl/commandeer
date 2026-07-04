@@ -193,16 +193,21 @@ pub fn register_base_hotkey(app: &AppHandle, config: &AppConfig, game_mode: bool
     Ok(())
 }
 
-/// (Re-)register the screenshot hotkey (Windows only — on Linux the trigger is
-/// a managed COSMIC binding that relaunches us with a deep link). Registration
-/// failure is non-fatal: Windows' own Snipping Tool setting can hold PrtScn,
-/// and the palette command still works.
-#[cfg(target_os = "windows")]
+/// (Re-)register the screenshot hotkey (Windows and macOS — on Linux the
+/// trigger is a managed COSMIC binding that relaunches us with a deep link).
+/// Registration failure is non-fatal: the OS or other apps may already own the
+/// chosen binding, and the palette command still works.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn register_screenshot_hotkey(app: &AppHandle, config: &AppConfig) {
-    let hotkey_str = config
-        .screenshot_hotkey
-        .as_deref()
-        .unwrap_or(DEFAULT_SCREENSHOT_HOTKEY);
+    let hotkey_str = match config.screenshot_hotkey.as_deref() {
+        Some(s) => s,
+        #[cfg(target_os = "windows")]
+        None => DEFAULT_SCREENSHOT_HOTKEY,
+        // macOS has no safe default (PrintScreen keys don't exist; Cmd+Shift+3/4/5
+        // are system shortcuts), so leave it unregistered until the user sets one.
+        #[cfg(target_os = "macos")]
+        None => return,
+    };
     let shortcut = match parse_shortcut(hotkey_str) {
         Ok(s) => s,
         Err(e) => {
@@ -260,7 +265,7 @@ pub fn register_command_hotkeys(
 pub fn setup_shortcuts(app: &AppHandle) -> Result<(), String> {
     let config = read_config_sync(app)?;
     register_base_hotkey(app, &config, false)?;
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     register_screenshot_hotkey(app, &config);
 
     let overrides = read_overrides_sync(app)?;
@@ -272,7 +277,7 @@ pub fn setup_shortcuts(app: &AppHandle) -> Result<(), String> {
 pub fn reload_shortcuts(app: &AppHandle, game_mode: bool) -> Result<(), String> {
     let config = read_config_sync(app)?;
     register_base_hotkey(app, &config, game_mode)?;
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     register_screenshot_hotkey(app, &config);
 
     let overrides = read_overrides_sync(app)?;
