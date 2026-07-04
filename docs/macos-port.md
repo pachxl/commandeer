@@ -122,9 +122,17 @@ Screen Recording permission):
       / `work_area` APIs. The palette opens centered on the display under the
       cursor, top at ~20% of the work area. The Win32 path is left untouched (no
       Windows regression); both show paths call it on `windows|macos`.
-- [x] **`set_window_transparency`** — macOS now routes through the Linux-style
-      CSS-opacity fallback (added `IS_MAC` in `src/lib/tauri.ts`) instead of the
-      Windows-only native invoke that errored. The transparency setting works.
+- [x] **`set_window_transparency`** — implemented natively on macOS: sets
+      `NSWindow.alphaValue` (objc2 `msg_send` on the main thread), the analogue of
+      the Windows `LWA_ALPHA` path, for genuine see-through. (An initial
+      CSS-opacity fallback was wrong here — it faded the webview onto the opaque
+      vibrancy layer, reading as a blurred-wallpaper patch rather than
+      transparency.) Only Linux keeps the CSS-opacity path.
+- [x] **On-device fixes** (found testing Phase 2): rounded palette corners
+      (CSS `border-radius` on macOS/Linux; Windows rounds via DWM) and a
+      long-list scrolling bug (WKWebView recenters on
+      `scrollIntoView({block:'nearest'})` — replaced with deterministic
+      `scrollTop` math that behaves the same on every engine).
 - [ ] **Non-activating panel (`tauri-nspanel`) — DEFERRED to Phase 3.** Rationale:
       1. The plugin is **git-only** (branch-pinned, not on crates.io) — a
          dependency-stability decision worth making deliberately, not by default.
