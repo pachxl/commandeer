@@ -3,7 +3,7 @@
 // Settings.
 import { useEffect, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { systemStats, type SystemStats } from '../lib/tauri'
+import { IS_MAC, systemStats, type SystemStats } from '../lib/tauri'
 
 // The backend poll is a few syscalls (~µs); 1s matches Task Manager's cadence
 const POLL_MS = 1000
@@ -100,7 +100,10 @@ export default function SystemStatsPanel() {
         percent={stats ? stats.mem_percent : null}
         detail={stats && stats.mem_total > 0 ? `${gb(stats.mem_used)}/${gb(stats.mem_total)} GB` : undefined}
       />
-      <StatCell label="GPU" percent={stats ? stats.gpu : null} />
+      {/* No unprivileged cross-vendor GPU metric exists on macOS (the backend
+          always returns null there), so drop the cell rather than render a
+          permanently empty gauge. */}
+      {!IS_MAC && <StatCell label="GPU" percent={stats ? stats.gpu : null} />}
     </div>
   )
 }

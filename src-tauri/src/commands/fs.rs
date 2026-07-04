@@ -454,3 +454,101 @@ pub async fn run_script(path: String) -> Result<(), String> {
     .await
     .map_err(|e| e.to_string())?
 }
+
+/// Reveal a file or folder in the platform file manager with the item
+/// selected: Finder on macOS (`open -R`), File Explorer on Windows
+/// (`explorer /select,`), and the default manager on Linux via the
+/// org.freedesktop.FileManager1 D-Bus interface (falling back to opening the
+/// parent folder unselected when no manager implements it).
+#[tauri::command]
+pub async fn reveal_path(path: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let p = std::path::Path::new(&path);
+        if !p.exists() {
+            return Err(format!("Path does not exist: {path}"));
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let out = std::process::Command::new("open")
+                .args(["-R", &path])
+                .output()
+                .map_err(|e| format!("open -R failed to run: {e}"))?;
+            if out.status.success() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "open -R failed: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ))
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            // explorer.exe exits 1 even on success, so spawn without checking
+            // the status; a spawn error is the only real failure signal.
+            std::process::Command::new("explorer")
+                .arg(format!("/select,{path}"))
+                .spawn()
+                .map_err(|e| format!("explorer failed to run: {e}"))?;
+            Ok(())
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            // ShowItems selects the file in whatever manager owns the bus name
+            // (Files, Dolphin, Nemo, ...). dbus-send ships with dbus itself, so
+            // it's present on any session that has a bus at all.
+            let ok = std::process::Command::new("dbus-send")
+                .args([
+                    "--session",
+                    "--print-reply",
+                    "--dest=org.freedesktop.FileManager1",
+                    "/org/freedesktop/FileManager1",
+                    "org.freedesktop.FileManager1.ShowItems",
+                    &format!("array:string:{}", file_uri(p)),
+                    "string:",
+                ])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if ok {
+                return Ok(());
+            }
+            // No FileManager1 implementation: open the containing folder.
+            let parent = if p.is_dir() {
+                p.to_path_buf()
+            } else {
+                p.parent()
+                    .map(|d| d.to_path_buf())
+                    .ok_or_else(|| format!("No parent folder for {path}"))?
+            };
+            std::process::Command::new("xdg-open")
+                .arg(parent)
+                .spawn()
+                .map_err(|e| format!("xdg-open failed to run: {e}"))?;
+            Ok(())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Percent-encode a filesystem path into a file:// URI (RFC 3986 unreserved
+/// characters and `/` pass through; everything else, including UTF-8 bytes,
+/// is %XX-encoded). D-Bus ShowItems requires proper URIs.
+#[cfg(target_os = "linux")]
+fn file_uri(path: &std::path::Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    let mut uri = String::from("file://");
+    for &b in path.as_os_str().as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
+                uri.push(b as char)
+            }
+            _ => uri.push_str(&format!("%{b:02X}")),
+        }
+    }
+    uri
+}

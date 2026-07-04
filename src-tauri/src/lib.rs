@@ -500,6 +500,23 @@ pub fn run() {
                         Some(NSVisualEffectState::Active),
                         Some(12.0),
                     );
+
+                    // Join every Space (fullscreen apps included), like the
+                    // screenshot overlay below. Without this the palette window
+                    // lives on whichever Space it was last shown on, so toggling
+                    // it from another Space yanks the user back there instead of
+                    // opening in place — and it can never appear over a
+                    // fullscreen app. This was the deliberate lightweight
+                    // alternative to the nspanel plugin (see docs/macos-port.md).
+                    if let Ok(ns_window) = win.ns_window() {
+                        use objc2::runtime::AnyObject;
+                        let ns_window = ns_window as *mut AnyObject;
+                        unsafe {
+                            // canJoinAllSpaces (1<<0) | fullScreenAuxiliary (1<<8)
+                            let _: () =
+                                objc2::msg_send![ns_window, setCollectionBehavior: (1u64 | (1u64 << 8))];
+                        }
+                    }
                 }
 
                 // The screenshot overlay must cover the *whole* display,
@@ -531,6 +548,7 @@ pub fn run() {
             commands::config::write_config,
             commands::fs::list_scripts,
             commands::fs::run_script,
+            commands::fs::reveal_path,
             commands::claude::claude_usage,
             commands::store::data_dir,
             commands::store::read_snippets,

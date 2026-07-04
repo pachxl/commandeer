@@ -15,34 +15,51 @@ interface ResultRowProps {
 // Shell icons resolve per extension (folders share one entry), so a shared
 // cache means one IPC round trip per distinct extension, not per row. In-flight
 // promises are cached too so simultaneous rows coalesce onto one request.
-// Executables, shortcuts, .desktop entries, and extensionless files (Linux
-// binaries) carry individual icons, so those cache per path.
+// Executables, shortcuts, .desktop entries, macOS .app bundles, and
+// extensionless files (Linux/macOS binaries) carry individual icons, so those
+// cache per path. Resolved values are also kept synchronously so re-rendered
+// rows (every keystroke re-ranks the list) paint the real icon immediately
+// instead of flashing the generic one for a frame.
 const shellIconCache = new Map<string, Promise<string | null>>()
+const resolvedIconCache = new Map<string, string | null>()
 
-function shellIconFor(item: PaletteItem): Promise<string | null> {
+function shellIconKey(item: PaletteItem): string {
   const path = item.iconPath!
   const ext = /\.([^./\\]+)$/.exec(path)?.[1]?.toLowerCase() ?? ''
-  const key = item.icon === 'folder'
-    ? ':folder:'
-    : path.startsWith('shell:') || ext === 'exe' || ext === 'lnk' || ext === 'desktop' || ext === ''
-      ? path.toLowerCase()
-      : ext
+  // .app first: bundles are directories, so they'd otherwise fall into the
+  // shared folder slot and every app would show the first-resolved app's icon.
+  if (ext === 'app') return path.toLowerCase()
+  if (item.icon === 'folder') return ':folder:'
+  return path.startsWith('shell:') || ext === 'exe' || ext === 'lnk' || ext === 'desktop' || ext === ''
+    ? path.toLowerCase()
+    : ext
+}
+
+function shellIconFor(item: PaletteItem): Promise<string | null> {
+  const key = shellIconKey(item)
   let cached = shellIconCache.get(key)
   if (!cached) {
-    cached = pathIcon(path).catch(() => null)
+    cached = pathIcon(item.iconPath!).catch(() => null)
     shellIconCache.set(key, cached)
+    cached.then(icon => resolvedIconCache.set(key, icon))
   }
   return cached
 }
 
 const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
   ({ item, index, selected, onSelect }, ref) => {
-    const [shellIcon, setShellIcon] = useState<string | null>(null)
+    const wantsShellIcon = !!item.iconPath && !item.icon.startsWith('data:')
+    const [shellIcon, setShellIcon] = useState<string | null>(
+      () => (wantsShellIcon ? resolvedIconCache.get(shellIconKey(item)) ?? null : null),
+    )
 
     // Upgrade named file/folder icons to the real shell icon when available
     useEffect(() => {
-      setShellIcon(null)
-      if (!item.iconPath || item.icon.startsWith('data:')) return
+      if (!wantsShellIcon) { setShellIcon(null); return }
+      // Already-resolved icons apply synchronously (no generic-icon flash)
+      const known = resolvedIconCache.get(shellIconKey(item))
+      setShellIcon(known ?? null)
+      if (known !== undefined) return
       let cancelled = false
       shellIconFor(item).then(icon => {
         if (!cancelled && icon) setShellIcon(icon)

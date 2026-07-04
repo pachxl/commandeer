@@ -25,16 +25,45 @@ fn record_current(
 }
 
 /// Poll-based monitor: only path on non-Windows, fallback on Windows when the
-/// clipboard listener can't be installed.
+/// clipboard listener can't be installed. On macOS each tick first checks
+/// NSPasteboard's changeCount — an integer AppKit bumps on every clipboard
+/// write — so idle polls cost one Objective-C call instead of deserializing
+/// the pasteboard contents through arboard every 500 ms.
 fn run_poll_loop(app: tauri::AppHandle, db: ClipboardDb) {
     let mut clipboard = match arboard::Clipboard::new() {
         Ok(c) => c,
         Err(_) => return,
     };
     let mut last_text = String::new();
+    #[cfg(target_os = "macos")]
+    let mut last_count: Option<isize> = None;
     loop {
         std::thread::sleep(std::time::Duration::from_millis(500));
+        #[cfg(target_os = "macos")]
+        {
+            let count = pasteboard_change_count();
+            if count.is_some() && count == last_count {
+                continue;
+            }
+            last_count = count;
+        }
         record_current(&app, &mut clipboard, &mut last_text, &db);
+    }
+}
+
+/// NSPasteboard.generalPasteboard.changeCount. None if the lookup fails, in
+/// which case the caller just polls unconditionally like Linux.
+#[cfg(target_os = "macos")]
+fn pasteboard_change_count() -> Option<isize> {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    unsafe {
+        let cls = AnyClass::get("NSPasteboard")?;
+        let pb: *mut AnyObject = msg_send![cls, generalPasteboard];
+        if pb.is_null() {
+            return None;
+        }
+        Some(msg_send![pb, changeCount])
     }
 }
 

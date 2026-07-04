@@ -37,6 +37,8 @@ macOS dev/test notes:
 - Screenshot capture and paste-to-previous require permission grants: **Screen Recording** for screenshots, **Accessibility** for paste. Until granted the commands fail with instructions rather than silently no-oping.
 - Shutdown/Restart/Logout/Empty Trash trigger a one-time **Automation** prompt on first use (System Events / Finder). `@search` over the focused Finder folder uses the same Finder Automation channel (and only queries Finder when the palette opened over it; otherwise it falls back to the home folder like Linux).
 - Clipboard history is encrypted at rest on all three platforms: DPAPI on Windows; ChaCha20-Poly1305 on Linux (key in the Secret Service, 0600 key-file fallback) and macOS (0600 key file next to the db). **Do not move the macOS key to the Keychain** while the app ships ad-hoc-signed: Keychain ACLs bind to the code signature, so every rebuild re-prompts — and the prompt fires during setup and blocks launch (verified on-device).
+- The palette window joins all Spaces (`canJoinAllSpaces | fullScreenAuxiliary`), so toggling it never switches Spaces and it appears over fullscreen apps.
+- App icons: `.app` bundles are directories, so both icon caches (Rust `icons.rs`, frontend `ResultRow`) key them **per path**, never on the shared folder/extension slot — regressing this makes every app render as the first-resolved app's icon. Icons are downscaled to ≤128px before base64 (a raw `iconForFile:` TIFF is a 1024×1024, ~2 MB payload).
 - `npm run release` produces a signed/unsigned `bin/commandeer.app` bundle; right-click → Open the first time if unsigned.
 
 ## Shipping changes

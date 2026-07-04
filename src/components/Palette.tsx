@@ -12,7 +12,7 @@ import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
 import { evaluateCalcQuery } from '../providers/calculator'
 import { tryTimeConversion } from '../lib/timezones'
-import { IS_LINUX, IS_MAC, envInfo, openPath, openUrl, pasteToPrevious, readSnippets, setCommandHotkey, writeClipboardText, writeSnippets, type ClipboardItem, type CommandOverride, type Snippet } from '../lib/tauri'
+import { IS_LINUX, IS_MAC, envInfo, openPath, openUrl, pasteToPrevious, readSnippets, revealPath, setCommandHotkey, writeClipboardText, writeSnippets, type ClipboardItem, type CommandOverride, type Snippet } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
@@ -753,6 +753,13 @@ export default function Palette({
           label: 'Open file',
           shortcut: '↵',
           handler: async () => { await openPath(item.data as string); await getCurrentWindow().hide() },
+        })
+        actions.push({
+          id: 'reveal',
+          label: IS_MAC ? 'Reveal in Finder' : IS_LINUX ? 'Reveal in File Manager' : 'Reveal in File Explorer',
+          shortcut: 'R',
+          icon: 'folder',
+          handler: async () => { await revealPath(item.data as string); await getCurrentWindow().hide() },
         })
         pushCopy('Copy path', item.data as string, 'C')
         break

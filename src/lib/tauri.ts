@@ -49,6 +49,10 @@ export const openUrl = (url: string) =>
 export const openPath = (path: string) =>
   tauriOpenPath(path)
 
+/** Reveal a file/folder selected in Finder / File Explorer / the Linux file manager. */
+export const revealPath = (path: string) =>
+  invoke<void>('reveal_path', { path })
+
 export const dataDir = () =>
   invoke<string>('data_dir')
 

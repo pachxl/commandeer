@@ -70,7 +70,7 @@ function settingsStep(config: AppConfig): Step {
       {
         id: 'settings:toggle-system-stats',
         label: 'System Stats Panel',
-        sublabel: appEvents.isSystemStatsVisible?.() ? 'On — CPU, RAM, GPU' : 'Off',
+        sublabel: appEvents.isSystemStatsVisible?.() ? `On — CPU, RAM${IS_MAC ? '' : ', GPU'}` : 'Off',
         icon: 'cpu',
         actionLabel: 'Toggle',
       },

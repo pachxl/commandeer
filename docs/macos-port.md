@@ -288,6 +288,38 @@ the Linux-parity merge landed:
       bars; Windows/Linux keep the colored app icon. (Closes the Phase 2
       follow-up note.)
 
+## Polish pass 2 (2026-07-04, later the same day)
+
+- [x] **App icons were all Activity Monitor** — `.app` bundles are
+      *directories*, so `icons.rs`'s macOS cache keyed every app on the shared
+      folder slot (first app resolved won), and the frontend `ResultRow` cache
+      keyed them on the `app` "extension" — same collision one layer up. Both
+      now key `.app` (and extensionless binaries) per path. Regression test
+      (`distinct_app_icons_and_small_payloads`) pins two stock apps to two
+      different icons.
+- [x] **Icons appeared late** — `iconForFile:` images expose one huge
+      asset-catalog rep; the TIFF round trip produced a 1024×1024 PNG (~2 MB
+      of base64) per icon. Now the smallest bitmap rep ≥ 36 px is encoded
+      directly when present, and anything still over 128 px is thumbnailed to
+      64 px with the `image` crate (rows draw at 18 pt). Same test asserts the
+      payload stays small. The frontend also keeps a synchronous
+      resolved-icon cache so re-ranked rows paint the real icon immediately
+      instead of flashing the generic glyph each keystroke.
+- [x] **Palette joins all Spaces / fullscreen** — the palette NSWindow now
+      gets `canJoinAllSpaces | fullScreenAuxiliary` like the screenshot
+      overlay, so toggling it from another Space opens it in place instead of
+      yanking the user to the Space it last lived on. (This was the
+      documented lightweight alternative to the nspanel plugin.)
+- [x] **Reveal in file manager (all three platforms)** — new `reveal_path`
+      command (`open -R` / `explorer /select,` / FileManager1 D-Bus with
+      xdg-open fallback) surfaced as a Ctrl+K "Reveal in Finder/File
+      Explorer/File Manager" action on file rows.
+- [x] **System Stats panel** — the GPU cell is hidden on macOS (the backend
+      intentionally has no GPU metric there); the settings sublabel matches.
+- [x] **Clipboard poll** — each 500 ms tick now checks
+      `NSPasteboard.changeCount` first and skips the arboard read when
+      nothing changed; Linux keeps the plain poll.
+
 ## Effort estimate
 
 - **Phase 1 (compiles + launches):** small — a focused session. Answers "is it

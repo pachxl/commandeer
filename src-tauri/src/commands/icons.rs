@@ -387,14 +387,23 @@ mod mac {
     }
 
     pub fn icon_for_path(path: &str) -> Option<String> {
-        let key = if std::path::Path::new(path).is_dir() {
+        let p = std::path::Path::new(path);
+        let ext = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .unwrap_or_default();
+        // App bundles are directories, but each carries its own icon — they
+        // must never share a cache slot (keyed on the folder slot, every app
+        // rendered as whichever app resolved first). Extensionless files
+        // (mach-O binaries in scripts dirs) also get per-path slots. Plain
+        // folders and ordinary files share per-kind/per-extension slots.
+        let key = if ext == "app" || (ext.is_empty() && !p.is_dir()) {
+            path.to_string()
+        } else if p.is_dir() {
             "\u{0}folder".to_string()
         } else {
-            std::path::Path::new(path)
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| e.to_lowercase())
-                .unwrap_or_default()
+            ext
         };
         if let Some(hit) = cache().lock().ok()?.get(&key) {
             return hit.clone();
@@ -435,16 +444,55 @@ mod mac {
                 return None;
             }
 
-            // NSImage → TIFF → NSBitmapImageRep → PNG data.
-            let tiff: *mut AnyObject = msg_send![image, TIFFRepresentation];
-            if tiff.is_null() {
-                return None;
-            }
+            // Icon NSImages carry bitmap reps at 16/32/128/256/512/1024 px.
+            // The rows draw at 18pt (36 physical px @2x), so encode the
+            // smallest rep that still covers that instead of the TIFF of the
+            // whole image — initWithData: picks an arbitrary (usually the
+            // biggest) rep, and a 1024×1024 PNG per icon made first paint
+            // visibly late and ballooned the IPC payload.
             let rep_cls = AnyClass::get("NSBitmapImageRep")?;
-            let rep: *mut AnyObject = msg_send![rep_cls, alloc];
-            let rep: *mut AnyObject = msg_send![rep, initWithData: tiff];
+            let reps: *mut AnyObject = msg_send![image, representations];
+            let mut rep: *mut AnyObject = std::ptr::null_mut();
+            if !reps.is_null() {
+                let count: usize = msg_send![reps, count];
+                let mut best_w = isize::MAX;
+                for i in 0..count {
+                    let r: *mut AnyObject = msg_send![reps, objectAtIndex: i];
+                    if r.is_null() {
+                        continue;
+                    }
+                    let is_bitmap: bool = msg_send![r, isKindOfClass: rep_cls];
+                    if !is_bitmap {
+                        continue;
+                    }
+                    let w: isize = msg_send![r, pixelsWide];
+                    // Smallest rep >= 36px; failing that, the biggest one.
+                    let better = if rep.is_null() {
+                        true
+                    } else if (w >= 36) != (best_w >= 36) {
+                        w >= 36
+                    } else if w >= 36 {
+                        w < best_w
+                    } else {
+                        w > best_w
+                    };
+                    if better {
+                        rep = r;
+                        best_w = w;
+                    }
+                }
+            }
             if rep.is_null() {
-                return None;
+                // Non-bitmap reps only (rare): fall back to the TIFF round trip.
+                let tiff: *mut AnyObject = msg_send![image, TIFFRepresentation];
+                if tiff.is_null() {
+                    return None;
+                }
+                let alloc: *mut AnyObject = msg_send![rep_cls, alloc];
+                rep = msg_send![alloc, initWithData: tiff];
+                if rep.is_null() {
+                    return None;
+                }
             }
             // NSBitmapImageFileTypePNG = 4
             let png_type: u64 = 4;
@@ -457,8 +505,29 @@ mod mac {
             let len: usize = msg_send![data, length];
             let bytes: *const std::ffi::c_void = msg_send![data, bytes];
             let bytes = std::slice::from_raw_parts(bytes as *const u8, len);
-            let b64 = super::super::fs::base64_encode(bytes);
+            let png = downscale_png_if_large(bytes.to_vec());
+            let b64 = super::super::fs::base64_encode(&png);
             Some(format!("data:image/png;base64,{b64}"))
+        }
+    }
+
+    /// Modern asset-catalog icons often expose a single huge rep (the
+    /// smallest-rep selection above then never fires and the TIFF fallback
+    /// yields a 1024×1024 PNG — ~2 MB of base64 per icon, which is what made
+    /// icons appear late). The rows draw at 18pt (36px @2x), so anything past
+    /// 128px is resized down to 64px here. Runs once per cache slot.
+    fn downscale_png_if_large(png: Vec<u8>) -> Vec<u8> {
+        let Ok(img) = image::load_from_memory_with_format(&png, image::ImageFormat::Png) else {
+            return png;
+        };
+        if img.width() <= 128 && img.height() <= 128 {
+            return png;
+        }
+        let small = img.thumbnail(64, 64);
+        let mut out = std::io::Cursor::new(Vec::new());
+        match small.write_to(&mut out, image::ImageFormat::Png) {
+            Ok(()) => out.into_inner(),
+            Err(_) => png,
         }
     }
 
@@ -485,6 +554,39 @@ mod mac {
                 }
             }
             assert!(found, "neither Calculator.app path exists");
+        }
+
+        // Regression: .app bundles are directories, and the cache once keyed
+        // all directories on one shared folder slot — every app rendered as
+        // whichever app resolved first (Activity Monitor, in practice). Two
+        // different apps must yield two different icons, and each payload must
+        // be a small rep, not the full 1024×1024 TIFF re-encode.
+        #[test]
+        fn distinct_app_icons_and_small_payloads() {
+            let a = ["/System/Applications/Calculator.app", "/Applications/Calculator.app"]
+                .iter()
+                .find(|p| std::path::Path::new(p).exists())
+                .copied();
+            let b = [
+                "/System/Applications/Utilities/Activity Monitor.app",
+                "/System/Applications/Utilities/Terminal.app",
+            ]
+            .iter()
+            .find(|p| std::path::Path::new(p).exists())
+            .copied();
+            let (Some(a), Some(b)) = (a, b) else {
+                return; // stock apps missing; nothing to compare
+            };
+            let ia = super::icon_for_path(a).expect("icon for first app");
+            let ib = super::icon_for_path(b).expect("icon for second app");
+            assert_ne!(ia, ib, "two different apps returned the same cached icon");
+            for (path, icon) in [(a, &ia), (b, &ib)] {
+                assert!(
+                    icon.len() < 300_000,
+                    "icon for {path} is {} bytes — looks like a full-size rep, not a small one",
+                    icon.len()
+                );
+            }
         }
     }
 }
