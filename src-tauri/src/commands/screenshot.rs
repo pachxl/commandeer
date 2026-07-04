@@ -16,7 +16,7 @@ pub struct Capture {
     pub frame_path: PathBuf,
     pub width: u32,
     pub height: u32,
-    /// Physical origin of the captured monitor (for overlay positioning).
+    /// Physical origin of the captured virtual screen (for overlay positioning).
     #[cfg(target_os = "windows")]
     pub monitor_origin: (i32, i32),
 }
@@ -122,37 +122,31 @@ fn capture_screen_to(dest: &std::path::Path, dir: &std::path::Path) -> Result<()
     ))
 }
 
-/// GDI capture of the monitor under the cursor (same monitor the overlay is
-/// then positioned on, so overlay pixels map 1:1 onto frame pixels).
+/// GDI capture of the entire virtual screen (all monitors; the overlay is
+/// then positioned over the same bounds, so overlay pixels map 1:1 onto frame
+/// pixels). Areas of the bounding box not covered by any monitor come out
+/// black, matching other capture tools.
 #[cfg(target_os = "windows")]
 fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
-    use windows::Win32::Foundation::POINT;
     use windows::Win32::Graphics::Gdi::{
         BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
-        GetDIBits, GetMonitorInfoW, MonitorFromPoint, ReleaseDC, SelectObject, BITMAPINFO,
-        BITMAPINFOHEADER, BI_RGB, CAPTUREBLT, DIB_RGB_COLORS, MONITORINFO,
-        MONITOR_DEFAULTTONEAREST, ROP_CODE, SRCCOPY,
+        GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
+        DIB_RGB_COLORS, ROP_CODE, SRCCOPY,
     };
-    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+        SM_YVIRTUALSCREEN,
+    };
 
     let dest = frame_path(app)?;
 
     unsafe {
-        let mut pt = POINT::default();
-        GetCursorPos(&mut pt).map_err(|e| e.to_string())?;
-        let monitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-        let mut info = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
-            return Err("GetMonitorInfoW failed".into());
-        }
-        let rc = info.rcMonitor;
-        let w = rc.right - rc.left;
-        let h = rc.bottom - rc.top;
+        let vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
         if w <= 0 || h <= 0 {
-            return Err("empty monitor rect".into());
+            return Err("empty virtual screen rect".into());
         }
 
         let screen_dc = GetDC(None);
@@ -167,8 +161,8 @@ fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
             w,
             h,
             screen_dc,
-            rc.left,
-            rc.top,
+            vx,
+            vy,
             ROP_CODE(SRCCOPY.0 | CAPTUREBLT.0),
         );
 
@@ -213,15 +207,26 @@ fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
             px.swap(0, 2);
             px[3] = 255;
         }
-        let img = image::RgbaImage::from_raw(w as u32, h as u32, buf)
-            .ok_or("bitmap size mismatch")?;
-        img.save(&dest).map_err(|e| e.to_string())?;
+
+        // Fast PNG: this frame is transient (reloaded once, then deleted), so
+        // trade file size for speed — Fast compression + no row filtering
+        // encodes several times faster than image::save's defaults. Capture
+        // dropped from ~770ms to ~50ms on a 2560x1440 release build.
+        {
+            use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+            use image::{ExtendedColorType, ImageEncoder};
+            let file = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
+            let writer = std::io::BufWriter::new(file);
+            PngEncoder::new_with_quality(writer, CompressionType::Fast, FilterType::NoFilter)
+                .write_image(&buf, w as u32, h as u32, ExtendedColorType::Rgba8)
+                .map_err(|e| e.to_string())?;
+        }
 
         Ok(Capture {
             frame_path: dest,
             width: w as u32,
             height: h as u32,
-            monitor_origin: (rc.left, rc.top),
+            monitor_origin: (vx, vy),
         })
     }
 }
@@ -245,20 +250,16 @@ pub fn start_screenshot_bg(app: &AppHandle) {
     });
 }
 
-/// True while a capture is being taken (trigger → overlay shown). A second
-/// trigger in that window must not start a parallel flow.
+/// True while a capture is mid-flight (trigger → frame handed to the overlay).
+/// A second trigger in that window must not start a parallel flow; a
+/// re-trigger while the overlay is already open (capture done) restarts the
+/// flow with a fresh frame instead.
 static CAPTURING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 async fn start_inner(app: &AppHandle, delay_ms: u64) -> Result<(), String> {
     use std::sync::atomic::Ordering;
 
-    // The screen can't be frozen twice: while the overlay is up (or another
-    // capture is mid-flight) further triggers are no-ops, like Lightshot.
-    let overlay_open = app
-        .get_webview_window("screenshot")
-        .and_then(|w| w.is_visible().ok())
-        .unwrap_or(false);
-    if overlay_open || CAPTURING.swap(true, Ordering::SeqCst) {
+    if CAPTURING.swap(true, Ordering::SeqCst) {
         return Ok(());
     }
     let result = start_capture(app, delay_ms).await;
@@ -266,16 +267,38 @@ async fn start_inner(app: &AppHandle, delay_ms: u64) -> Result<(), String> {
     return result;
 
     async fn start_capture(app: &AppHandle, mut delay_ms: u64) -> Result<(), String> {
-        // Never freeze our own palette into the frame: hide it first and give
-        // the compositor a beat to actually unmap it.
-        if let Some(palette) = app.get_webview_window("palette") {
-            if palette.is_visible().unwrap_or(false) {
-                let _ = palette.hide();
-                delay_ms = delay_ms.max(220);
+        // Never freeze our own windows into the frame: hide them first and give
+        // the compositor a beat to actually unmap them. (A re-trigger while the
+        // overlay is open restarts the flow with a fresh frame.)
+        for label in ["palette", "screenshot"] {
+            if let Some(win) = app.get_webview_window(label) {
+                if win.is_visible().unwrap_or(false) {
+                    // Linux: the overlay clears itself to a fully transparent frame
+                    // before hiding (see the screenshot-clear listener) so the
+                    // webview's last composite — which WebKitGTK replays as the
+                    // first frame at the next map — is invisible instead of the
+                    // old capture. The hide after the sleep below is the fallback
+                    // if the webview never answers.
+                    #[cfg(not(target_os = "windows"))]
+                    let deferred =
+                        label == "screenshot" && app.emit_to(label, "screenshot-clear", ()).is_ok();
+                    #[cfg(target_os = "windows")]
+                    let deferred = false;
+                    if !deferred {
+                        let _ = win.hide();
+                    }
+                    delay_ms = delay_ms.max(220);
+                }
             }
         }
         if delay_ms > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        }
+        // Ensure the overlay really is unmapped before we capture (idempotent; the
+        // preferred path is the webview hiding itself after its clear paint).
+        #[cfg(not(target_os = "windows"))]
+        if let Some(win) = app.get_webview_window("screenshot") {
+            let _ = win.hide();
         }
 
         let capture = capture_frame(app)?;
@@ -284,6 +307,25 @@ async fn start_inner(app: &AppHandle, delay_ms: u64) -> Result<(), String> {
             width: capture.width,
             height: capture.height,
         };
+
+        // Position/size the overlay and show it CLOAKED before handing the frame
+        // to the webview. WebView2 only renders while its window is visible, and
+        // a cloaked window is composited without being displayed — so the frame
+        // image loads, rasterizes and is presented to the DWM surface entirely
+        // off-screen. The webview then reports the actual on-screen paint of the
+        // <img> (element timing) and reveal_screenshot_overlay drops the cloak,
+        // which is atomic: the overlay pops in fully formed, no black or stale
+        // frame. (Resizing at show time, or showing before the paint, both flash.)
+        #[cfg(target_os = "windows")]
+        if let Some(win) = app.get_webview_window("screenshot") {
+            let (x, y) = capture.monitor_origin;
+            let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+            let _ = win.set_size(tauri::PhysicalSize::new(capture.width, capture.height));
+            set_cloak(&win, true);
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+
         {
             let state = app.state::<ScreenshotState>();
             *state.0.lock().unwrap() = Some(capture);
@@ -292,12 +334,14 @@ async fn start_inner(app: &AppHandle, delay_ms: u64) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
 
         // Safety net: if the overlay hasn't shown itself shortly (frame <img>
-        // onload → show_screenshot_overlay), show it anyway so a hiccup in
-        // event delivery or image decode can't leave the user with a silent
-        // no-op.
+        // onload → show_screenshot_overlay), show it anyway so a hiccup in event
+        // delivery or image decode can't leave the user with a silent no-op. Kept
+        // comfortably longer than a normal capture+decode so it never races the
+        // preferred onload path (which shows only once the frame is actually
+        // painted) — racing it caused a dim→undim→dim flicker.
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
             let pending = app
                 .state::<ScreenshotState>()
                 .0
@@ -308,19 +352,48 @@ async fn start_inner(app: &AppHandle, delay_ms: u64) -> Result<(), String> {
                 .get_webview_window("screenshot")
                 .and_then(|w| w.is_visible().ok())
                 .unwrap_or(false);
-            if pending && !visible {
-                eprintln!("screenshot: overlay did not self-show, forcing show");
-                if let Err(e) = show_screenshot_overlay(app.clone()) {
-                    eprintln!("screenshot: fallback show failed: {e}");
+            if pending {
+                if !visible {
+                    eprintln!("screenshot: overlay did not self-show, forcing show");
+                    if let Err(e) = show_screenshot_overlay(app.clone()) {
+                        eprintln!("screenshot: fallback show failed: {e}");
+                    }
                 }
+                // Always uncloak: if the frontend's paint handshake never arrived,
+                // the window could otherwise sit shown-but-cloaked (invisible yet
+                // eating input) indefinitely.
+                let _ = reveal_screenshot_overlay(app.clone());
             }
         });
         Ok(())
     }
 }
 
+/// DWM-cloak (or uncloak) the overlay: a cloaked window is fully composited
+/// but not displayed, so the webview can lay out and present the frame while
+/// nothing reaches the screen. Flipping the cloak off is atomic in DWM — the
+/// finished pixels appear with no intermediate black/stale frame.
+#[cfg(target_os = "windows")]
+fn set_cloak(win: &tauri::WebviewWindow, cloak: bool) {
+    use windows::Win32::Foundation::{BOOL, HWND};
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CLOAK};
+    if let Ok(hwnd) = win.hwnd() {
+        let value = BOOL::from(cloak);
+        unsafe {
+            let _ = DwmSetWindowAttribute(
+                HWND(hwnd.0 as *mut _),
+                DWMWA_CLOAK,
+                &value as *const _ as *const _,
+                std::mem::size_of::<BOOL>() as u32,
+            );
+        }
+    }
+}
+
 /// Called by the overlay webview once the frame <img> has decoded — showing
-/// only now avoids a flash of the previous frame or an empty window.
+/// only now avoids a flash of the previous frame or an empty window. The
+/// window is shown *cloaked*; the webview then confirms a real paint and
+/// calls `reveal_screenshot_overlay`, which uncloaks.
 #[tauri::command]
 pub fn show_screenshot_overlay(app: AppHandle) -> Result<(), String> {
     let state = app.state::<ScreenshotState>();
@@ -333,24 +406,56 @@ pub fn show_screenshot_overlay(app: AppHandle) -> Result<(), String> {
         .get_webview_window("screenshot")
         .ok_or("no screenshot window")?;
 
-    #[cfg(target_os = "windows")]
-    {
-        let (x, y) = capture.monitor_origin;
-        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
-        let _ = win.set_size(tauri::PhysicalSize::new(capture.width, capture.height));
+    // Idempotent: the frame <img> onload and the Rust-side fallback both call
+    // this, and a re-show/re-focus of an already-visible overlay causes a
+    // visible flicker (and a focus flap that can trip the click-away cancel).
+    if win.is_visible().unwrap_or(false) {
+        return Ok(());
     }
-    // On Linux/Wayland the layer-shell surface is anchored to all four edges,
-    // so the compositor sizes it to the output — nothing to position. On X11
-    // there is no layer shell: cover the captured area from the origin (the
-    // fallback capture tools grab the whole screen).
+
+    // Windows: positioning/sizing already happened at capture time (see
+    // start_inner) — doing it here, right before show, caused a black flash
+    // while WebView2 repainted at the new size. On Linux/Wayland the
+    // layer-shell surface is anchored to all four edges, so the compositor
+    // sizes it to the output — nothing to position. On X11 there is no layer
+    // shell: cover the captured area from the origin (the fallback capture
+    // tools grab the whole screen).
     #[cfg(not(target_os = "windows"))]
     if std::env::var_os("WAYLAND_DISPLAY").is_none() {
         let _ = win.set_position(tauri::PhysicalPosition::new(0, 0));
         let _ = win.set_size(tauri::PhysicalSize::new(capture.width, capture.height));
     }
 
+    #[cfg(target_os = "windows")]
+    set_cloak(&win, true);
+
     win.show().map_err(|e| e.to_string())?;
     win.set_focus().map_err(|e| e.to_string())
+}
+
+/// Uncloak the (already shown) overlay once the webview has actually painted
+/// the frame. Idempotent; on Linux the show path never cloaks so this is a
+/// no-op.
+#[tauri::command]
+pub fn reveal_screenshot_overlay(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    if let Some(win) = app.get_webview_window("screenshot") {
+        set_cloak(&win, false);
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+    Ok(())
+}
+
+/// Hide the overlay window without touching the pending capture. Called by the
+/// webview after it has painted a cleared (fully transparent) frame, so the
+/// composite WebKitGTK replays at the next map shows nothing instead of the
+/// previous capture.
+#[tauri::command]
+pub fn hide_screenshot_overlay(app: AppHandle) {
+    if let Some(win) = app.get_webview_window("screenshot") {
+        let _ = win.hide();
+    }
 }
 
 /// Crop the frozen frame to `region` (image pixels), save a timestamped PNG

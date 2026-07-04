@@ -1314,6 +1314,9 @@ export default function Palette({
         flexDirection: 'column',
         fontFamily: 'var(--font)',
         overflow: 'hidden',
+        // Windows rounds the OS window itself via DWM (DWMWCP_ROUND); the Linux
+        // layer-shell surface has no compositor rounding, so round it here.
+        borderRadius: IS_LINUX ? 8 : undefined,
         color: 'var(--text)',
       }}
       onKeyDown={handleKeyDown}

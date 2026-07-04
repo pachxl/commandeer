@@ -109,6 +109,11 @@ export const writeOverrides = (overrides: Record<string, CommandOverride>) =>
 export const setGlobalHotkey = (hotkey: string, gameHotkey: string | null, gameMode: boolean) =>
   invoke<void>('set_global_hotkey', { update: { hotkey, game_hotkey: gameHotkey }, gameMode })
 
+// Global hotkey that starts the region screenshot (Windows only; default 'Insert').
+// Rejects (throws) if the binding string doesn't parse.
+export const setScreenshotHotkey = (hotkey: string) =>
+  invoke<void>('set_screenshot_hotkey', { hotkey })
+
 export const setCommandHotkey = (commandId: string, hotkey: string | null) =>
   invoke<void>('set_command_hotkey', { commandId, hotkey })
 
@@ -148,14 +153,28 @@ export const startScreenshot = (delayMs?: number) =>
 export const showScreenshotOverlay = () =>
   invoke<void>('show_screenshot_overlay')
 
+export const revealScreenshotOverlay = () =>
+  invoke<void>('reveal_screenshot_overlay')
+
 export const finishScreenshot = (region: ScreenshotRegion) =>
   invoke<string>('finish_screenshot', { region })
 
 export const cancelScreenshot = () =>
   invoke<void>('cancel_screenshot')
 
+// Linux only: hide the overlay window after the webview has painted a cleared
+// (transparent) frame — the composite WebKitGTK replays at the next map then
+// shows nothing instead of the previous capture.
+export const hideScreenshotOverlay = () =>
+  invoke<void>('hide_screenshot_overlay')
+
 export const onScreenshotFrame = (callback: (frame: ScreenshotFrame) => void) =>
   listen<ScreenshotFrame>('screenshot-frame', event => callback(event.payload))
+
+// Linux only: Rust asks the visible overlay to clear itself before a
+// re-triggered capture (it then hides via hideScreenshotOverlay).
+export const onScreenshotClear = (callback: () => void) =>
+  listen<void>('screenshot-clear', () => callback())
 
 export const readSnippets = () =>
   invoke<Snippet[]>('read_snippets')
