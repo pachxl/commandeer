@@ -7,7 +7,6 @@ export type CommandSource =
   | 'calculator'
   | 'system'
   | 'quicklink'
-  | 'snippet'
   | 'clipboard'
   | 'bookmark'
   | 'note'

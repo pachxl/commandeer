@@ -1,7 +1,7 @@
 // Provider registry: each provider contributes static commands to the root
-// list (getCommands) and/or per-query inline results (search). The script,
-// snippet, and settings sources still live in App.tsx's command assembly —
-// only the newer feature families register here.
+// list (getCommands) and/or per-query inline results (search). The script and
+// settings sources still live in App.tsx's command assembly — only the newer
+// feature families register here.
 import type { AppConfig, Command, CommandProvider } from '../types'
 import { appLauncherProvider } from './appLauncher'
 import { bookmarksProvider } from './bookmarks'

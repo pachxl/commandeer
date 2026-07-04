@@ -13,13 +13,6 @@ pub struct Quicklink {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Snippet {
-    pub id: String,
-    pub keyword: String,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Note {
     pub id: String,
     pub title: String,
@@ -34,10 +27,6 @@ fn app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn quicklinks_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app_data_dir(app)?.join("quicklinks.json"))
-}
-
-fn snippets_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(app_data_dir(app)?.join("snippets.json"))
 }
 
 fn notes_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -104,16 +93,6 @@ pub async fn write_quicklinks(
     quicklinks: Vec<Quicklink>,
 ) -> Result<(), String> {
     write_json_file(&quicklinks_path(&app)?, &quicklinks)
-}
-
-#[tauri::command]
-pub async fn read_snippets(app: tauri::AppHandle) -> Result<Vec<Snippet>, String> {
-    read_json_file(&snippets_path(&app)?)
-}
-
-#[tauri::command]
-pub async fn write_snippets(app: tauri::AppHandle, snippets: Vec<Snippet>) -> Result<(), String> {
-    write_json_file(&snippets_path(&app)?, &snippets)
 }
 
 #[tauri::command]

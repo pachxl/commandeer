@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fileInfo, readTextPreview, type FileInfo, type Snippet } from '../lib/tauri'
+import { fileInfo, readTextPreview, type FileInfo } from '../lib/tauri'
 import type { PaletteItem, PaletteMetadata } from '../types'
 
 // Extensions the backend can thumbnail (raw bytes as a data URL)
@@ -52,7 +52,6 @@ interface DetailPaneProps {
 //   - text previews for text files
 //   - color swatches for items with a color payload
 //   - font previews for items with a fontFamily payload
-//   - snippet text for snippet items
 //   - generic metadata rows for every item that carries them
 export default function DetailPane({ item }: DetailPaneProps) {
   const [info, setInfo] = useState<FileInfo | null>(null)
@@ -86,7 +85,7 @@ export default function DetailPane({ item }: DetailPaneProps) {
   }, [item.id, path, isText, isFile])
 
   const title = item.label
-  const hasContent = isImage || isText || item.color || item.fontFamily || item.source === 'snippet' || (item.metadata && item.metadata.length > 0)
+  const hasContent = isImage || isText || item.color || item.fontFamily || (item.metadata && item.metadata.length > 0)
   if (!hasContent) return null
 
   return (
@@ -157,32 +156,6 @@ export default function DetailPane({ item }: DetailPaneProps) {
           <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
             {item.fontFamily}
           </span>
-        </div>
-      )}
-
-      {item.source === 'snippet' && item.data != null && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--text-dim)' }}>
-            Snippet
-          </span>
-          <pre
-            style={{
-              margin: 0,
-              padding: 8,
-              borderRadius: 4,
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
-              fontSize: 12,
-              fontFamily: 'var(--font-mono, var(--font))',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              maxHeight: 180,
-              overflowY: 'auto',
-            }}
-          >
-            {(item.data as Snippet).text}
-          </pre>
         </div>
       )}
 

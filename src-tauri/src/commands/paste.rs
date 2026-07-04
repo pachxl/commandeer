@@ -1,11 +1,11 @@
-//! Paste snippet text into whichever window was focused before the palette
-//! opened. The foreground window is stashed by `capture_foreground` right
-//! before the palette is shown.
+//! Paste text (clipboard-history entries, notes, …) into whichever window was
+//! focused before the palette opened. The foreground window is stashed by
+//! `capture_foreground` right before the palette is shown.
 
 use tauri::Manager;
 
-/// Foreground window at the moment the palette was shown, so snippet
-/// selections can paste back into it. 0 = nothing captured.
+/// Foreground window at the moment the palette was shown, so paste actions
+/// can send text back into it. 0 = nothing captured.
 #[cfg(target_os = "windows")]
 static PREV_FOREGROUND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 

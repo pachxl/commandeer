@@ -1,4 +1,4 @@
-import type { Command, CommandProvider, PaletteItem, Step, StepResult } from '../types'
+import type { Command, CommandProvider } from '../types'
 import { listBookmarks, openUrl, type Bookmark } from '../lib/tauri'
 
 function bookmarkCommand(bookmark: Bookmark): Command {
@@ -18,56 +18,19 @@ function bookmarkCommand(bookmark: Bookmark): Command {
   }
 }
 
-function bookmarksStep(): Step {
-  return {
-    id: 'bookmarks:browse',
-    label: 'Bookmarks',
-    placeholder: 'Search bookmarks...',
-    load: async (): Promise<PaletteItem[]> => {
-      const bookmarks = await listBookmarks()
-      return bookmarks.map(b => ({
-        id: `bookmark:${b.url}`,
-        label: b.name,
-        sublabel: `${b.browser} · ${b.url}`,
-        icon: 'bookmark',
-        source: 'bookmark' as const,
-        data: b,
-        actionLabel: 'Open',
-      }))
-    },
-    onSelect: async (item): Promise<StepResult> => {
-      const bookmark = item.data as Bookmark
-      await openUrl(bookmark.url)
-      return { type: 'done' }
-    },
-  }
-}
-
-const BROWSE_COMMAND: Command = {
-  id: 'bookmark:browse',
-  label: 'Bookmarks',
-  description: 'Search browser bookmarks',
-  icon: 'bookmark',
-  source: 'bookmark' as const,
-  keywords: ['bookmark', 'browser', 'favorites'],
-  actionLabel: 'Open',
-  createRootStep: bookmarksStep,
+// Bookmarks live as a sub-folder inside Tools; the folder's children are these
+// item commands (App.tsx wires the folder). Each item also stays in the flat
+// search via its folderName tag.
+export async function loadBookmarkCommands(): Promise<Command[]> {
+  const bookmarks = await listBookmarks()
+  return bookmarks.map(bookmarkCommand)
 }
 
 export const bookmarksProvider: CommandProvider = {
   id: 'bookmarks',
   name: 'Bookmarks',
   priority: 10,
-  getCommands: async () => {
-    const bookmarks = await listBookmarks()
-    if (bookmarks.length === 0) {
-      return [BROWSE_COMMAND]
-    }
-    return [
-      BROWSE_COMMAND,
-      ...bookmarks.map(bookmarkCommand),
-    ]
-  },
+  getCommands: loadBookmarkCommands,
   search: async (query: string): Promise<Command[]> => {
     const trimmed = query.trim().toLowerCase()
     if (!trimmed || trimmed.length < 2) return []

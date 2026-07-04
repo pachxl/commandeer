@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { loadScriptCommands, scriptsToCommands, webSearchCommand } from './commands'
-import { loadSnippetCommands } from './commands/snippets'
 import { settingsCommand } from './commands/settings'
 import { loadProviderCommands } from './providers'
+import { loadBookmarkCommands } from './providers/bookmarks'
 import { loadQuicklinkCommands } from './providers/quicklinks'
 import { loadNoteCommands } from './providers/notes'
 import { killProcessCommand } from './providers/processes'
@@ -67,10 +67,6 @@ export default function App() {
     try {
       const { commands: cmds, scripts } = await loadScriptCommands(configRef.current)
       localStorage.setItem(SCRIPTS_CACHE_KEY, JSON.stringify(scripts))
-      const snippetCmds = await loadSnippetCommands().catch(err => {
-        console.error(err)
-        return [] as Command[]
-      })
       const providerCmds = await loadProviderCommands(configRef.current).catch(err => {
         console.error(err)
         return [] as Command[]
@@ -78,22 +74,27 @@ export default function App() {
       // Commands tagged with a folderName group under virtual folders (like
       // script folders): hidden from root browse, still in the flat search
       const webSearchCmds = isWebSearchVisible() ? [webSearchCommand] : []
-      const toolsChildren = [...providerCmds, ...webSearchCmds].filter(c => c.folderName === 'Tools')
       const appCmds = providerCmds.filter(c => c.folderName === 'Apps')
       const systemCmds = providerCmds.filter(c => c.folderName === 'System')
-      const quicklinkChildren = providerCmds.filter(c => c.folderName === 'Quick Links')
-      const noteChildren = providerCmds.filter(c => c.folderName === 'Notes')
+      const toolsBuiltins = [...providerCmds, ...webSearchCmds].filter(c => c.folderName === 'Tools')
+      // Quick Links, Notes and Bookmarks live as sub-folders inside Tools. Each
+      // uses a dynamic child loader so adds/removes show up without leaving the
+      // folder; the individual items also stay in the flat search via
+      // providerCmds (their folderName keeps them out of the root browse).
+      const hasQuicklinks = providerCmds.some(c => c.folderName === 'Quick Links')
+      const hasNotes = providerCmds.some(c => c.folderName === 'Notes')
+      const hasBookmarks = providerCmds.some(c => c.folderName === 'Bookmarks')
+      const toolsChildren: Command[] = [
+        ...toolsBuiltins,
+        ...(hasQuicklinks ? [virtualFolderCommand('Quick Links', () => loadQuicklinkCommands())] : []),
+        ...(hasNotes ? [virtualFolderCommand('Notes', () => loadNoteCommands())] : []),
+        ...(hasBookmarks ? [virtualFolderCommand('Bookmarks', () => loadBookmarkCommands())] : []),
+      ]
       setCommands([
         ...cmds,
         ...(appCmds.length > 0 ? [virtualFolderCommand('Apps', appCmds)] : []),
         ...(systemCmds.length > 0 ? [virtualFolderCommand('System', systemCmds)] : []),
         ...(toolsChildren.length > 0 ? [toolsFolderCommand(toolsChildren)] : []),
-        // Dynamic children: the folder re-reads snippets on every step load,
-        // so adds/removes show up without leaving the folder
-        ...(snippetCmds.length > 0 ? [virtualFolderCommand('Snippets', () => loadSnippetCommands())] : []),
-        ...(quicklinkChildren.length > 0 ? [virtualFolderCommand('Quick Links', () => loadQuicklinkCommands())] : []),
-        ...(noteChildren.length > 0 ? [virtualFolderCommand('Notes', () => loadNoteCommands())] : []),
-        ...snippetCmds,
         ...webSearchCmds,
         ...providerCmds,
         settingsCommand(configRef.current),

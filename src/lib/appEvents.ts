@@ -10,7 +10,7 @@ export const appEvents: {
   isClaudeUsageVisible?: () => boolean
   isWebSearchVisible?: () => boolean
   isSystemStatsVisible?: () => boolean
-  // Rebuild the root command list (e.g. after snippets change)
+  // Rebuild the root command list (e.g. after a note or quick link changes)
   refreshCommands?: () => void
   // Show a transient toast above the results list (registered by Palette)
   toast?: (message: string, kind?: 'success' | 'error' | 'info') => void

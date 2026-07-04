@@ -109,8 +109,8 @@ function commandItem(cmd: Command): PaletteItem {
 // A folder command whose children are built-in commands rather than scripts.
 // Selecting a child pushes its step or runs its action. Children may be a
 // function for folders whose contents change while the palette is open
-// (e.g. Snippets): it's re-invoked on every step load, so the list stays
-// fresh after an add/remove without rebuilding the step.
+// (e.g. Quick Links, Notes): it's re-invoked on every step load, so the list
+// stays fresh after an add/remove without rebuilding the step.
 export function virtualFolderCommand(name: string, children: Command[] | (() => Promise<Command[]>)): Command {
   return {
     id: `folder:${name}`,

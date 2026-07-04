@@ -552,8 +552,6 @@ pub fn run() {
             commands::fs::reveal_path,
             commands::claude::claude_usage,
             commands::store::data_dir,
-            commands::store::read_snippets,
-            commands::store::write_snippets,
             commands::store::read_quicklinks,
             commands::store::write_quicklinks,
             commands::store::read_notes,

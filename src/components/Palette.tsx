@@ -12,7 +12,7 @@ import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
 import { evaluateCalcQuery } from '../providers/calculator'
 import { tryTimeConversion } from '../lib/timezones'
-import { IS_LINUX, IS_MAC, envInfo, openPath, openUrl, pasteToPrevious, readQuicklinks, readNotes, readSnippets, revealPath, setCommandHotkey, writeClipboardText, writeSnippets, writeQuicklinks, writeNotes, type Bookmark, type ClipboardItem, type CommandOverride, type Note, type Quicklink, type Snippet } from '../lib/tauri'
+import { IS_LINUX, IS_MAC, envInfo, openPath, openUrl, pasteToPrevious, readQuicklinks, readNotes, revealPath, setCommandHotkey, writeClipboardText, writeQuicklinks, writeNotes, type Bookmark, type ClipboardItem, type CommandOverride, type Note, type Quicklink } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
@@ -328,7 +328,7 @@ export default function Palette({
     return () => { appEvents.toast = undefined }
   }, [resetRef, toast])
 
-  // Commands can come from the static list (scripts, snippets, settings) or
+  // Commands can come from the static list (scripts, settings) or
   // from a provider's per-query search results
   const resolveCommand = useCallback((id: string): Command | undefined => {
     return commandsRef.current.find(c => c.id === id)
@@ -395,7 +395,7 @@ export default function Palette({
 
     // Hierarchical view: everything from the user's commands folder first
     // (script folders, then loose scripts with last-used floating up), then
-    // built-in virtual folders (Tools, Snippets) and any other builtins.
+    // built-in virtual folders (Apps, System, Tools) and any other builtins.
     // searchOnly commands are excluded here but stay in the flat search list.
     const isScript = (c: Command) => c.source === 'script'
     const rootLoose = commands.filter(c =>
@@ -686,7 +686,7 @@ export default function Palette({
       : null
 
   // Preview pane: shown when the selected item has something to preview
-  // (image, text file, color swatch, font, snippet, or metadata).
+  // (image, text file, color swatch, font, or metadata).
   const showPreview = selectedItem != null
 
   // Forward ref so buildActions (defined before handleSelect) can trigger the
@@ -694,8 +694,8 @@ export default function Palette({
   const handleSelectRef = useRef<((item: PaletteItem) => Promise<void>) | null>(null)
 
   // Re-run the current step's load in place, for action-panel handlers that
-  // mutate the data behind the visible list (e.g. deleting a snippet while
-  // inside the Snippets folder). Ref so buildActions' stable closure always
+  // mutate the data behind the visible list (e.g. deleting a note while
+  // inside the Notes folder). Ref so buildActions' stable closure always
   // sees the live step.
   const reloadStepRef = useRef<() => void>(() => {})
   reloadStepRef.current = () => {
@@ -763,25 +763,6 @@ export default function Palette({
         })
         pushCopy('Copy path', item.data as string, 'C')
         break
-      case 'snippet': {
-        const snippet = item.data as Snippet
-        runPrimary('paste', 'Paste to active app')
-        pushCopy('Copy snippet', snippet.text, 'C')
-        actions.push({
-          id: 'delete',
-          label: 'Delete snippet',
-          shortcut: '⌫',
-          icon: 'trash',
-          handler: async () => {
-            const all = await readSnippets()
-            await writeSnippets(all.filter(s => s.id !== snippet.id))
-            appEvents.refreshCommands?.()
-            reloadStepRef.current()
-            toast('Snippet deleted', 'success')
-          },
-        })
-        break
-      }
       case 'clipboard': {
         const clip = item.data as ClipboardItem
         if (clip && typeof clip === 'object' && 'text' in clip) {

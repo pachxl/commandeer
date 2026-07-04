@@ -91,7 +91,7 @@ function settingsStep(config: AppConfig): Step {
       {
         id: 'settings:open-data',
         label: 'Open Data Folder',
-        sublabel: 'Snippets, themes, config',
+        sublabel: 'Notes, themes, config',
         icon: 'folder',
         actionLabel: 'Open Folder',
       },

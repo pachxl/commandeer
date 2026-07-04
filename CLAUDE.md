@@ -67,7 +67,7 @@ Everything hangs off three types in `src/types.ts`:
 
 - **`Command`** — one entry in the root list. Either runs directly (`action`) or pushes a **`Step`**.
 - **`Step`** — one level of the palette's navigation stack (list, grid, slider, form, or free-text input step). `onSelect`/`onCommitQuery` return a `StepResult` (`done` / `push` / `replace` / `pop` / `stay`) that drives navigation.
-- **`CommandProvider`** (`src/providers/`) — contributes static root commands (`getCommands`) and/or per-query inline results (`search`). Registered in `src/providers/index.ts`. Newer feature families live here; the older script, snippet, and settings sources are assembled directly in `App.tsx`'s `refresh()`.
+- **`CommandProvider`** (`src/providers/`) — contributes static root commands (`getCommands`) and/or per-query inline results (`search`). Registered in `src/providers/index.ts`. Newer feature families live here; the older script and settings sources are assembled directly in `App.tsx`'s `refresh()`. Quick Links, Notes and Bookmarks render as sub-folders inside the Tools virtual folder (wired in `refresh()`).
 
 `App.tsx` builds the command list (grouping `folderName`-tagged commands under virtual folders) and hands it to `components/Palette.tsx` (~1500 lines), which owns the step stack, query state, fuzzy ranking (fzf + frecency in `src/lib/`), keyboard handling, and the Ctrl+K action panel. `src/lib/tauri.ts` is the single wrapper around all Rust `invoke` calls. `src/lib/appEvents.ts` is a mutable bridge so settings commands can flip App-level state without prop drilling.
 

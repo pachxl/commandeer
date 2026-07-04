@@ -56,12 +56,6 @@ export const revealPath = (path: string) =>
 export const dataDir = () =>
   invoke<string>('data_dir')
 
-export interface Snippet {
-  id: string
-  keyword: string
-  text: string
-}
-
 export interface Quicklink {
   id: string
   name: string
@@ -204,12 +198,6 @@ export const onScreenshotFrame = (callback: (frame: ScreenshotFrame) => void) =>
 // re-triggered capture (it then hides via hideScreenshotOverlay).
 export const onScreenshotClear = (callback: () => void) =>
   listen<void>('screenshot-clear', () => callback())
-
-export const readSnippets = () =>
-  invoke<Snippet[]>('read_snippets')
-
-export const writeSnippets = (snippets: Snippet[]) =>
-  invoke<void>('write_snippets', { snippets })
 
 // Resolves to true when the paste keystroke was delivered to the previous
 // window; false means copy-only (Linux without an input synthesizer) and the
