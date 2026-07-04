@@ -16,7 +16,7 @@ pub struct Capture {
     pub frame_path: PathBuf,
     pub width: u32,
     pub height: u32,
-    /// Physical origin of the captured monitor (for overlay positioning).
+    /// Physical origin of the captured virtual screen (for overlay positioning).
     #[cfg(target_os = "windows")]
     pub monitor_origin: (i32, i32),
 }
@@ -78,37 +78,31 @@ fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
     })
 }
 
-/// GDI capture of the monitor under the cursor (same monitor the overlay is
-/// then positioned on, so overlay pixels map 1:1 onto frame pixels).
+/// GDI capture of the entire virtual screen (all monitors; the overlay is
+/// then positioned over the same bounds, so overlay pixels map 1:1 onto frame
+/// pixels). Areas of the bounding box not covered by any monitor come out
+/// black, matching other capture tools.
 #[cfg(target_os = "windows")]
 fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
-    use windows::Win32::Foundation::POINT;
     use windows::Win32::Graphics::Gdi::{
         BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
-        GetDIBits, GetMonitorInfoW, MonitorFromPoint, ReleaseDC, SelectObject, BITMAPINFO,
-        BITMAPINFOHEADER, BI_RGB, CAPTUREBLT, DIB_RGB_COLORS, MONITORINFO,
-        MONITOR_DEFAULTTONEAREST, ROP_CODE, SRCCOPY,
+        GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
+        DIB_RGB_COLORS, ROP_CODE, SRCCOPY,
     };
-    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+        SM_YVIRTUALSCREEN,
+    };
 
     let dest = frame_path(app)?;
 
     unsafe {
-        let mut pt = POINT::default();
-        GetCursorPos(&mut pt).map_err(|e| e.to_string())?;
-        let monitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-        let mut info = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
-            return Err("GetMonitorInfoW failed".into());
-        }
-        let rc = info.rcMonitor;
-        let w = rc.right - rc.left;
-        let h = rc.bottom - rc.top;
+        let vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
         if w <= 0 || h <= 0 {
-            return Err("empty monitor rect".into());
+            return Err("empty virtual screen rect".into());
         }
 
         let screen_dc = GetDC(None);
@@ -123,8 +117,8 @@ fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
             w,
             h,
             screen_dc,
-            rc.left,
-            rc.top,
+            vx,
+            vy,
             ROP_CODE(SRCCOPY.0 | CAPTUREBLT.0),
         );
 
@@ -188,7 +182,7 @@ fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
             frame_path: dest,
             width: w as u32,
             height: h as u32,
-            monitor_origin: (rc.left, rc.top),
+            monitor_origin: (vx, vy),
         })
     }
 }
