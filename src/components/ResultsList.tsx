@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { PaletteItem } from '../types'
+import { scrollToReveal } from '../lib/scroll'
 import ResultRow from './ResultRow'
 
 interface ResultsListProps {
@@ -12,29 +13,44 @@ interface ResultsListProps {
 export default function ResultsList({ items, selectedIndex, onSelect, onHover }: ResultsListProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<HTMLDivElement>(null)
+  const lastMousePos = useRef<{ x: number; y: number } | null>(null)
 
-  // Manual scroll instead of Element.scrollIntoView({ block: 'nearest' }):
-  // WKWebView (macOS) interprets 'nearest' by recentering the element, which
-  // makes the selection jump to the middle when paging past the bottom of a long
-  // list. Computing scrollTop from the rects is deterministic across engines
-  // (Chromium on Windows/Linux, WebKit on macOS) and only scrolls the minimum
-  // needed to bring the selected row fully into view.
   useEffect(() => {
-    const container = listRef.current
-    const el = selectedRef.current
-    if (!container || !el) return
-    const cRect = container.getBoundingClientRect()
-    const eRect = el.getBoundingClientRect()
-    if (eRect.top < cRect.top) {
-      container.scrollTop += eRect.top - cRect.top
-    } else if (eRect.bottom > cRect.bottom) {
-      container.scrollTop += eRect.bottom - cRect.bottom
-    }
+    scrollToReveal(listRef.current, selectedRef.current)
   }, [selectedIndex])
+
+  // Hover-selection follows *physical* mouse movement only (same guard as
+  // ResultsGrid): WKWebView re-fires enter/move events when rows re-rank or
+  // scroll under a stationary cursor, which yanked the selection to whatever
+  // row sat under the mouse on every keystroke. Coordinates identical to the
+  // last event = not a real move, so it is ignored.
+  function handleMouseMove(e: React.MouseEvent) {
+    const pos = { x: e.clientX, y: e.clientY }
+    const last = lastMousePos.current
+    if (!last) {
+      lastMousePos.current = pos
+      return
+    }
+    if (last.x === pos.x && last.y === pos.y) return
+    lastMousePos.current = pos
+
+    const target = e.target as HTMLElement
+    const row = target.closest('[data-list-index]') as HTMLElement | null
+    if (row) {
+      const index = parseInt(row.dataset.listIndex ?? '', 10)
+      if (!Number.isNaN(index) && index !== selectedIndex) onHover(index)
+    }
+  }
+
+  function handleMouseLeave() {
+    lastMousePos.current = null
+  }
 
   return (
     <div
       ref={listRef}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
       style={{
         maxHeight: 360,
         overflowY: 'auto',
@@ -47,10 +63,10 @@ export default function ResultsList({ items, selectedIndex, onSelect, onHover }:
         <ResultRow
           key={item.id}
           item={item}
+          index={i}
           selected={i === selectedIndex}
           ref={i === selectedIndex ? selectedRef : null}
           onSelect={() => onSelect(item)}
-          onHover={() => onHover(i)}
         />
       ))}
     </div>

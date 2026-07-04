@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { ActionItem } from '../types'
+import { scrollToReveal } from '../lib/scroll'
 import { getIconSvg, hasIcon } from './Icon'
 
 interface ActionPanelProps {
@@ -12,14 +13,37 @@ interface ActionPanelProps {
 export default function ActionPanel({ items, selectedIndex, onSelect, onHover }: ActionPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<HTMLDivElement>(null)
+  const lastMousePos = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
-    selectedRef.current?.scrollIntoView({ block: 'nearest' })
+    scrollToReveal(listRef.current, selectedRef.current)
   }, [selectedIndex])
+
+  // Movement-guarded hover selection — see ResultsList for why plain
+  // mouseenter is wrong on WKWebView.
+  function handleMouseMove(e: React.MouseEvent) {
+    const pos = { x: e.clientX, y: e.clientY }
+    const last = lastMousePos.current
+    if (!last) {
+      lastMousePos.current = pos
+      return
+    }
+    if (last.x === pos.x && last.y === pos.y) return
+    lastMousePos.current = pos
+
+    const target = e.target as HTMLElement
+    const row = target.closest('[data-action-index]') as HTMLElement | null
+    if (row) {
+      const index = parseInt(row.dataset.actionIndex ?? '', 10)
+      if (!Number.isNaN(index) && index !== selectedIndex) onHover(index)
+    }
+  }
 
   return (
     <div
       ref={listRef}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={() => { lastMousePos.current = null }}
       style={{
         position: 'absolute',
         top: 0,
@@ -51,8 +75,8 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover }:
           <div
             key={item.id}
             ref={selected ? selectedRef : null}
+            data-action-index={i}
             onClick={() => onSelect(item)}
-            onMouseEnter={() => onHover(i)}
             style={{
               display: 'flex',
               alignItems: 'center',

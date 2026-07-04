@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { PaletteItem } from '../types'
 import { fuzzyMatch } from '../lib/fuzzy'
+import { scrollToReveal } from '../lib/scroll'
 import { getIconSvg, hasIcon } from './Icon'
 
 interface ResultsGridProps {
@@ -32,7 +33,7 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
   const lastMousePos = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
-    selectedRef.current?.scrollIntoView({ block: 'nearest' })
+    scrollToReveal(gridRef.current, selectedRef.current)
   }, [selectedIndex])
 
   function handleMouseMove(e: React.MouseEvent) {
@@ -49,7 +50,7 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
     const cell = target.closest('[data-grid-index]') as HTMLElement | null
     if (cell) {
       const index = parseInt(cell.dataset.gridIndex ?? '', 10)
-      if (!Number.isNaN(index)) onHover(index)
+      if (!Number.isNaN(index) && index !== selectedIndex) onHover(index)
     }
   }
 
@@ -107,7 +108,6 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
               userSelect: 'none',
               minHeight: 72,
             }}
-            onMouseEnter={() => onHover(i)}
           >
             {hasIconValue && (
               <div style={{

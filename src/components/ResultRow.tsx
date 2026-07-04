@@ -5,9 +5,11 @@ import { getIconSvg, hasIcon } from './Icon'
 
 interface ResultRowProps {
   item: PaletteItem
+  /** Position in the list, exposed as data-list-index for the container's
+   *  movement-guarded hover handler (see ResultsList). */
+  index: number
   selected: boolean
   onSelect: () => void
-  onHover: () => void
 }
 
 // Shell icons resolve per extension (folders share one entry), so a shared
@@ -34,10 +36,8 @@ function shellIconFor(item: PaletteItem): Promise<string | null> {
 }
 
 const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
-  ({ item, selected, onSelect, onHover }, ref) => {
-    const [hovered, setHovered] = useState(false)
+  ({ item, index, selected, onSelect }, ref) => {
     const [shellIcon, setShellIcon] = useState<string | null>(null)
-    const active = selected || hovered
 
     // Upgrade named file/folder icons to the real shell icon when available
     useEffect(() => {
@@ -54,9 +54,7 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
     const isDataUrl = displayIcon.startsWith('data:')
     const isNamedIcon = hasIcon(displayIcon)
     const hasIconValue = displayIcon.length > 0
-    const bg = active
-      ? (selected ? 'var(--accent)' : 'var(--bg-select)')
-      : 'transparent'
+    const bg = selected ? 'var(--accent)' : 'transparent'
     const fg = selected ? '#ffffff' : 'var(--text)'
     const subFg = selected ? 'rgba(255,255,255,0.78)' : 'var(--text-dim)'
     // An explicit item color overrides the theme icon tint (e.g. the Claude
@@ -66,9 +64,8 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
     return (
       <div
         ref={ref}
+        data-list-index={index}
         onClick={onSelect}
-        onMouseEnter={() => { setHovered(true); onHover() }}
-        onMouseLeave={() => setHovered(false)}
         style={{
           display: 'flex',
           alignItems: 'center',
