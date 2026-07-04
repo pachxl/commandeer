@@ -114,35 +114,39 @@ pub fn decrypt(ciphertext: &[u8]) -> Result<Vec<u8>, String> {
     }
     let (nonce, ct) = body.split_at(12);
 
-    // Try the primary key, then any other key source present on disk / in the
-    // keyring. A transient Secret Service outage can fall back to a file key
-    // (or vice versa), leaving some rows encrypted under keyring and others
-    // under the file; trying every available key keeps all rows decryptable.
-    let mut candidates: Vec<[u8; 32]> = Vec::new();
-    let mut push = |k: [u8; 32]| {
-        if !candidates.contains(&k) {
-            candidates.push(k);
-        }
-    };
-    if let Ok(k) = key() {
-        push(k);
-    }
-    if let Some(k) = existing_keyring_key() {
-        push(k);
-    }
-    if let Some(k) = existing_file_key() {
-        push(k);
-    }
-    if candidates.is_empty() {
-        return Err("clipboard decrypt failed: no key available".to_string());
-    }
-    for k in &candidates {
+    // Fast path: the cached primary key decrypts every row in the common case.
+    let primary = key().ok();
+    if let Some(k) = &primary {
         let cipher = ChaCha20Poly1305::new(k.as_slice().into());
         if let Ok(pt) = cipher.decrypt(nonce.into(), ct) {
             return Ok(pt);
         }
     }
-    Err("clipboard decrypt failed: no matching key".to_string())
+
+    // Only on failure, try the other key sources. A transient Secret Service
+    // outage can fall back to a file key (or vice versa), leaving some rows
+    // encrypted under keyring and others under the file; trying every
+    // available key keeps all rows decryptable. Gathered lazily because
+    // existing_keyring_key() is a D-Bus round trip per call.
+    let mut tried_any = primary.is_some();
+    for alt in [existing_keyring_key(), existing_file_key()]
+        .into_iter()
+        .flatten()
+    {
+        if primary.as_ref() == Some(&alt) {
+            continue;
+        }
+        tried_any = true;
+        let cipher = ChaCha20Poly1305::new(alt.as_slice().into());
+        if let Ok(pt) = cipher.decrypt(nonce.into(), ct) {
+            return Ok(pt);
+        }
+    }
+    Err(if tried_any {
+        "clipboard decrypt failed: no matching key".to_string()
+    } else {
+        "clipboard decrypt failed: no key available".to_string()
+    })
 }
 
 /// The 32-byte data key: from the Secret Service when available (created on
