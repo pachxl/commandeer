@@ -228,6 +228,20 @@ async fn start_inner(app: &AppHandle, mut delay_ms: u64) -> Result<(), String> {
         width: capture.width,
         height: capture.height,
     };
+
+    // Position/size the (still hidden) overlay BEFORE handing the frame to the
+    // webview: resizing at show time makes WebView2 clear to its background
+    // color until the renderer catches up — a fullscreen black flash on every
+    // monitor. Sized now, the frame is laid out and painted at the final size
+    // by the time show_screenshot_overlay runs, so showing presents finished
+    // pixels.
+    #[cfg(target_os = "windows")]
+    if let Some(win) = app.get_webview_window("screenshot") {
+        let (x, y) = capture.monitor_origin;
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+        let _ = win.set_size(tauri::PhysicalSize::new(capture.width, capture.height));
+    }
+
     {
         let state = app.state::<ScreenshotState>();
         *state.0.lock().unwrap() = Some(capture);
@@ -285,14 +299,10 @@ pub fn show_screenshot_overlay(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        let (x, y) = capture.monitor_origin;
-        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
-        let _ = win.set_size(tauri::PhysicalSize::new(capture.width, capture.height));
-    }
-    // On Linux the layer-shell surface is anchored to all four edges, so the
-    // compositor sizes it to the output — nothing to position.
+    // Positioning/sizing already happened at capture time (see start_inner) —
+    // doing it here, right before show, caused a black flash while WebView2
+    // repainted at the new size. On Linux the layer-shell surface is anchored
+    // to all four edges, so the compositor sizes it to the output.
 
     win.show().map_err(|e| e.to_string())?;
     win.set_focus().map_err(|e| e.to_string())
