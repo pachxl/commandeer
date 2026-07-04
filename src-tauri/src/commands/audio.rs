@@ -1,5 +1,6 @@
-//! System volume control via the Windows Core Audio API (IAudioEndpointVolume,
-//! per render endpoint). Backs the per-device volume sliders and mute toggle.
+//! System volume control. Windows: Core Audio API (IAudioEndpointVolume, per
+//! render endpoint), backing per-device volume sliders and a mute toggle.
+//! macOS: osascript `set volume`, default output only (see `mod mac`).
 //!
 //! Endpoints are re-activated per call rather than cached: devices can appear
 //! or vanish at any time (headphones plugged in, Bluetooth connects),
@@ -27,7 +28,11 @@ pub async fn list_audio_devices() -> Result<Vec<AudioDevice>, String> {
             .await
             .map_err(|e| e.to_string())?
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        mac::list_devices()
+    }
+    #[cfg(target_os = "linux")]
     {
         Err("volume control is only implemented on Windows".to_string())
     }
@@ -43,7 +48,14 @@ pub async fn get_volume(device: Option<String>) -> Result<f32, String> {
             .await
             .map_err(|e| e.to_string())?
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        let _ = device; // osascript only addresses the default output
+        tokio::task::spawn_blocking(mac::get_volume)
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(target_os = "linux")]
     {
         let _ = device;
         Err("volume control is only implemented on Windows".to_string())
@@ -61,7 +73,15 @@ pub async fn set_volume(level: f32, device: Option<String>) -> Result<(), String
             .await
             .map_err(|e| e.to_string())?
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        let _ = device; // osascript only addresses the default output
+        let level = level.clamp(0.0, 1.0);
+        tokio::task::spawn_blocking(move || mac::set_volume(level))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(target_os = "linux")]
     {
         let _ = (level, device);
         Err("volume control is only implemented on Windows".to_string())
@@ -79,10 +99,79 @@ pub async fn toggle_mute(device: Option<String>) -> Result<bool, String> {
             .await
             .map_err(|e| e.to_string())?
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        let _ = device; // osascript only addresses the default output
+        tokio::task::spawn_blocking(mac::toggle_mute)
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(target_os = "linux")]
     {
         let _ = device;
         Err("volume control is only implemented on Windows".to_string())
+    }
+}
+
+/// osascript-backed volume control. AppleScript's `set volume` only addresses
+/// the current default output, so a single pseudo-device is exposed; per-device
+/// control would need CoreAudio proper (follow-up if ever wanted). Each call
+/// shells out (~50 ms), which is fine for slider/toggle interaction rates.
+#[cfg(target_os = "macos")]
+mod mac {
+    use super::AudioDevice;
+
+    fn osascript(script: &str) -> Result<String, String> {
+        let out = std::process::Command::new("osascript")
+            .args(["-e", script])
+            .output()
+            .map_err(|e| format!("osascript failed to run: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "osascript failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+
+    pub fn list_devices() -> Result<Vec<AudioDevice>, String> {
+        Ok(vec![AudioDevice {
+            id: "default".to_string(),
+            name: "System Output".to_string(),
+            is_default: true,
+        }])
+    }
+
+    pub fn get_volume() -> Result<f32, String> {
+        let out = osascript("output volume of (get volume settings)")?;
+        let pct: f32 = out
+            .parse()
+            .map_err(|_| format!("unexpected volume reading: {out}"))?;
+        Ok((pct / 100.0).clamp(0.0, 1.0))
+    }
+
+    pub fn set_volume(level: f32) -> Result<(), String> {
+        let pct = (level * 100.0).round() as i32;
+        osascript(&format!("set volume output volume {pct}")).map(|_| ())
+    }
+
+    pub fn toggle_mute() -> Result<bool, String> {
+        let muted = osascript("output muted of (get volume settings)")? == "true";
+        osascript(&format!("set volume output muted {}", !muted))?;
+        Ok(!muted)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        // Mirrors the Windows smoke test: real osascript round-trip; writing
+        // back the level just read changes nothing audible.
+        #[test]
+        fn smoke_volume_roundtrip() {
+            let level = super::get_volume().expect("get_volume");
+            assert!((0.0..=1.0).contains(&level), "level {level}");
+            super::set_volume(level).expect("set_volume");
+        }
     }
 }
 

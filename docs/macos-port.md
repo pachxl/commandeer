@@ -1,9 +1,11 @@
 # Commandeer → macOS port plan
 
-Status: **Phase 1 complete** — Commandeer compiles, links, and launches on macOS
-with a transparent palette window. Phases 2–4 (UX parity, feature backends,
-packaging) remain. Commandeer targets **Windows**, **Linux (Wayland/COSMIC)**,
-and now **macOS** from the same codebase.
+Status: **Phases 1–3 complete** — Commandeer runs on macOS with UX parity
+(vibrancy, tray, hotkey, positioning) and native feature backends (launcher,
+screenshot, paste, audio, system actions, processes). Phase 4 (packaging &
+sync hygiene) remains, plus on-device permission grants to verify
+screenshot/paste end-to-end. Commandeer targets **Windows**, **Linux
+(Wayland/COSMIC)**, and now **macOS** from the same codebase.
 
 ## The core idea (how it stays "in-line" across platforms)
 
@@ -90,7 +92,7 @@ in a single session; the feasibility risk was as small as expected.
   shell-outs → Phase 3.
 - No tray icon on macOS (tray is Windows-only) → Phase 2.
 
-## Phase 2 — Core UX parity — IN PROGRESS
+## Phase 2 — Core UX parity — DONE
 
 Done in this pass (compiles clean; app launches, toggles the palette via the
 single-instance path, and survives show/hide with no panic — visual confirmation
@@ -147,31 +149,77 @@ Screen Recording permission):
       activates the app on show and won't float over another app's fullscreen
       space.
 
-## Phase 3 — Feature backends (each independent; fill in over time)
+## Phase 3 — Feature backends — DONE
 
-| Feature | File | macOS approach |
-|---|---|---|
-| App launcher list | `launcher.rs` | Scan `/Applications`, `/System/Applications`, `~/Applications` for `.app` bundles |
-| Launch app | `launcher.rs` | `open <path>` / `open -a` |
-| Screenshot capture | `screenshot.rs` | Built-in `screencapture -x -t png <file>` (replaces `cosmic-screenshot`) |
-| Screenshot → clipboard | `screenshot.rs` | `arboard` image set (replaces `wl-copy`), or `osascript` |
-| Paste to previous | `paste.rs` | Simulate ⌘V via `CGEvent` — **needs Accessibility permission** |
-| Audio volume | `audio.rs` | `osascript -e 'set volume output volume ...'` (quick) or CoreAudio (proper) |
-| System actions | `system.rs` | `osascript` / `pmset sleepnow` / lock via `pmset displaysleepnow`; empty trash via Finder AppleScript |
-| Process list/kill | `process.rs` | Add cross-platform `sysinfo` crate + `libc::kill` (could unify all 3 OSes) |
-| File/app icons | `icons.rs` | `NSWorkspace.icon(forFile:)` → PNG; defer (return `None` like Linux initially) |
-| Everything search | `search.rs` | N/A — Windows-only indexer; macOS uses the built-in `file_index` (cross-platform) |
-| Script types / `scripts_dir` | `fs.rs` / `config.rs` | Add macOS default dir + `.sh` / `.command` / executables |
+All backends implemented in one pass. `cargo build` clean; `cargo test` green,
+including new macOS smoke tests (launcher scan, osascript volume round-trip,
+process enumeration); app relaunched and palette toggled with the new
+capture-foreground path. What could not be scripted is the permission-gated
+interactive verification (see below).
 
-**macOS's genuinely hard part — permissions.** Paste (keystroke synthesis) needs
-**Accessibility**; `screencapture` of other windows may need **Screen
-Recording**; global hotkeys can need **Input Monitoring**. These require user
-approval in System Settings and behave differently for unsigned dev builds.
-Budget time here — it's the one area with no Windows/Linux analog.
+- [x] **App launcher** (`launcher.rs`) — scan `~/Applications`,
+      `/Applications`, `/System/Applications` (depth 3, never descending into
+      a bundle; user-installed apps shadow system ones by name). Launch via
+      `open`, which goes through LaunchServices and activates an already-
+      running instance instead of starting a second copy.
+- [x] **Screenshot capture** (`screenshot.rs`) — `screencapture -x -t png
+      -R<rect>` of the cursor monitor; rect computed from Tauri's monitor APIs
+      (physical ÷ scale = points; verified the PNG comes back at native 2×
+      Retina pixels, which is what the overlay's physical sizing expects).
+      Overlay positioning now shared with Windows (`monitor_origin`); in
+      `.setup()` the overlay NSWindow is raised to the screen-saver level
+      (1000) so it can cover the menu-bar strip (normal-level frames get
+      clamped below it by constrainFrameRect, which would misalign the
+      region→pixel mapping) and joins all Spaces/fullscreen. Click-away
+      cancel enabled on macOS (was Windows-only).
+- [x] **Screenshot → clipboard** — arboard image offer, same arm as Windows;
+      only Linux keeps the `wl-copy` shell-out.
+- [x] **Paste to previous** (`paste.rs`) — frontmost app pid captured via
+      NSWorkspace when the palette shows; paste = clipboard → reactivate that
+      app (NSRunningApplication, main thread) → 150 ms beat → ⌘V posted as
+      CGEvents at the HID tap. Checks `AXIsProcessTrusted` first and returns a
+      pointed "grant Accessibility" error instead of silently doing nothing.
+- [x] **Audio volume** (`audio.rs`) — osascript `set volume` / `get volume
+      settings`. AppleScript only addresses the default output, so macOS
+      exposes one pseudo-device ("System Output"); per-device control would
+      need CoreAudio proper (follow-up if ever wanted).
+- [x] **System actions** (`system.rs`) — Lock/Sleep via `pmset`
+      (`displaysleepnow` / `sleepnow`); Shutdown/Restart/Logout via System
+      Events AppleScript (graceful — apps get to save; one-time Automation
+      prompt); Empty Trash via Finder AppleScript. Hibernate returns a "not a
+      macOS concept" error.
+- [x] **Process list/kill** (`process.rs`) — `sysinfo` (macOS-only dep) for
+      the list, `libc::kill(SIGKILL)` to match TerminateProcess semantics.
+      The Windows/Linux arms were deliberately left untouched rather than
+      unified.
+- [x] **File/app icons** (`icons.rs`) — deferred as planned; `path_icon`
+      returns `None` on macOS like Linux. `NSWorkspace.icon(forFile:)` is the
+      follow-up.
+- [x] **Script types** (`fs.rs`) — `.command` files surfaced and launched via
+      `open` (opens Terminal, like double-clicking; checked before the
+      executable-bit test so they don't run invisibly). Generic fallback
+      opener is `open` instead of `xdg-open` on macOS; `.desktop`/`gio` gated
+      to Linux. `scripts_dir` default needed no change (exe walk-up +
+      `~/commandeer/commands` are portable).
+- [x] **Verified `clipboard/crypto.rs`** — the `not(windows)` arm is a plain
+      passthrough placeholder, not Linux-keyring-specific; compiles and runs
+      on macOS as-is. macOS Keychain encryption is a possible follow-up.
+- [x] **nspanel decision (deferred from Phase 2b) — not adopted.**
+      Paste-to-previous works without it: the previous app is explicitly
+      reactivated before ⌘V, so not-stealing-focus isn't required. Skipping
+      it avoids the git-only, branch-pinned dependency. Revisit only if
+      focus-return proves flaky in practice or show-over-fullscreen-apps
+      becomes a priority for the palette itself.
 
-- [ ] **Verify `clipboard/crypto.rs`** — the clipboard-history encryption has cfg
-      gates; confirm the `not(windows)` key path isn't Linux-keyring-specific
-      (may need a macOS Keychain or portable arm).
+**On-device verification still owed (permissions can't be scripted):**
+- Screenshot: needs **Screen Recording** for the frozen frame to include other
+  apps' windows (without it macOS silently captures just the wallpaper). In
+  dev the permission attaches to the invoking terminal/IDE; for a bundled
+  build, to the app.
+- Paste: needs **Accessibility**; until granted the command errors with
+  instructions rather than no-opping.
+- Shutdown/Restart/Logout/Empty Trash: one-time **Automation** prompts on
+  first use (System Events / Finder).
 
 ## Phase 4 — Packaging & sync hygiene
 

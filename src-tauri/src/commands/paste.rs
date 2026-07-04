@@ -9,6 +9,11 @@ use tauri::Manager;
 #[cfg(target_os = "windows")]
 static PREV_FOREGROUND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 
+/// macOS analogue of `PREV_FOREGROUND`: pid of the app that was frontmost when
+/// the palette was shown. 0 = nothing captured.
+#[cfg(target_os = "macos")]
+static PREV_APP_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
 /// Called right before the palette is shown.
 pub fn capture_foreground() {
     #[cfg(target_os = "windows")]
@@ -17,6 +22,77 @@ pub fn capture_foreground() {
         let hwnd = GetForegroundWindow();
         PREV_FOREGROUND.store(hwnd.0 as isize, std::sync::atomic::Ordering::Relaxed);
     }
+
+    #[cfg(target_os = "macos")]
+    unsafe {
+        use objc2::msg_send;
+        use objc2::runtime::{AnyClass, AnyObject};
+        let Some(cls) = AnyClass::get("NSWorkspace") else {
+            return;
+        };
+        let ws: *mut AnyObject = msg_send![cls, sharedWorkspace];
+        let pid: i32 = if ws.is_null() {
+            0
+        } else {
+            let front: *mut AnyObject = msg_send![ws, frontmostApplication];
+            if front.is_null() {
+                0
+            } else {
+                msg_send![front, processIdentifier]
+            }
+        };
+        PREV_APP_PID.store(pid, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Bring the previously-frontmost app back to the front. AppKit call, so this
+/// must run on the main thread.
+#[cfg(target_os = "macos")]
+fn activate_app(pid: i32) -> Result<(), String> {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    unsafe {
+        let cls = AnyClass::get("NSRunningApplication")
+            .ok_or("NSRunningApplication class not found")?;
+        let target: *mut AnyObject = msg_send![cls, runningApplicationWithProcessIdentifier: pid];
+        if target.is_null() {
+            return Err(format!("previous app (pid {pid}) is no longer running"));
+        }
+        // NSApplicationActivateIgnoringOtherApps (1 << 1)
+        let _: bool = msg_send![target, activateWithOptions: 2usize];
+        Ok(())
+    }
+}
+
+/// Post ⌘V as HID-level keyboard events. Requires the Accessibility permission
+/// (System Settings → Privacy & Security → Accessibility); without it the
+/// events are silently dropped, so fail loudly instead.
+#[cfg(target_os = "macos")]
+fn synthesize_cmd_v() -> Result<(), String> {
+    use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
+    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXIsProcessTrusted() -> bool;
+    }
+    if !unsafe { AXIsProcessTrusted() } {
+        return Err(
+            "pasting needs the Accessibility permission: System Settings → Privacy & Security → Accessibility"
+                .to_string(),
+        );
+    }
+
+    let src = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
+        .map_err(|_| "CGEventSource creation failed".to_string())?;
+    const KEY_V: u16 = 9; // kVK_ANSI_V
+    for down in [true, false] {
+        let ev = CGEvent::new_keyboard_event(src.clone(), KEY_V, down)
+            .map_err(|_| "CGEvent creation failed".to_string())?;
+        ev.set_flags(CGEventFlags::CGEventFlagCommand);
+        ev.post(CGEventTapLocation::HID);
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -47,9 +123,9 @@ pub unsafe fn force_foreground(hwnd: windows::Win32::Foundation::HWND) {
     }
 }
 
-/// Hide the palette, put `text` on the clipboard, refocus the window that was
-/// active when the palette opened, and synthesize Ctrl+V. On non-Windows this
-/// degrades to copy-only.
+/// Hide the palette, put `text` on the clipboard, refocus the window/app that
+/// was active when the palette opened, and synthesize Ctrl+V (⌘V on macOS).
+/// On Linux this degrades to copy-only.
 #[tauri::command]
 pub async fn paste_to_previous(app: tauri::AppHandle, text: String) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("palette") {
@@ -106,7 +182,43 @@ pub async fn paste_to_previous(app: tauri::AppHandle, text: String) -> Result<()
         .map_err(|e| e.to_string())?
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        // Clipboard first, so the target app reads the new text.
+        let clip_text = text;
+        tokio::task::spawn_blocking(move || {
+            let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+            clipboard.set_text(clip_text).map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+
+        let pid = PREV_APP_PID.load(std::sync::atomic::Ordering::Relaxed);
+        if pid == 0 {
+            return Err("no previous app to paste into".to_string());
+        }
+
+        // Explicitly reactivate the previous app rather than relying on the
+        // focus falling back to it when the palette hides — deterministic, and
+        // it also works when something else grabbed focus in between.
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        app.run_on_main_thread(move || {
+            let _ = tx.send(activate_app(pid));
+        })
+        .map_err(|e| format!("main thread dispatch failed: {e}"))?;
+        rx.await
+            .map_err(|e| format!("activation channel closed: {e}"))??;
+
+        tokio::task::spawn_blocking(|| {
+            // Give the target app a beat to become key before ⌘V.
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            synthesize_cmd_v()
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    #[cfg(target_os = "linux")]
     {
         std::thread::spawn(move || {
             let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;

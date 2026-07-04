@@ -86,9 +86,56 @@ pub async fn list_processes() -> Result<Vec<ProcessInfo>, String> {
         .map_err(|e| e.to_string())?
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        tokio::task::spawn_blocking(|| {
+            use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+
+            let mut sys = System::new();
+            sys.refresh_processes_specifics(
+                ProcessesToUpdate::All,
+                true,
+                ProcessRefreshKind::nothing()
+                    .with_memory()
+                    .with_exe(UpdateKind::OnlyIfNotSet),
+            );
+            let out = sys
+                .processes()
+                .iter()
+                .map(|(pid, p)| ProcessInfo {
+                    pid: pid.as_u32(),
+                    name: p.name().to_string_lossy().into_owned(),
+                    memory_bytes: p.memory(),
+                    exe_path: p.exe().map(|e| e.to_string_lossy().into_owned()),
+                })
+                .collect();
+            Ok(out)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    #[cfg(target_os = "linux")]
     {
         Ok(vec![])
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    // Real sysinfo enumeration; the test process itself must be in the list.
+    #[test]
+    fn smoke_list_processes() {
+        let procs = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(super::list_processes())
+            .expect("list_processes");
+        assert!(!procs.is_empty(), "no processes listed");
+        let me = std::process::id();
+        assert!(
+            procs.iter().any(|p| p.pid == me),
+            "own pid {me} missing from the process list"
+        );
     }
 }
 
@@ -113,7 +160,22 @@ pub async fn kill_process(pid: u32) -> Result<(), String> {
         .map_err(|e| e.to_string())?
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        // SIGKILL to match the Windows TerminateProcess semantics: forceful,
+        // no chance for the target to ignore it.
+        let ret = unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(format!(
+                "could not kill process {pid}: {}",
+                std::io::Error::last_os_error()
+            ))
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     {
         let _ = pid;
         Err("kill_process is only implemented on Windows".to_string())

@@ -319,10 +319,10 @@ pub fn run() {
                     }
                 }
             }
-            // Windows only: dismiss the screenshot overlay on click-away. On
+            // Windows/macOS: dismiss the screenshot overlay on click-away. On
             // Linux the overlay layer's focus semantics are quirky (a spurious
             // unfocus would make the tool unusable), so Esc is the only out.
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             if win.label() == "screenshot" {
                 if let WindowEvent::Focused(false) = event {
                     if std::env::var_os("COMMANDEER_NO_AUTOHIDE").is_none()
@@ -483,6 +483,27 @@ pub fn run() {
                         Some(NSVisualEffectState::Active),
                         Some(12.0),
                     );
+                }
+
+                // The screenshot overlay must cover the *whole* display,
+                // including the menu-bar strip. At a normal window level AppKit
+                // both draws the menu bar over it and may clamp the frame below
+                // the bar (constrainFrameRect), which would misalign the
+                // region-to-pixel mapping. Raise it to the screen-saver level
+                // (1000) — only normal-level windows are constrained — and let
+                // it join every Space, fullscreen apps included. Safe to do
+                // once here: hide/show doesn't reset either property.
+                if let Some(win) = app.get_webview_window("screenshot") {
+                    if let Ok(ns_window) = win.ns_window() {
+                        use objc2::runtime::AnyObject;
+                        let ns_window = ns_window as *mut AnyObject;
+                        unsafe {
+                            let _: () = objc2::msg_send![ns_window, setLevel: 1000isize];
+                            // canJoinAllSpaces (1<<0) | fullScreenAuxiliary (1<<8)
+                            let _: () =
+                                objc2::msg_send![ns_window, setCollectionBehavior: (1u64 | (1u64 << 8))];
+                        }
+                    }
                 }
             }
 

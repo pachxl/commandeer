@@ -78,3 +78,9 @@ window-vibrancy = "0.5"
 # Set NSWindow.alphaValue for the transparency slider (msg_send). Version pinned
 # to match window-vibrancy's objc2 so only one copy is built.
 objc2 = "0.5"
+# Synthesize the ⌘V keystroke for paste-to-previous (CGEvent).
+core-graphics = "0.24"
+# Process list for the process manager (the macOS analogue of EnumProcesses).
+sysinfo = "0.33"
+# kill(2) for the process manager's force-kill.
+libc = "0.2"

@@ -20,8 +20,9 @@ pub struct ScriptInfo {
 /// Whether a directory entry should be surfaced as a runnable command.
 ///
 /// Windows: batch/command scripts, shell shortcuts, and VS Code workspaces.
-/// Unix: shell scripts, `.desktop` launchers, VS Code workspaces, AppImages,
-/// or any regular file with the executable bit set.
+/// Unix: shell scripts, `.desktop` launchers, VS Code workspaces, AppImages
+/// (macOS: `.command` Terminal scripts), or any regular file with the
+/// executable bit set.
 fn is_script_file(path: &Path) -> bool {
     let ext = path.extension().and_then(|x| x.to_str());
 
@@ -39,6 +40,10 @@ fn is_script_file(path: &Path) -> bool {
             ext,
             Some("sh") | Some("desktop") | Some("code-workspace") | Some("AppImage")
         ) {
+            return true;
+        }
+        #[cfg(target_os = "macos")]
+        if ext == Some("command") {
             return true;
         }
         is_executable(path)
@@ -504,13 +509,20 @@ pub async fn run_script(path: String) -> Result<(), String> {
             .unwrap_or("")
             .to_lowercase();
 
-        let mut cmd = if ext == "desktop" {
+        let mut cmd = if cfg!(target_os = "linux") && ext == "desktop" {
             // Launch a .desktop entry through the desktop's app launcher.
             let mut c = std::process::Command::new("gio");
             c.arg("launch").arg(&path);
             c
         } else if ext == "code-workspace" {
             let mut c = std::process::Command::new("code");
+            c.arg(&path);
+            c
+        } else if cfg!(target_os = "macos") && ext == "command" {
+            // Open in Terminal via LaunchServices, like double-clicking it —
+            // direct exec would run it invisibly. (Checked before the
+            // executable-bit test: .command files usually carry it.)
+            let mut c = std::process::Command::new("open");
             c.arg(&path);
             c
         } else if is_executable(script_path) {
@@ -523,7 +535,8 @@ pub async fn run_script(path: String) -> Result<(), String> {
             c
         } else {
             // Fall back to the desktop's default handler for the file type.
-            let mut c = std::process::Command::new("xdg-open");
+            let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+            let mut c = std::process::Command::new(opener);
             c.arg(&path);
             c
         };
