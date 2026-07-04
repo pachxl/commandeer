@@ -154,14 +154,28 @@ export const startScreenshot = (delayMs?: number) =>
 export const showScreenshotOverlay = () =>
   invoke<void>('show_screenshot_overlay')
 
+export const revealScreenshotOverlay = () =>
+  invoke<void>('reveal_screenshot_overlay')
+
 export const finishScreenshot = (region: ScreenshotRegion) =>
   invoke<string>('finish_screenshot', { region })
 
 export const cancelScreenshot = () =>
   invoke<void>('cancel_screenshot')
 
+// Linux only: hide the overlay window after the webview has painted a cleared
+// (transparent) frame — the composite WebKitGTK replays at the next map then
+// shows nothing instead of the previous capture.
+export const hideScreenshotOverlay = () =>
+  invoke<void>('hide_screenshot_overlay')
+
 export const onScreenshotFrame = (callback: (frame: ScreenshotFrame) => void) =>
   listen<ScreenshotFrame>('screenshot-frame', event => callback(event.payload))
+
+// Linux only: Rust asks the visible overlay to clear itself before a
+// re-triggered capture (it then hides via hideScreenshotOverlay).
+export const onScreenshotClear = (callback: () => void) =>
+  listen<void>('screenshot-clear', () => callback())
 
 export const readSnippets = () =>
   invoke<Snippet[]>('read_snippets')
@@ -169,8 +183,11 @@ export const readSnippets = () =>
 export const writeSnippets = (snippets: Snippet[]) =>
   invoke<void>('write_snippets', { snippets })
 
+// Resolves to true when the paste keystroke was delivered to the previous
+// window; false means copy-only (Linux without an input synthesizer) and the
+// caller should tell the user to press Ctrl+V themselves.
 export const pasteToPrevious = (text: string) =>
-  invoke<void>('paste_to_previous', { text })
+  invoke<boolean>('paste_to_previous', { text })
 
 export interface SystemStats {
   cpu: number
@@ -293,7 +310,21 @@ export interface Theme {
 export const readThemes = () =>
   invoke<Theme[]>('read_themes')
 
-const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
+export const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
+export const IS_MAC = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
+
+// Runtime environment facts from the backend (Wayland vs X11 can't be sniffed
+// from the user agent). Fetched once and cached for the session.
+export interface EnvInfo {
+  os: string
+  wayland: boolean
+  desktop: string
+  home: string
+}
+
+let envInfoPromise: Promise<EnvInfo> | null = null
+export const envInfo = () =>
+  (envInfoPromise ??= invoke<EnvInfo>('env_info'))
 
 export const setWindowTransparency = (transparency: number) => {
   if (IS_LINUX) {

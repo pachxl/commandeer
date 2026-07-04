@@ -200,8 +200,83 @@ pub async fn list_apps() -> Result<Vec<AppEntry>, String> {
 
     #[cfg(target_os = "linux")]
     {
-        Ok(vec![])
+        tokio::task::spawn_blocking(|| {
+            let mut apps = desktop_dir_entries();
+            apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            Ok(apps)
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
+}
+
+/// Enumerate installed apps from the XDG applications dirs (`~/.local/share`
+/// first so user entries shadow system ones, then each `XDG_DATA_DIRS` entry —
+/// which on Fedora includes the Flatpak exports). Deduped by desktop-file ID.
+#[cfg(target_os = "linux")]
+fn desktop_dir_entries() -> Vec<AppEntry> {
+    use std::collections::HashSet;
+    use std::path::PathBuf;
+
+    let mut app_dirs: Vec<PathBuf> = Vec::new();
+    let home = std::env::var("HOME").unwrap_or_default();
+    let xdg_data_home = std::env::var("XDG_DATA_HOME")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or(format!("{home}/.local/share"));
+    app_dirs.push(PathBuf::from(format!("{xdg_data_home}/applications")));
+    let data_dirs = std::env::var("XDG_DATA_DIRS")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or("/usr/local/share:/usr/share".to_string());
+    for d in data_dirs.split(':').filter(|d| !d.is_empty()) {
+        app_dirs.push(PathBuf::from(format!("{}/applications", d.trim_end_matches('/'))));
+    }
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut out: Vec<AppEntry> = Vec::new();
+    for dir in &app_dirs {
+        // The spec allows one level of vendor subdirs (e.g. kde4/), hence depth 2.
+        for entry in walkdir::WalkDir::new(dir)
+            .max_depth(2)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
+                continue;
+            }
+            // Desktop-file ID: path relative to the applications dir, '/' → '-'.
+            let id = match path.strip_prefix(dir) {
+                Ok(rel) => rel.to_string_lossy().replace('/', "-"),
+                Err(_) => continue,
+            };
+            if !seen.insert(id) {
+                continue;
+            }
+            let Ok(content) = std::fs::read_to_string(path) else {
+                continue;
+            };
+            if super::desktop::desktop_entry_value(&content, "Type").as_deref()
+                != Some("Application")
+            {
+                continue;
+            }
+            if !super::desktop::is_displayable(&content) {
+                continue;
+            }
+            let Some(name) =
+                super::desktop::desktop_entry_value(&content, "Name").filter(|n| !n.is_empty())
+            else {
+                continue;
+            };
+            out.push(AppEntry {
+                name,
+                path: path.to_string_lossy().into_owned(),
+            });
+        }
+    }
+    out
 }
 
 #[tauri::command]
@@ -268,7 +343,10 @@ pub async fn run_app(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
-        let _ = path;
-        Err("run_app is only implemented on Windows".to_string())
+        tokio::task::spawn_blocking(move || {
+            super::desktop::launch_desktop_file(std::path::Path::new(&path))
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
 }

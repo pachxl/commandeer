@@ -117,7 +117,9 @@ pub async fn list_processes() -> Result<Vec<ProcessInfo>, String> {
 
     #[cfg(target_os = "linux")]
     {
-        Ok(vec![])
+        tokio::task::spawn_blocking(linux_processes)
+            .await
+            .map_err(|e| e.to_string())?
     }
 }
 
@@ -137,6 +139,74 @@ mod tests {
             "own pid {me} missing from the process list"
         );
     }
+}
+
+/// Walk /proc: numeric dirs are pids. Kernel threads (empty cmdline) are
+/// skipped so the list matches the "real apps" the Windows enumeration shows.
+#[cfg(target_os = "linux")]
+fn linux_processes() -> Result<Vec<ProcessInfo>, String> {
+    let entries = std::fs::read_dir("/proc").map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for entry in entries.filter_map(|e| e.ok()) {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|n| n.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let proc_dir = entry.path();
+
+        let cmdline = std::fs::read(proc_dir.join("cmdline")).unwrap_or_default();
+        if cmdline.is_empty() {
+            continue; // kernel thread
+        }
+
+        // exe readlink fails (EACCES) for other users' processes; keep the
+        // entry, just without an icon path. Deleted binaries keep a marker.
+        let exe_path = std::fs::read_link(proc_dir.join("exe"))
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned())
+            .map(|p| p.trim_end_matches(" (deleted)").to_string());
+
+        let name = exe_path
+            .as_deref()
+            .and_then(|p| std::path::Path::new(p).file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .or_else(|| {
+                std::fs::read_to_string(proc_dir.join("comm"))
+                    .ok()
+                    .map(|c| c.trim().to_string())
+            })
+            .filter(|n| !n.is_empty());
+        let Some(name) = name else {
+            continue;
+        };
+
+        // VmRSS from /proc/PID/status (kB); avoids needing the page size.
+        let memory_bytes = std::fs::read_to_string(proc_dir.join("status"))
+            .ok()
+            .and_then(|status| {
+                status.lines().find_map(|line| {
+                    line.strip_prefix("VmRSS:")?
+                        .trim()
+                        .trim_end_matches("kB")
+                        .trim()
+                        .parse::<u64>()
+                        .ok()
+                })
+            })
+            .unwrap_or(0)
+            * 1024;
+
+        out.push(ProcessInfo {
+            pid,
+            name,
+            memory_bytes,
+            exe_path,
+        });
+    }
+    Ok(out)
 }
 
 #[tauri::command]
@@ -177,7 +247,33 @@ pub async fn kill_process(pid: u32) -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
+        tokio::task::spawn_blocking(move || {
+            // SIGTERM first for a graceful exit; escalate to SIGKILL if the
+            // process is still around after a short window (the Windows arm's
+            // TerminateProcess is forceful, so match that outcome).
+            let rc = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+            if rc != 0 {
+                return Err(format!(
+                    "could not signal process {pid}: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+            for _ in 0..10 {
+                if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
+                    return Ok(());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(150));
+            }
+            unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+            Ok(())
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
         let _ = pid;
-        Err("kill_process is only implemented on Windows".to_string())
+        Err("kill_process is not implemented on this platform".to_string())
     }
 }

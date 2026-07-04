@@ -30,6 +30,28 @@ fn resize_palette(app: tauri::AppHandle, height: i32) {
     let _ = (&app, height);
 }
 
+/// Runtime environment facts the frontend can't reliably sniff from the user
+/// agent — chiefly Wayland vs X11, which decides how the palette resizes.
+#[derive(serde::Serialize)]
+struct EnvInfo {
+    os: &'static str,
+    wayland: bool,
+    desktop: String,
+    home: String,
+}
+
+#[tauri::command]
+fn env_info() -> EnvInfo {
+    EnvInfo {
+        os: std::env::consts::OS,
+        wayland: std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        desktop: std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),
+        home: std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_default(),
+    }
+}
+
 /// Center the palette horizontally on the monitor under the mouse cursor,
 /// with its top at ~20% of that monitor's height (Raycast opens where you
 /// are working, not on the primary display). Positioning happens once per
@@ -88,6 +110,29 @@ fn position_on_cursor_monitor(win: &tauri::WebviewWindow) {
     let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
+/// Linux/X11 sessions get no layer-shell surface, so nothing positions the
+/// palette at map time; mirror the Windows behavior with portable Tauri APIs
+/// (centered on the cursor's monitor, top at ~20% height). No-op on Wayland.
+#[cfg(target_os = "linux")]
+fn position_palette_x11(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        return;
+    }
+    let monitor = app
+        .cursor_position()
+        .ok()
+        .and_then(|pos| app.monitor_from_point(pos.x, pos.y).ok().flatten())
+        .or_else(|| win.current_monitor().ok().flatten())
+        .or_else(|| win.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else { return };
+    let mpos = monitor.position();
+    let msize = monitor.size();
+    let width = win.outer_size().map(|s| s.width as i32).unwrap_or(669);
+    let x = mpos.x + (msize.width as i32 - width) / 2;
+    let y = mpos.y + msize.height as i32 / 5;
+    let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
 /// Show the palette if hidden, hide it if visible.
 fn toggle_palette(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("palette") {
@@ -102,6 +147,8 @@ fn toggle_palette(app: &tauri::AppHandle) {
             commands::explorer::capture_location();
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             position_on_cursor_monitor(&win);
+            #[cfg(target_os = "linux")]
+            position_palette_x11(app, &win);
             let _ = win.show();
             let _ = win.set_focus();
         }
@@ -116,6 +163,8 @@ pub(crate) fn show_palette(app: &tauri::AppHandle) {
         commands::explorer::capture_location();
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         position_on_cursor_monitor(&win);
+        #[cfg(target_os = "linux")]
+        position_palette_x11(app, &win);
         let _ = win.show();
         let _ = win.set_focus();
     }
@@ -139,10 +188,11 @@ fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 /// Tray icon with Show / Start at Login / Quit — the only way to quit or
-/// rediscover the app once the palette is hidden (especially on macOS, where the
-/// app is an Accessory with no Dock icon). Windows + macOS; the Linux build would
-/// need libappindicator and is untested there.
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+/// rediscover the app once the palette is hidden (especially on macOS, where
+/// the app is an Accessory with no Dock icon). On Linux this goes through
+/// StatusNotifier/libappindicator (runtime dep: libappindicator-gtk3; COSMIC
+/// shows it in the Status Area applet), and failure is non-fatal — the
+/// palette still works via the global shortcut / relaunch toggle.
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     use tauri::menu::{CheckMenuItem, MenuBuilder, MenuItem};
     use tauri::tray::TrayIconBuilder;
@@ -193,69 +243,6 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-/// On Linux the X11 global shortcut is unreliable under Wayland, so the working
-/// trigger is a COSMIC custom keybinding that re-launches the binary (single
-/// instance, which toggles the palette). We manage that binding here so it
-/// mirrors the Windows shortcut: Ctrl+Space normally, Alt+Space in game mode.
-/// Only our own entry is touched; any other custom shortcuts are preserved.
-#[cfg(target_os = "linux")]
-fn update_cosmic_shortcut(game_mode: bool) {
-    let home = match std::env::var_os("HOME") {
-        Some(h) => h,
-        None => return,
-    };
-    let dir = std::path::Path::new(&home)
-        .join(".config/cosmic/com.system76.CosmicSettings.Shortcuts/v1");
-    let file = dir.join("custom");
-
-    let exe = match std::env::current_exe() {
-        Ok(p) => p.to_string_lossy().into_owned(),
-        Err(_) => return,
-    };
-
-    let modifier = if game_mode { "Alt" } else { "Ctrl" };
-    let our_line = format!(
-        "    (modifiers: [{modifier}], key: \"space\", description: Some(\"Toggle Commandeer\")): Spawn(\"{exe}\"),"
-    );
-    // Second managed binding: PrtScn relaunches us with the screenshot deep
-    // link (cosmic-comp spawns via shell, so the appended arg survives).
-    // NOTE: both managed lines embed the exe path bare; a path containing
-    // spaces would break Spawn's word-splitting.
-    let screenshot_line = format!(
-        "    (modifiers: [], key: \"Print\", description: Some(\"Commandeer Screenshot\")): Spawn(\"{exe} commandeer://screenshot\"),"
-    );
-
-    // Preserve unrelated custom shortcuts; replace only our bindings (the
-    // exe-path filter below drops every line we manage).
-    let mut kept: Vec<String> = Vec::new();
-    if let Ok(existing) = std::fs::read_to_string(&file) {
-        for line in existing.lines() {
-            let trimmed = line.trim();
-            if trimmed == "{" || trimmed == "}" || trimmed.is_empty() {
-                continue;
-            }
-            if line.contains(&exe) {
-                continue;
-            }
-            kept.push(line.to_string());
-        }
-    }
-
-    let mut out = String::from("{\n");
-    out.push_str(&our_line);
-    out.push('\n');
-    out.push_str(&screenshot_line);
-    out.push('\n');
-    for line in kept {
-        out.push_str(&line);
-        out.push('\n');
-    }
-    out.push_str("}\n");
-
-    let _ = std::fs::create_dir_all(&dir);
-    let _ = std::fs::write(&file, out);
-}
-
 #[tauri::command]
 fn set_game_mode(enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
     // Re-register the configured hotkeys (game hotkey when enabled).
@@ -263,7 +250,7 @@ fn set_game_mode(enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
-        update_cosmic_shortcut(enabled);
+        commands::linux_shortcuts::update_toggle_shortcut(enabled);
     }
 
     Ok(())
@@ -364,8 +351,12 @@ pub fn run() {
                 });
             }
 
-            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            #[cfg(target_os = "windows")]
             setup_tray(app)?;
+            #[cfg(not(target_os = "windows"))]
+            if let Err(e) = setup_tray(app) {
+                eprintln!("tray unavailable: {e}");
+            }
 
             // Configurable base hotkey (default Ctrl+Space; game mode applied
             // later via set_game_mode) plus any per-command shortcuts.
@@ -373,9 +364,11 @@ pub fn run() {
 
             #[cfg(target_os = "linux")]
             {
-                // Ensure a working default COSMIC binding even before the frontend
-                // calls set_game_mode; the frontend then refines it for game mode.
-                update_cosmic_shortcut(false);
+                // Ensure a working default desktop keybinding (COSMIC/GNOME)
+                // even before the frontend calls set_game_mode; the frontend
+                // then refines it for game mode.
+                #[cfg(target_os = "linux")]
+                commands::linux_shortcuts::update_toggle_shortcut(false);
 
                 // Turn the palette into a wlr-layer-shell surface (must happen
                 // before it is first shown/mapped). As an overlay it renders
@@ -548,6 +541,8 @@ pub fn run() {
             commands::window::set_window_transparency,
             commands::screenshot::start_screenshot,
             commands::screenshot::show_screenshot_overlay,
+            commands::screenshot::reveal_screenshot_overlay,
+            commands::screenshot::hide_screenshot_overlay,
             commands::screenshot::finish_screenshot,
             commands::screenshot::cancel_screenshot,
             commands::shortcuts::set_global_hotkey,
@@ -558,6 +553,7 @@ pub fn run() {
             get_autostart,
             set_game_mode,
             resize_palette,
+            env_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

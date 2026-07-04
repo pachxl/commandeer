@@ -15,7 +15,8 @@ interface ResultRowProps {
 // Shell icons resolve per extension (folders share one entry), so a shared
 // cache means one IPC round trip per distinct extension, not per row. In-flight
 // promises are cached too so simultaneous rows coalesce onto one request.
-// Executables and shortcuts embed their own icon, so those cache per path.
+// Executables, shortcuts, .desktop entries, and extensionless files (Linux
+// binaries) carry individual icons, so those cache per path.
 const shellIconCache = new Map<string, Promise<string | null>>()
 
 function shellIconFor(item: PaletteItem): Promise<string | null> {
@@ -23,8 +24,7 @@ function shellIconFor(item: PaletteItem): Promise<string | null> {
   const ext = /\.([^./\\]+)$/.exec(path)?.[1]?.toLowerCase() ?? ''
   const key = item.icon === 'folder'
     ? ':folder:'
-    // shell:AppsFolder entries and exe/lnk files embed their own icon
-    : path.startsWith('shell:') || ext === 'exe' || ext === 'lnk'
+    : path.startsWith('shell:') || ext === 'exe' || ext === 'lnk' || ext === 'desktop' || ext === ''
       ? path.toLowerCase()
       : ext
   let cached = shellIconCache.get(key)

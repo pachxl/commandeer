@@ -60,107 +60,9 @@ fn is_executable(path: &Path) -> bool {
             .unwrap_or(false)
 }
 
-/// Read a single key from the `[Desktop Entry]` group of a .desktop file.
-/// Localized variants (e.g. `Name[de]=`) are ignored in favour of the default.
+// .desktop parsing/icon helpers live in the shared desktop module.
 #[cfg(target_os = "linux")]
-fn desktop_entry_value(content: &str, key: &str) -> Option<String> {
-    let prefix = format!("{key}=");
-    let mut in_entry = false;
-    for raw in content.lines() {
-        let line = raw.trim();
-        if line.starts_with('[') {
-            in_entry = line == "[Desktop Entry]";
-        } else if in_entry {
-            if let Some(val) = line.strip_prefix(&prefix) {
-                return Some(val.trim().to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Human-friendly name declared inside a .desktop file (`Name=`).
-#[cfg(target_os = "linux")]
-fn resolve_desktop_name(path: &Path) -> Option<String> {
-    let content = fs::read_to_string(path).ok()?;
-    let name = desktop_entry_value(&content, "Name")?;
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
-}
-
-/// Resolve the `Icon=` of a .desktop file to a base64 data URL, if findable.
-#[cfg(target_os = "linux")]
-fn resolve_desktop_icon(path: &Path) -> Option<String> {
-    let content = fs::read_to_string(path).ok()?;
-    let icon = desktop_entry_value(&content, "Icon")?;
-    if icon.is_empty() {
-        return None;
-    }
-
-    let icon_path = if icon.starts_with('/') {
-        let p = std::path::PathBuf::from(&icon);
-        if p.is_file() {
-            Some(p)
-        } else {
-            None
-        }
-    } else {
-        find_themed_icon(&icon)
-    }?;
-
-    let bytes = fs::read(&icon_path).ok()?;
-    let mime = match icon_path.extension().and_then(|e| e.to_str()) {
-        Some("svg") => "image/svg+xml",
-        _ => "image/png",
-    };
-    Some(format!("data:{mime};base64,{}", base64_encode(&bytes)))
-}
-
-/// Best-effort lookup of a freedesktop icon name across the common theme roots.
-#[cfg(target_os = "linux")]
-fn find_themed_icon(name: &str) -> Option<std::path::PathBuf> {
-    use std::path::PathBuf;
-
-    let mut roots: Vec<String> = Vec::new();
-    if let Ok(home) = std::env::var("HOME") {
-        if !home.is_empty() {
-            roots.push(format!("{home}/.local/share/icons/hicolor"));
-            roots.push(format!("{home}/.icons/hicolor"));
-        }
-    }
-    roots.push("/usr/share/icons/hicolor".to_string());
-    roots.push("/usr/local/share/icons/hicolor".to_string());
-
-    let sizes = [
-        "scalable", "512x512", "256x256", "128x128", "96x96", "64x64", "48x48", "32x32", "24x24",
-        "16x16",
-    ];
-    let exts = ["png", "svg"];
-
-    // Flat pixmaps directory (no theme/size structure).
-    for ext in exts {
-        let p = PathBuf::from(format!("/usr/share/pixmaps/{name}.{ext}"));
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-
-    for root in &roots {
-        for size in sizes {
-            for ext in exts {
-                let p = PathBuf::from(format!("{root}/{size}/apps/{name}.{ext}"));
-                if p.is_file() {
-                    return Some(p);
-                }
-            }
-        }
-    }
-
-    None
-}
+use super::desktop::{resolve_desktop_icon, resolve_desktop_name};
 
 fn collect_script_files(dir: &Path, folder: Option<String>) -> Vec<ScriptInfo> {
     let entries = match fs::read_dir(dir) {
@@ -510,12 +412,13 @@ pub async fn run_script(path: String) -> Result<(), String> {
             .unwrap_or("")
             .to_lowercase();
 
-        let mut cmd = if cfg!(target_os = "linux") && ext == "desktop" {
-            // Launch a .desktop entry through the desktop's app launcher.
-            let mut c = std::process::Command::new("gio");
-            c.arg("launch").arg(&path);
-            c
-        } else if ext == "code-workspace" {
+        #[cfg(target_os = "linux")]
+        if ext == "desktop" {
+            // Launch through gio when present, else parse Exec= ourselves.
+            return super::desktop::launch_desktop_file(script_path);
+        }
+
+        let mut cmd = if ext == "code-workspace" {
             let mut c = std::process::Command::new("code");
             c.arg(&path);
             c
@@ -546,9 +449,8 @@ pub async fn run_script(path: String) -> Result<(), String> {
             cmd.current_dir(dir);
         }
 
-        cmd.spawn().map_err(|e| e.to_string())
+        cmd.spawn().map_err(|e| e.to_string()).map(|_| ())
     })
     .await
     .map_err(|e| e.to_string())?
-    .map(|_| ())
 }

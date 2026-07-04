@@ -30,4 +30,6 @@ Thumbs.db
 
 %TEMP%
 
-.claude/
+# Share .claude/ (skills, hooks, project settings) across systems;
+# keep only personal/local overrides out of git.
+.claude/settings.local.json
