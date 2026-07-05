@@ -37,6 +37,9 @@ export interface AppConfig {
   // Global hotkey that starts the region screenshot (default 'PrintScreen';
   // Windows only — Linux uses a managed COSMIC binding instead)
   screenshot_hotkey?: string
+  // Alt-drag window management: hold Alt to move any window, Alt + right-drag to
+  // resize (Windows/macOS only). Default off.
+  window_drag?: boolean
 }
 
 export interface PaletteItem {

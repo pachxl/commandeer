@@ -27,6 +27,11 @@ pub struct AppConfig {
     /// Linux uses a managed COSMIC binding instead.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub screenshot_hotkey: Option<String>,
+    /// Alt-drag window management: hold Alt and drag to move any window, Alt +
+    /// right-drag to resize it (Hyprland-style). Windows/macOS only; None/false
+    /// = off. Applied at startup and toggled from Settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_drag: Option<bool>,
 }
 
 impl Default for AppConfig {
@@ -39,6 +44,7 @@ impl Default for AppConfig {
             global_hotkey: None,
             global_hotkey_game: None,
             screenshot_hotkey: None,
+            window_drag: None,
         }
     }
 }
@@ -90,6 +96,22 @@ fn default_scripts_dir(app: &tauri::AppHandle) -> String {
     };
     let _ = fs::create_dir_all(&dir);
     dir.to_string_lossy().replace('\\', "/")
+}
+
+/// Synchronous, lenient config read for startup code paths (e.g. applying the
+/// window-drag setting before the webview is up). Returns defaults on any
+/// missing-file / read / parse error rather than failing.
+pub fn load_config(app: &tauri::AppHandle) -> AppConfig {
+    let mut config = config_path(app)
+        .ok()
+        .filter(|p| p.exists())
+        .and_then(|p| fs::read_to_string(p).ok())
+        .and_then(|raw| serde_json::from_str::<AppConfig>(&raw).ok())
+        .unwrap_or_default();
+    if config.scripts_dir.is_empty() {
+        config.scripts_dir = default_scripts_dir(app);
+    }
+    config
 }
 
 #[tauri::command]

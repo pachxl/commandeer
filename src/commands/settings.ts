@@ -2,7 +2,7 @@ import type { AppConfig, Command, PaletteItem, Step, StepResult } from '../types
 // The palette toggle hotkeys aren't edited here — set global_hotkey /
 // global_hotkey_game in <app-data>/config.json (read at startup). The
 // screenshot hotkey, however, is editable below (Windows only).
-import { dataDir, getAutostart, openPath, setAutostart, setScreenshotHotkey, setWindowTransparency, writeConfig } from '../lib/tauri'
+import { dataDir, getAutostart, openPath, setAutostart, setScreenshotHotkey, setWindowDrag, setWindowTransparency, writeConfig } from '../lib/tauri'
 import { appEvents } from '../lib/appEvents'
 import { applyTheme, applyThemeByName, getAllThemes, type Theme } from '../lib/themes'
 
@@ -59,6 +59,15 @@ function settingsStep(config: AppConfig): Step {
         isFolder: true,
         actionLabel: 'Change',
       } as PaletteItem]),
+      // Alt-drag window management is Windows/macOS only — Wayland forbids a
+      // client from moving other apps' windows (COSMIC provides it natively).
+      ...(IS_LINUX ? [] : [{
+        id: 'settings:window-drag',
+        label: 'Alt-Drag Windows',
+        sublabel: `${config.window_drag ? 'On' : 'Off'} — hold Alt to move, Alt + right-drag to resize any window`,
+        icon: 'window',
+        actionLabel: 'Toggle',
+      } as PaletteItem]),
       {
         id: 'settings:toggle-claude-usage',
         label: 'Claude Usage Panel',
@@ -105,6 +114,20 @@ function settingsStep(config: AppConfig): Step {
       }
       if (item.id === 'settings:screenshot-hotkey') {
         return { type: 'push', step: screenshotHotkeyStep(config) }
+      }
+      if (item.id === 'settings:window-drag') {
+        const next = !(config.window_drag ?? false)
+        try {
+          // Start/stop the OS hook first; only persist if it actually took
+          // (e.g. macOS throws here until Accessibility is granted).
+          await setWindowDrag(next)
+          Object.assign(config, { window_drag: next })
+          await writeConfig(config)
+          appEvents.toast?.(next ? 'Alt-drag windows enabled' : 'Alt-drag windows disabled', 'success')
+        } catch (err) {
+          appEvents.toast?.(`Couldn't toggle Alt-drag: ${String(err)}`, 'error')
+        }
+        return { type: 'replace', step: settingsStep(config) }
       }
       if (item.id === 'settings:autostart') {
         const current = await getAutostart().catch(() => false)

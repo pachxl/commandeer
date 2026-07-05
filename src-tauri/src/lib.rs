@@ -480,6 +480,9 @@ pub fn run() {
                         }
                     }
                 }
+
+                // Start Alt-drag window management if the user left it enabled.
+                commands::window_drag::apply_from_config(app.app_handle());
             }
 
             #[cfg(target_os = "macos")]
@@ -539,6 +542,10 @@ pub fn run() {
                         }
                     }
                 }
+
+                // Start Alt-drag window management if the user left it enabled
+                // (best-effort; no-op without the Accessibility permission).
+                commands::window_drag::apply_from_config(app.app_handle());
             }
 
             Ok(())
@@ -583,6 +590,7 @@ pub fn run() {
             commands::audio::set_volume,
             commands::audio::toggle_mute,
             commands::window::set_window_transparency,
+            commands::window_drag::set_window_drag,
             commands::screenshot::start_screenshot,
             commands::screenshot::show_screenshot_overlay,
             commands::screenshot::reveal_screenshot_overlay,

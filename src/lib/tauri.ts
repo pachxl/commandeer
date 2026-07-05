@@ -134,6 +134,13 @@ export const setGlobalHotkey = (hotkey: string, gameHotkey: string | null, gameM
 export const setScreenshotHotkey = (hotkey: string) =>
   invoke<void>('set_screenshot_hotkey', { hotkey })
 
+// Alt-drag window management (Windows/macOS): hold Alt to move any window, Alt +
+// right-drag to resize. Enabling just starts the OS hook; the frontend persists
+// the preference in config.window_drag. Rejects (throws) if the hook can't start
+// (e.g. macOS Accessibility permission not granted).
+export const setWindowDrag = (enabled: boolean) =>
+  invoke<void>('set_window_drag', { enabled })
+
 export const setCommandHotkey = (commandId: string, hotkey: string | null) =>
   invoke<void>('set_command_hotkey', { commandId, hotkey })
 
