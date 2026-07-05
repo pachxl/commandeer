@@ -68,7 +68,7 @@ mod platform {
 
     use windows::core::w;
     use windows::Win32::Foundation::{
-        COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM,
+        BOOL, COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM,
     };
     use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
     use windows::Win32::Graphics::Gdi::{
@@ -78,20 +78,24 @@ mod platform {
     };
     use windows::Win32::Media::{timeBeginPeriod, timeEndPeriod};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-    use windows::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThreadId};
+    use windows::Win32::System::Threading::{
+        AttachThreadInput, GetCurrentProcessId, GetCurrentThreadId,
+    };
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
         KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_MENU,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        BeginDeferWindowPos, CallNextHookEx, CreateWindowExW, DeferWindowPos, DefWindowProcW,
-        DestroyWindow, DispatchMessageW, EndDeferWindowPos, GetAncestor, GetClassNameW,
-        GetCursorPos, GetDesktopWindow, GetMessageW, GetShellWindow,
+        BeginDeferWindowPos, BringWindowToTop, CallNextHookEx, CreateWindowExW, DeferWindowPos,
+        DefWindowProcW, DestroyWindow, DispatchMessageW, EndDeferWindowPos, GetAncestor,
+        GetClassNameW, GetCursorPos, GetDesktopWindow, GetForegroundWindow, GetMessageW,
+        GetShellWindow, SetForegroundWindow,
         GetWindowRect, GetWindowThreadProcessId, IsWindowVisible, IsZoomed, PostThreadMessageW,
         RegisterClassW, SetTimer, SetWindowPos, SetWindowsHookExW, ShowWindow, TranslateMessage,
-        UnhookWindowsHookEx, UpdateLayeredWindow, WindowFromPoint, GA_ROOT, HHOOK, MSG,
-        MSLLHOOKSTRUCT, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOSIZE,
-        SWP_NOZORDER, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SW_SHOWNA, ULW_ALPHA, WH_MOUSE_LL,
+        UnhookWindowsHookEx, UpdateLayeredWindow, WindowFromPoint, GA_ROOT, HHOOK, HWND_TOP, MSG,
+        MSLLHOOKSTRUCT, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
+        SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SW_SHOWNA, ULW_ALPHA,
+        WH_MOUSE_LL,
         WM_LBUTTONDOWN,
         WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
         WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
@@ -471,6 +475,33 @@ mod platform {
     /// to constrain resizing (only the free edge moves) and to draw the hover
     /// indicator as halves rather than quarters.
     /// The work area (screen minus taskbar) of the monitor the window is on.
+    // Force `hw` to the front of the Z-order (and give it focus). Called once
+    // per grab from the mover thread. A cross-process SetWindowPos(HWND_TOP) is
+    // ignored by the foreground/Z-order lock, so temporarily attach our input
+    // thread to whoever currently owns the foreground — that lets
+    // SetForegroundWindow/BringWindowToTop actually take effect — then detach.
+    unsafe fn raise_window(hw: HWND) {
+        let fg = GetForegroundWindow();
+        if !fg.0.is_null() && fg.0 == hw.0 {
+            return;
+        }
+        let our = GetCurrentThreadId();
+        let fg_thread = if fg.0.is_null() {
+            0
+        } else {
+            GetWindowThreadProcessId(fg, None)
+        };
+        let attached = fg_thread != 0
+            && fg_thread != our
+            && AttachThreadInput(fg_thread, our, BOOL(1)).as_bool();
+        let _ = BringWindowToTop(hw);
+        let _ = SetForegroundWindow(hw);
+        let _ = SetWindowPos(hw, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        if attached {
+            let _ = AttachThreadInput(fg_thread, our, BOOL(0));
+        }
+    }
+
     unsafe fn work_area(hwnd: HWND) -> Option<RECT> {
         let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         let mut mi = MONITORINFO {
@@ -1293,11 +1324,25 @@ mod platform {
                 Err(_) => continue,
             };
             let gen = GEN.load(Ordering::Relaxed);
-            if gen != local_gen {
+            let new_grab = gen != local_gen;
+            if new_grab {
                 local_gen = gen;
                 last = None;
             }
             let hw = HWND(hwnd as *mut _);
+
+            // Bring the grabbed window to the front on the first frame of each
+            // grab. We swallow the Alt+click, so the window never gets the click
+            // that would normally raise it — replicate that here. A plain
+            // SetWindowPos(HWND_TOP) is silently ignored across processes (a
+            // background app can't reorder another app's window), so use the
+            // AttachThreadInput + SetForegroundWindow recipe. Done on the mover
+            // thread, never the hook thread.
+            if new_grab {
+                unsafe {
+                    raise_window(hw);
+                }
+            }
 
             // Deferred maximized-restore: a maximized window can't be usefully
             // moved/resized in place. Restore it here, on the grab's first
