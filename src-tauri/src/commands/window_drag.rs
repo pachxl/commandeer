@@ -173,6 +173,10 @@ mod platform {
         // The neighbor's rect at grab; three edges stay fixed, the facing edge
         // follows the target's free edge.
         neighbor_rect: RECT,
+        // How far to overlap the neighbor's facing edge past the shared boundary
+        // (into the invisible-border region), to halve the visible gap between
+        // the two tiled windows. 0 when there's no neighbor.
+        tile_overlap: i32,
         // The moved window's invisible-border insets, captured at grab so an
         // edge-snap on release lines the visible frame up with the work area.
         border: RECT,
@@ -192,6 +196,7 @@ mod platform {
                 snap: SnapKind::None,
                 neighbor: 0,
                 neighbor_rect: RECT::default(),
+                tile_overlap: 0,
                 border: RECT::default(),
             }
         }
@@ -376,6 +381,18 @@ mod platform {
                             if let Some((nh, nrect)) = find_neighbor(snap, &rect) {
                                 st.neighbor = nh.0 as isize;
                                 st.neighbor_rect = nrect;
+                                // Overlap the neighbor into the shared border
+                                // region by half the combined invisible border,
+                                // halving the visible gap between the two.
+                                let ti = border_insets(hwnd, &rect);
+                                let ni = border_insets(nh, &nrect);
+                                st.tile_overlap = match snap {
+                                    SnapKind::Right => (ti.left + ni.right) / 2,
+                                    SnapKind::Left => (ti.right + ni.left) / 2,
+                                    SnapKind::Top => (ti.bottom + ni.top) / 2,
+                                    SnapKind::Bottom => (ti.top + ni.bottom) / 2,
+                                    SnapKind::None => 0,
+                                };
                             }
                         }
                     } else {
@@ -557,35 +574,39 @@ mod platform {
     fn coordinate_neighbor(
         snap: SnapKind,
         nr: RECT,
+        overlap: i32,
         tl: i32,
         tt: i32,
         tr: i32,
         tb: i32,
     ) -> ((i32, i32, i32, i32), (i32, i32, i32, i32)) {
-        // Use `.max(lo).min(hi)` rather than `.clamp(lo, hi)`: if the combined
-        // span is too small the bounds cross, and `clamp` would panic — this
-        // degrades to honouring the target's minimum instead.
+        // The target's free edge sits at the shared boundary `b`; the neighbor's
+        // facing edge is pushed `overlap` past it (into the invisible border) so
+        // the visible gap is halved. Use `.max(lo).min(hi)` rather than
+        // `.clamp(lo, hi)`: if the combined span is too small the bounds cross,
+        // and `clamp` would panic — this degrades to honouring the target's
+        // minimum instead.
         match snap {
             // Target free edge = left; neighbor is the left window (facing edge
             // = its right). Boundary = shared vertical line.
             SnapKind::Right => {
                 let b = tl.max(nr.left + MIN_SIZE).min(tr - MIN_SIZE);
-                ((b, tt, tr, tb), (nr.left, nr.top, b, nr.bottom))
+                ((b, tt, tr, tb), (nr.left, nr.top, b + overlap, nr.bottom))
             }
             // Free edge = right; neighbor is the right window (facing = its left).
             SnapKind::Left => {
                 let b = tr.max(tl + MIN_SIZE).min(nr.right - MIN_SIZE);
-                ((tl, tt, b, tb), (b, nr.top, nr.right, nr.bottom))
+                ((tl, tt, b, tb), (b - overlap, nr.top, nr.right, nr.bottom))
             }
             // Free edge = bottom; neighbor below (facing = its top).
             SnapKind::Top => {
                 let b = tb.max(tt + MIN_SIZE).min(nr.bottom - MIN_SIZE);
-                ((tl, tt, tr, b), (nr.left, b, nr.right, nr.bottom))
+                ((tl, tt, tr, b), (nr.left, b - overlap, nr.right, nr.bottom))
             }
             // Free edge = top; neighbor above (facing = its bottom).
             SnapKind::Bottom => {
                 let b = tt.max(nr.top + MIN_SIZE).min(tb - MIN_SIZE);
-                ((tl, b, tr, tb), (nr.left, nr.top, nr.right, b))
+                ((tl, b, tr, tb), (nr.left, nr.top, nr.right, b + overlap))
             }
             SnapKind::None => ((tl, tt, tr, tb), (nr.left, nr.top, nr.right, nr.bottom)),
         }
@@ -1252,6 +1273,7 @@ mod platform {
                 snap,
                 neighbor,
                 neighbor_rect,
+                tile_overlap,
                 border,
             ) = match state().lock() {
                 Ok(st) => (
@@ -1265,6 +1287,7 @@ mod platform {
                     st.snap,
                     st.neighbor,
                     st.neighbor_rect,
+                    st.tile_overlap,
                     st.border,
                 ),
                 Err(_) => continue,
@@ -1361,7 +1384,7 @@ mod platform {
             let mut neighbor_apply: Option<(i32, i32, i32, i32)> = None;
             if mode == Mode::Resize && snap != SnapKind::None && neighbor != 0 {
                 let ((tl, tt, tr, tb), (nl, nt, nr, nb)) =
-                    coordinate_neighbor(snap, neighbor_rect, x, y, x + w, y + h);
+                    coordinate_neighbor(snap, neighbor_rect, tile_overlap, x, y, x + w, y + h);
                 x = tl;
                 y = tt;
                 w = tr - tl;
