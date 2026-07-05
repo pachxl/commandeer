@@ -1422,22 +1422,37 @@ mod platform {
                 } else if maximize_apply {
                     // Top-edge move-snap: use the real OS maximize.
                     let _ = ShowWindow(hw, SW_MAXIMIZE);
+                } else if mode == Mode::Move && !snapped_move {
+                    // Plain move: SWP_ASYNCWINDOWPOS (same as AltSnap) posts the
+                    // reposition to the target's thread instead of waiting on it,
+                    // so a busy or hung app never stalls this loop. A move is
+                    // cheap for the app (no relayout), so there's no flood risk.
+                    let _ = SetWindowPos(
+                        hw,
+                        HWND::default(),
+                        x,
+                        y,
+                        w,
+                        h,
+                        SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOSIZE | SWP_NOACTIVATE
+                            | SWP_ASYNCWINDOWPOS,
+                    );
                 } else {
-                    // SWP_ASYNCWINDOWPOS (same as AltSnap): post the reposition
-                    // to the target's thread instead of waiting on it, so a busy
-                    // or hung app can never stall this loop mid-drag. A plain
-                    // move keeps its size (SWP_NOSIZE); a move that snapped on
-                    // release also resizes.
-                    let flags = if mode == Mode::Move && !snapped_move {
-                        SWP_NOZORDER
-                            | SWP_NOOWNERZORDER
-                            | SWP_NOSIZE
-                            | SWP_NOACTIVATE
-                            | SWP_ASYNCWINDOWPOS
-                    } else {
-                        SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS
-                    };
-                    let _ = SetWindowPos(hw, HWND::default(), x, y, w, h, flags);
+                    // Resize: SYNCHRONOUS (no SWP_ASYNCWINDOWPOS) so the mover
+                    // self-paces to how fast the app can relayout. Firing async
+                    // resizes at ~200 Hz floods a slow app (File Explorer relays
+                    // out its view on every WM_SIZE): its queue backs up and the
+                    // window falls further and further behind the cursor.
+                    // Synchronous keeps latency bounded — the native experience.
+                    let _ = SetWindowPos(
+                        hw,
+                        HWND::default(),
+                        x,
+                        y,
+                        w,
+                        h,
+                        SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE,
+                    );
                 }
             }
             last = Some((x, y, w, h));
