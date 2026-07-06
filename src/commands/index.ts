@@ -1,5 +1,6 @@
 import type { AppConfig, Command, Step, PaletteItem } from '../types'
 import { listScripts, openUrl, runScript, type ScriptInfo } from '../lib/tauri'
+import { hasIcon } from '../components/Icon'
 
 // Togglable in Settings (App reads the visibility flag when building the list)
 export const webSearchCommand: Command = {
@@ -28,6 +29,46 @@ export async function loadScriptCommands(config: AppConfig): Promise<{ commands:
   return { commands: scriptsToCommands(scripts), scripts }
 }
 
+// Resolve a script's display icon: a metadata-declared named icon wins if the
+// name exists in the Icon library, else a sibling PNG, else the generic
+// 'script' glyph so every script row carries an icon.
+function scriptIcon(script: ScriptInfo): string {
+  const named = script.metadata?.icon_name
+  if (named && hasIcon(named)) return named
+  return script.icon ?? 'script'
+}
+
+function scriptTitle(script: ScriptInfo): string {
+  return script.metadata?.title ?? script.name
+}
+
+// Accessory badge for an explicitly-declared mode (inline/terminal/fullOutput/
+// compact). Silent is the implicit default and gets no badge.
+function scriptAccessories(script: ScriptInfo) {
+  const mode = script.metadata?.mode
+  return mode ? [{ text: mode }] : undefined
+}
+
+// Confirmation step for scripts that declare @vicinae.needsConfirmation true —
+// a fuzzy-matched "res" shouldn't immediately run a destructive script.
+function scriptConfirmStep(script: ScriptInfo): Step {
+  const title = scriptTitle(script)
+  return {
+    id: `script:${script.path}:confirm`,
+    label: title,
+    placeholder: `Run "${title}"?`,
+    load: async () => [
+      { id: 'confirm', label: `Run ${title}`, sublabel: 'Press Enter to confirm', icon: 'script', actionLabel: 'Confirm' },
+      { id: 'cancel', label: 'Cancel', icon: 'x', actionLabel: 'Cancel' },
+    ],
+    onSelect: async item => {
+      if (item.id !== 'confirm') return { type: 'pop' }
+      await runScript(script.path)
+      return { type: 'done' }
+    },
+  }
+}
+
 export function scriptsToCommands(scripts: ScriptInfo[]): Command[] {
   const commands: Command[] = []
 
@@ -48,28 +89,40 @@ export function scriptsToCommands(scripts: ScriptInfo[]): Command[] {
           placeholder: `Search ${folderName}...`,
           load: async (_cfg): Promise<PaletteItem[]> => folderScripts.map(s => ({
             id: `script:${s.path}`,
-            label: s.name,
-            icon: s.icon ?? '',
+            label: scriptTitle(s),
+            icon: scriptIcon(s),
+            sublabel: s.metadata?.description ?? undefined,
+            keywords: s.metadata?.keywords,
+            accessories: scriptAccessories(s),
             data: s.path,
           })),
           onSelect: async (item, _cfg) => {
+            const s = folderScripts.find(fs => fs.path === (item.data as string))
+            if (s?.metadata?.needs_confirmation) {
+              return { type: 'push', step: scriptConfirmStep(s) }
+            }
             await runScript(item.data as string)
             return { type: 'done' }
           },
         }),
       })
     } else {
-      commands.push({
+      const base: Command = {
         id: `script:${script.path}`,
-        label: script.name,
-        icon: script.icon ?? '',
+        label: scriptTitle(script),
+        icon: scriptIcon(script),
         source: 'script',
         folderName: script.folder ?? undefined,
+        keywords: script.metadata?.keywords,
+        description: script.metadata?.description ?? undefined,
+        accessories: scriptAccessories(script),
         data: script.path,
-        action: async () => {
-          await runScript(script.path)
-        },
-      })
+      }
+      if (script.metadata?.needs_confirmation) {
+        commands.push({ ...base, createRootStep: () => scriptConfirmStep(script) })
+      } else {
+        commands.push({ ...base, action: async () => { await runScript(script.path) } })
+      }
     }
   }
 

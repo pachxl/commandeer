@@ -4,6 +4,29 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { openPath as tauriOpenPath, openUrl as tauriOpenUrl } from '@tauri-apps/plugin-opener'
 import type { AppConfig } from '../types'
 
+export interface ScriptArgument {
+  index: number
+  arg_type: string
+  placeholder: string | null
+  optional: boolean
+  data: [string, string][]
+}
+
+export interface ScriptMetadata {
+  title: string | null
+  description: string | null
+  icon_name: string | null
+  icon_name_dark: string | null
+  mode: string | null
+  keywords: string[]
+  needs_confirmation: boolean
+  author: string | null
+  package_name: string | null
+  current_directory_path: string | null
+  refresh_seconds: number | null
+  arguments: ScriptArgument[]
+}
+
 export interface ScriptInfo {
   name: string
   path: string
@@ -11,6 +34,7 @@ export interface ScriptInfo {
   icon: string | null
   folder: string | null
   is_folder: boolean
+  metadata: ScriptMetadata | null
 }
 
 export const readConfig = () =>

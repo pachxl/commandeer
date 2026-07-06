@@ -1,9 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
-#[cfg(target_os = "windows")]
-use serde::Deserialize;
 #[cfg(target_os = "windows")]
 use std::collections::HashMap;
 
@@ -15,6 +13,47 @@ pub struct ScriptInfo {
     pub icon: Option<String>,
     pub folder: Option<String>,
     pub is_folder: bool,
+    /// Raycast/vicinae-style `@raycast.*` / `@vicinae.*` comment directives
+    /// parsed from the script header. `None` when the file has no such
+    /// metadata (the common case — bare executables and shortcuts).
+    pub metadata: Option<ScriptMetadata>,
+}
+
+/// One declared script argument (`@vicinae.argument1`/`argument2`/`argument3`).
+#[derive(Debug, Serialize, Clone, Default)]
+pub struct ScriptArgument {
+    /// 1-based position (1..=3).
+    pub index: u8,
+    /// `text` | `password` | `dropdown`
+    pub arg_type: String,
+    pub placeholder: Option<String>,
+    pub optional: bool,
+    /// Dropdown options as `(title, value)` pairs.
+    pub data: Vec<(String, String)>,
+}
+
+/// Parsed `@raycast.*` / `@vicinae.*` script metadata. Mirrors the Raycast
+/// script-command format with the vicinae additions (`keywords`,
+/// `refresh_seconds`, per-app scope omitted here). Surfaced to the frontend
+/// so scripts can carry a friendly title, description, icon, search keywords,
+/// a confirm gate, and (for inline mode) a live refresh interval.
+#[derive(Debug, Serialize, Clone, Default)]
+pub struct ScriptMetadata {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    /// Named icon resolvable by the frontend `Icon` library (e.g. "calendar").
+    pub icon_name: Option<String>,
+    pub icon_name_dark: Option<String>,
+    /// `fullOutput` | `compact` | `inline` | `silent` | `terminal`
+    pub mode: Option<String>,
+    pub keywords: Vec<String>,
+    pub needs_confirmation: bool,
+    pub author: Option<String>,
+    pub package_name: Option<String>,
+    pub current_directory_path: Option<String>,
+    /// Parsed `@vicinae.refreshTime` ("5s"/"2m"/"1h"/"1d") → seconds.
+    pub refresh_seconds: Option<u64>,
+    pub arguments: Vec<ScriptArgument>,
 }
 
 /// Whether a directory entry should be surfaced as a runnable command.
@@ -63,6 +102,159 @@ fn is_executable(path: &Path) -> bool {
 // .desktop parsing/icon helpers live in the shared desktop module.
 #[cfg(target_os = "linux")]
 use super::desktop::{resolve_desktop_icon, resolve_desktop_name};
+
+// --- Script metadata parser ------------------------------------------------
+//
+// Reads the head of a script file and extracts `@raycast.*` / `@vicinae.*`
+// comment directives — the Raycast script-command metadata format with the
+// vicinae additions (`keywords`, `refreshTime`, `exec`). Any comment marker
+// (`//`, `--`, `#`, `;`) is accepted so bash/python/lua/js all work. Binary
+// files (non-UTF-8 head) yield no metadata.
+
+const METADATA_HEAD_BYTES: usize = 8192;
+
+/// Strip a single pair of surrounding matching quotes from a value, if present.
+fn unquote(v: &str) -> &str {
+    let v = v.trim();
+    let bytes = v.as_bytes();
+    if bytes.len() >= 2 {
+        let first = bytes[0] as char;
+        let last = bytes[bytes.len() - 1] as char;
+        if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+            return &v[1..v.len() - 1];
+        }
+    }
+    v
+}
+
+/// Parse `@vicinae.refreshTime` ("5s"/"2m"/"1h"/"1d") into seconds. A bare
+/// number with no unit is rejected (a unit is required to avoid ambiguity).
+fn parse_refresh_time(v: &str) -> Option<u64> {
+    let v = v.trim();
+    let mut chars = v.chars();
+    let last = chars.next_back()?;
+    if last.is_ascii_digit() {
+        return None;
+    }
+    let n: u64 = chars.as_str().trim().parse().ok()?;
+    Some(match last {
+        's' => n,
+        'm' => n * 60,
+        'h' => n * 3600,
+        'd' => n * 86400,
+        _ => return None,
+    })
+}
+
+/// Parse one `@raycast.argumentN` / `@vicinae.argumentN` JSON value.
+fn parse_argument(json: &str, index: u8) -> Option<ScriptArgument> {
+    #[derive(Deserialize)]
+    struct ArgOption {
+        title: String,
+        value: String,
+    }
+    #[derive(Deserialize)]
+    struct ArgJson {
+        #[serde(rename = "type")]
+        arg_type: Option<String>,
+        placeholder: Option<String>,
+        optional: Option<bool>,
+        required: Option<bool>,
+        #[serde(default)]
+        data: Vec<ArgOption>,
+        // Legacy Raycast field: `secure: true` → password.
+        secure: Option<bool>,
+    }
+    let a: ArgJson = serde_json::from_str(json).ok()?;
+    let arg_type = a
+        .arg_type
+        .unwrap_or_else(|| if a.secure.unwrap_or(false) { "password".into() } else { "text".into() });
+    // `optional` wins; else `optional = !required`; default required → not optional.
+    let optional = a.optional.unwrap_or_else(|| !a.required.unwrap_or(true));
+    Some(ScriptArgument {
+        index,
+        arg_type,
+        placeholder: a.placeholder,
+        optional,
+        data: a.data.into_iter().map(|d| (d.title, d.value)).collect(),
+    })
+}
+
+fn apply_metadata(meta: &mut ScriptMetadata, key: &str, value: &str) {
+    match key {
+        "title" => meta.title = Some(unquote(value).to_string()),
+        "description" => meta.description = Some(unquote(value).to_string()),
+        "icon" => meta.icon_name = Some(unquote(value).to_string()),
+        "iconDark" => meta.icon_name_dark = Some(unquote(value).to_string()),
+        "mode" => meta.mode = Some(unquote(value).to_string()),
+        "packageName" => meta.package_name = Some(unquote(value).to_string()),
+        "author" => meta.author = Some(unquote(value).to_string()),
+        "currentDirectoryPath" => meta.current_directory_path = Some(unquote(value).to_string()),
+        "needsConfirmation" => meta.needs_confirmation = unquote(value).eq_ignore_ascii_case("true"),
+        "keywords" => {
+            if let Ok(arr) = serde_json::from_str::<Vec<String>>(unquote(value)) {
+                meta.keywords = arr;
+            }
+        }
+        "refreshTime" => meta.refresh_seconds = parse_refresh_time(unquote(value)),
+        "argument1" | "argument2" | "argument3" => {
+            let idx: u8 = key[8..].parse().unwrap_or(0);
+            if let Some(arg) = parse_argument(unquote(value), idx) {
+                meta.arguments.push(arg);
+            }
+        }
+        // schemaVersion, authorURL, exec, terminal: stored/ignored as needed.
+        _ => {}
+    }
+}
+
+/// Parse `@raycast.*`/`@vicinae.*` directives from a script's text head.
+/// Returns `None` when no such metadata is present.
+fn parse_metadata_from_text(head: &str) -> Option<ScriptMetadata> {
+    let mut meta = ScriptMetadata::default();
+    let mut found_any = false;
+
+    for raw in head.lines() {
+        let line = raw.trim_start();
+        let after_marker = if let Some(r) = line.strip_prefix("//") {
+            r
+        } else if let Some(r) = line.strip_prefix("--") {
+            r
+        } else if let Some(r) = line.strip_prefix('#') {
+            r
+        } else if let Some(r) = line.strip_prefix(';') {
+            r
+        } else {
+            continue;
+        };
+        let after_marker = after_marker.trim_start();
+        let rest = after_marker
+            .strip_prefix("@raycast.")
+            .or_else(|| after_marker.strip_prefix("@vicinae."))
+            .or_else(|| after_marker.strip_prefix("@Raycast."))
+            .or_else(|| after_marker.strip_prefix("@Vicinae."));
+        let rest = match rest {
+            Some(r) => r,
+            None => continue,
+        };
+        found_any = true;
+        let (key, value) = match rest.find(char::is_whitespace) {
+            Some(i) => (&rest[..i], rest[i..].trim()),
+            None => (rest, ""),
+        };
+        apply_metadata(&mut meta, key, value);
+    }
+
+    if found_any { Some(meta) } else { None }
+}
+
+/// Read the script head and parse `@raycast.*`/`@vicinae.*` directives.
+/// Returns `None` for binary files or files with no such metadata.
+fn parse_script_metadata(path: &Path) -> Option<ScriptMetadata> {
+    let bytes = fs::read(path).ok()?;
+    let head = std::str::from_utf8(&bytes[..bytes.len().min(METADATA_HEAD_BYTES)]).ok()?;
+    parse_metadata_from_text(head)
+}
 
 fn collect_script_files(dir: &Path, folder: Option<String>) -> Vec<ScriptInfo> {
     let entries = match fs::read_dir(dir) {
@@ -116,7 +308,11 @@ fn collect_script_files(dir: &Path, folder: Option<String>) -> Vec<ScriptInfo> {
                 }
             });
 
-            Some(ScriptInfo { name: stem, path: path_str, ext, icon, folder: folder.clone(), is_folder: false })
+            // Parse @raycast.*/@vicinae.* header metadata. Binary files
+            // (.lnk, AppImages) and bare scripts without directives → None.
+            let metadata = parse_script_metadata(&path);
+
+            Some(ScriptInfo { name: stem, path: path_str, ext, icon, folder: folder.clone(), is_folder: false, metadata })
         })
         .collect()
 }
@@ -167,6 +363,7 @@ pub async fn list_scripts(scripts_dir: String) -> Result<Vec<ScriptInfo>, String
             icon: folder_icon,
             folder: None,
             is_folder: true,
+            metadata: None,
         });
 
         scripts.extend(collect_script_files(&path, Some(folder_name)));
@@ -551,4 +748,91 @@ fn file_uri(path: &std::path::Path) -> String {
         }
     }
     uri
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refresh_time_parses_units() {
+        assert_eq!(parse_refresh_time("5s"), Some(5));
+        assert_eq!(parse_refresh_time("2m"), Some(120));
+        assert_eq!(parse_refresh_time("1h"), Some(3600));
+        assert_eq!(parse_refresh_time("1d"), Some(86400));
+        // No unit → rejected.
+        assert_eq!(parse_refresh_time("30"), None);
+        // Garbage.
+        assert_eq!(parse_refresh_time(""), None);
+        assert_eq!(parse_refresh_time("abc"), None);
+    }
+
+    #[test]
+    fn unquote_strips_matching_quotes() {
+        assert_eq!(unquote("\"hello\""), "hello");
+        assert_eq!(unquote("'hello'"), "hello");
+        assert_eq!(unquote("hello"), "hello");
+        // Mismatched quotes are left intact.
+        assert_eq!(unquote("\"hello'"), "\"hello'");
+    }
+
+    #[test]
+    fn metadata_parses_raycast_style() {
+        let src = "#!/bin/bash\n# @raycast.schemaVersion 1\n# @raycast.title Git Status\n# @raycast.description Show the working tree status\n# @raycast.icon git\n# @raycast.mode inline\n# @raycast.needsConfirmation true\n# @raycast.packageName dev\n";
+        let m = parse_metadata_from_text(src).expect("metadata should be found");
+        assert_eq!(m.title.as_deref(), Some("Git Status"));
+        assert_eq!(m.description.as_deref(), Some("Show the working tree status"));
+        assert_eq!(m.icon_name.as_deref(), Some("git"));
+        assert_eq!(m.mode.as_deref(), Some("inline"));
+        assert!(m.needs_confirmation);
+        assert_eq!(m.package_name.as_deref(), Some("dev"));
+    }
+
+    #[test]
+    fn metadata_parses_vicinae_keywords_and_refresh() {
+        let src = "-- @vicinae.schemaVersion 1\n-- @vicinae.title CPU Load\n-- @vicinae.keywords [\"cpu\", \"load\", \"monitor\"]\n-- @vicinae.refreshTime 5s\n-- @vicinae.mode inline\n";
+        let m = parse_metadata_from_text(src).expect("metadata should be found");
+        assert_eq!(m.title.as_deref(), Some("CPU Load"));
+        assert_eq!(m.keywords, vec!["cpu", "load", "monitor"]);
+        assert_eq!(m.refresh_seconds, Some(5));
+    }
+
+    #[test]
+    fn metadata_parses_arguments() {
+        let src = "# @vicinae.title Echo\n# @vicinae.argument1 {\"type\": \"text\", \"placeholder\": \"Message\", \"required\": true}\n# @vicinae.argument2 {\"type\": \"dropdown\", \"placeholder\": \"Level\", \"data\": [{\"title\": \"Info\", \"value\": \"info\"}, {\"title\": \"Error\", \"value\": \"err\"}]}\n";
+        let m = parse_metadata_from_text(src).expect("metadata should be found");
+        assert_eq!(m.arguments.len(), 2);
+        assert_eq!(m.arguments[0].index, 1);
+        assert_eq!(m.arguments[0].arg_type, "text");
+        assert!(!m.arguments[0].optional);
+        assert_eq!(m.arguments[1].arg_type, "dropdown");
+        assert_eq!(m.arguments[1].data, vec![("Info".into(), "info".into()), ("Error".into(), "err".into())]);
+    }
+
+    #[test]
+    fn metadata_secure_argument_becomes_password() {
+        // Legacy Raycast `secure: true` (no `type`) → password.
+        let src = "# @raycast.argument1 {\"secure\": true, \"placeholder\": \"Token\"}\n";
+        let m = parse_metadata_from_text(src).expect("metadata should be found");
+        assert_eq!(m.arguments[0].arg_type, "password");
+        assert_eq!(m.arguments[0].placeholder.as_deref(), Some("Token"));
+    }
+
+    #[test]
+    fn metadata_none_for_plain_script() {
+        // No @raycast.*/@vicinae.* directives → None.
+        assert!(parse_metadata_from_text("#!/bin/bash\necho hello\n").is_none());
+        // A plain comment without the directive prefix is ignored.
+        assert!(parse_metadata_from_text("# just a comment\n").is_none());
+    }
+
+    #[test]
+    fn metadata_accepts_mixed_comment_markers() {
+        // `//` (js), `--` (lua), `;` (ini-style) all work.
+        let src = "// @vicinae.title JS Task\n-- @vicinae.author me\n; @vicinae.packageName misc\n";
+        let m = parse_metadata_from_text(src).expect("metadata should be found");
+        assert_eq!(m.title.as_deref(), Some("JS Task"));
+        assert_eq!(m.author.as_deref(), Some("me"));
+        assert_eq!(m.package_name.as_deref(), Some("misc"));
+    }
 }
