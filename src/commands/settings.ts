@@ -1,8 +1,5 @@
 import type { AppConfig, Command, PaletteItem, Step, StepResult } from '../types'
-// The palette toggle hotkeys aren't edited here — set global_hotkey /
-// global_hotkey_game in <app-data>/config.json (read at startup). The
-// screenshot hotkey, however, is editable below (Windows only).
-import { dataDir, getAutostart, openPath, setAutostart, setScreenshotHotkey, setWindowDrag, setWindowTransparency, writeConfig } from '../lib/tauri'
+import { dataDir, getAutostart, openPath, setAutostart, setGlobalHotkey, setScreenshotHotkey, setWindowDrag, setWindowTransparency, writeConfig } from '../lib/tauri'
 import { appEvents } from '../lib/appEvents'
 import { applyTheme, applyThemeByName, getAllThemes, type Theme } from '../lib/themes'
 
@@ -11,6 +8,10 @@ import { applyTheme, applyThemeByName, getAllThemes, type Theme } from '../lib/t
 const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
 const IS_MAC = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
 const DEFAULT_SCREENSHOT_HOTKEY = IS_MAC ? '' : 'Insert'
+// Mirrors the Rust defaults in shortcuts.rs (kept in sync by hand — these are
+// only display fallbacks for an unset config value).
+const DEFAULT_HOTKEY = IS_MAC ? 'Cmd+Shift+Space' : 'Ctrl+Space'
+const DEFAULT_GAME_HOTKEY = 'Alt+Space'
 
 function settingsStep(config: AppConfig): Step {
   const transparencyPercent = Math.round((config.transparency ?? 0) * 100)
@@ -50,6 +51,22 @@ function settingsStep(config: AppConfig): Step {
         icon: 'gamepad',
         iconColor: '#39ff14',
         actionLabel: 'Toggle',
+      },
+      {
+        id: 'settings:toggle-hotkey',
+        label: 'Toggle Hotkey',
+        sublabel: `Current: ${config.global_hotkey || DEFAULT_HOTKEY} — opens the palette`,
+        icon: 'keyboard',
+        isFolder: true,
+        actionLabel: 'Change',
+      },
+      {
+        id: 'settings:game-hotkey',
+        label: 'Game Mode Hotkey',
+        sublabel: `Current: ${config.global_hotkey_game || DEFAULT_GAME_HOTKEY} — used when Game Mode is on`,
+        icon: 'gamepad',
+        isFolder: true,
+        actionLabel: 'Change',
       },
       ...(IS_LINUX ? [] : [{
         id: 'settings:screenshot-hotkey',
@@ -114,6 +131,12 @@ function settingsStep(config: AppConfig): Step {
       }
       if (item.id === 'settings:screenshot-hotkey') {
         return { type: 'push', step: screenshotHotkeyStep(config) }
+      }
+      if (item.id === 'settings:toggle-hotkey') {
+        return { type: 'push', step: hotkeyStep(config, 'toggle') }
+      }
+      if (item.id === 'settings:game-hotkey') {
+        return { type: 'push', step: hotkeyStep(config, 'game') }
       }
       if (item.id === 'settings:window-drag') {
         const next = !(config.window_drag ?? false)
@@ -231,6 +254,49 @@ function transparencyStep(config: AppConfig): Step {
     },
     load: async () => [],
     onSelect: async () => ({ type: 'pop' }),
+  }
+}
+
+// Free-text step to rebind the palette toggle / game-mode hotkey. The binding
+// is validated on the Rust side (set_global_hotkey rejects unparseable strings)
+// and re-registered immediately, including the COSMIC/GNOME managed binding on
+// Linux. An empty commit leaves the binding unchanged.
+function hotkeyStep(config: AppConfig, which: 'toggle' | 'game'): Step {
+  const current = which === 'toggle'
+    ? (config.global_hotkey || DEFAULT_HOTKEY)
+    : (config.global_hotkey_game || DEFAULT_GAME_HOTKEY)
+  const label = which === 'toggle' ? 'Toggle Hotkey' : 'Game Mode Hotkey'
+  return {
+    id: `settings:${which}-hotkey`,
+    label,
+    placeholder: `Type a hotkey (e.g. ${DEFAULT_HOTKEY}, Alt+Shift+P). Current: ${current}`,
+    isInputStep: true,
+    onSelect: async () => ({ type: 'done' }),
+    onCommitQuery: async (query): Promise<StepResult> => {
+      const binding = query.trim()
+      if (!binding) return { type: 'pop' }
+      try {
+        // set_global_hotkey re-registers the base hotkey and (on Linux) rewrites
+        // the COSMIC/GNOME managed binding. We pass the *other* hotkey through
+        // unchanged so editing one doesn't clobber the other.
+        const gameMode = appEvents.isGameMode?.() ?? false
+        if (which === 'toggle') {
+          const game = config.global_hotkey_game ?? DEFAULT_GAME_HOTKEY
+          await setGlobalHotkey(binding, game, gameMode)
+          Object.assign(config, { global_hotkey: binding })
+        } else {
+          const base = config.global_hotkey ?? DEFAULT_HOTKEY
+          await setGlobalHotkey(base, binding, gameMode)
+          Object.assign(config, { global_hotkey_game: binding })
+        }
+        appEvents.toast?.(`${label} set to ${binding}`, 'success')
+        return { type: 'pop' }
+      } catch (err) {
+        appEvents.toast?.(`Invalid hotkey: ${String(err)}`, 'error')
+        return { type: 'stay' }
+      }
+    },
+    load: async () => [],
   }
 }
 

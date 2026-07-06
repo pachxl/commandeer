@@ -274,7 +274,10 @@ fn set_game_mode(enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
-        commands::linux_shortcuts::update_toggle_shortcut(enabled);
+        let config = commands::config::load_config(&app);
+        let base = config.global_hotkey.as_deref().unwrap_or("Ctrl+Space");
+        let game = config.global_hotkey_game.as_deref().unwrap_or("Alt+Space");
+        commands::linux_shortcuts::update_toggle_shortcut_with(base, game, enabled);
     }
 
     Ok(())
@@ -390,9 +393,15 @@ pub fn run() {
             {
                 // Ensure a working default desktop keybinding (COSMIC/GNOME)
                 // even before the frontend calls set_game_mode; the frontend
-                // then refines it for game mode.
+                // then refines it for game mode. Reads the configured hotkeys
+                // so a user-edited binding is honoured from first launch.
                 #[cfg(target_os = "linux")]
-                commands::linux_shortcuts::update_toggle_shortcut(false);
+                {
+                    let config = commands::config::load_config(app.app_handle());
+                    let base = config.global_hotkey.as_deref().unwrap_or("Ctrl+Space");
+                    let game = config.global_hotkey_game.as_deref().unwrap_or("Alt+Space");
+                    commands::linux_shortcuts::update_toggle_shortcut_with(base, game, false);
+                }
 
                 // Turn the palette into a wlr-layer-shell surface (must happen
                 // before it is first shown/mapped). As an overlay it renders

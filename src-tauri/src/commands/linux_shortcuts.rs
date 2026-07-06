@@ -13,23 +13,72 @@
 //!   across Plasma versions, so the user binds the exe to a shortcut
 //!   manually (the plugin registration still covers X11 sessions).
 
+/// Split a "Ctrl+Shift+Space"-style binding into (modifiers, key).
+/// Modifier names are normalised to the COSMIC/GNOME capitalisation
+/// (Ctrl, Alt, Shift, Super). Returns None if the string is empty.
+fn parse_binding(s: &str) -> Option<(Vec<&'static str>, String)> {
+    let parts: Vec<&str> = s.split('+').map(|p| p.trim()).filter(|p| !p.is_empty()).collect();
+    if parts.is_empty() {
+        return None;
+    }
+    let key = parts.last().unwrap().to_lowercase();
+    let mut mods: Vec<&'static str> = Vec::new();
+    for part in &parts[..parts.len() - 1] {
+        let m = match part.to_lowercase().as_str() {
+            "ctrl" | "control" => "Ctrl",
+            "alt" => "Alt",
+            "shift" => "Shift",
+            "win" | "meta" | "cmd" | "super" => "Super",
+            _ => return None, // unknown modifier → bail, let the caller skip
+        };
+        mods.push(m);
+    }
+    Some((mods, key))
+}
+
+/// COSMIC RON modifier list: `[Ctrl, Shift]` or `[]` for none.
+fn cosmic_modifiers(mods: &[&str]) -> String {
+    if mods.is_empty() {
+        return "[]".to_string();
+    }
+    format!("[{}]", mods.join(", "))
+}
+
+/// GNOME gsettings binding: `<Ctrl><Shift>space` or `space` for no modifiers.
+fn gnome_binding(mods: &[&str], key: &str) -> String {
+    let mut s = String::new();
+    for m in mods {
+        s.push_str(&format!("<{m}>"));
+    }
+    s.push_str(key);
+    s
+}
+
 /// Sync the toggle (Ctrl+Space / Alt+Space in game mode) and PrtScn-screenshot
 /// bindings with whichever desktop is running. Never fatal.
 pub fn update_toggle_shortcut(game_mode: bool) {
+    update_toggle_shortcut_with("Ctrl+Space", "Alt+Space", game_mode)
+}
+
+/// Same as [update_toggle_shortcut] but with explicit hotkey strings from
+/// config.json, so the user-edited base + game hotkeys are reflected in the
+/// COSMIC/GNOME bindings (not just the hardcoded defaults).
+pub fn update_toggle_shortcut_with(base: &str, game: &str, game_mode: bool) {
+    let hotkey = if game_mode { game } else { base };
     let desktop = std::env::var("XDG_CURRENT_DESKTOP")
         .unwrap_or_default()
         .to_lowercase();
     if desktop.contains("cosmic") {
-        update_cosmic_shortcut(game_mode);
+        update_cosmic_shortcut(hotkey);
     } else if desktop.contains("gnome") {
-        update_gnome_shortcuts(game_mode);
+        update_gnome_shortcuts(hotkey);
     }
 }
 
-/// COSMIC custom keybindings live in one RON file. Mirrors the Windows
-/// shortcut: Ctrl+Space normally, Alt+Space in game mode. Only our own
-/// entries are touched; any other custom shortcuts are preserved.
-fn update_cosmic_shortcut(game_mode: bool) {
+/// COSMIC custom keybindings live in one RON file. Mirrors the configured
+/// toggle hotkey. Only our own entries are touched; any other custom shortcuts
+/// are preserved.
+fn update_cosmic_shortcut(hotkey: &str) {
     let home = match std::env::var_os("HOME") {
         Some(h) => h,
         None => return,
@@ -43,9 +92,13 @@ fn update_cosmic_shortcut(game_mode: bool) {
         Err(_) => return,
     };
 
-    let modifier = if game_mode { "Alt" } else { "Ctrl" };
+    let Some((mods, key)) = parse_binding(hotkey) else {
+        return; // unparseable binding — leave the existing one intact
+    };
     let our_line = format!(
-        "    (modifiers: [{modifier}], key: \"space\", description: Some(\"Toggle Commandeer\")): Spawn(\"{exe}\"),"
+        "    (modifiers: {}, key: \"{}\", description: Some(\"Toggle Commandeer\")): Spawn(\"{exe}\"),",
+        cosmic_modifiers(&mods),
+        key,
     );
     // Second managed binding: PrtScn relaunches us with the screenshot deep
     // link (cosmic-comp spawns via shell, so the appended arg survives).
@@ -89,7 +142,7 @@ fn update_cosmic_shortcut(game_mode: bool) {
 /// GNOME custom keybindings: register our two entries in the media-keys
 /// custom-keybindings list (preserving everything else) and write their
 /// name/command/binding keys. Same relaunch-to-toggle model as COSMIC.
-fn update_gnome_shortcuts(game_mode: bool) {
+fn update_gnome_shortcuts(hotkey: &str) {
     const LIST_SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys";
     const ENTRY_SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding";
     const TOGGLE_PATH: &str =
@@ -151,10 +204,14 @@ fn update_gnome_shortcuts(game_mode: bool) {
     }
 
     let toggle_schema = format!("{ENTRY_SCHEMA}:{TOGGLE_PATH}");
-    let binding = if game_mode { "<Alt>space" } else { "<Ctrl>space" };
+    let (mods, key) = match parse_binding(hotkey) {
+        Some(mk) => mk,
+        None => return, // unparseable binding — leave the existing one intact
+    };
+    let binding = gnome_binding(&mods, &key);
     gsettings_set(&toggle_schema, "name", "Toggle Commandeer");
     gsettings_set(&toggle_schema, "command", &exe);
-    gsettings_set(&toggle_schema, "binding", binding);
+    gsettings_set(&toggle_schema, "binding", &binding);
 
     let shot_schema = format!("{ENTRY_SCHEMA}:{SCREENSHOT_PATH}");
     gsettings_set(&shot_schema, "name", "Commandeer Screenshot");

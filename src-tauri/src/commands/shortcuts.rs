@@ -307,24 +307,45 @@ pub struct HotkeyUpdate {
     pub game_hotkey: Option<String>,
 }
 
-/// Update the stored base hotkeys and re-register them.
+/// Update the stored base hotkeys and re-register them. The binding is
+/// validated (parsed) before persisting so an invalid string is rejected with
+/// an error the UI can surface. On Linux the COSMIC/GNOME managed binding is
+/// rewritten too, so the user-edited hotkey takes effect immediately (not just
+/// the hardcoded Ctrl+Space / Alt+Space defaults).
 #[tauri::command]
 pub async fn set_global_hotkey(
     app: AppHandle,
     update: HotkeyUpdate,
     game_mode: bool,
 ) -> Result<(), String> {
+    let base = update.hotkey.trim().to_string();
+    let game = update.game_hotkey.as_deref().map(|g| g.trim().to_string());
+    // Validate up front so bad input never reaches config.json.
+    parse_shortcut(&base)?;
+    if let Some(g) = &game {
+        parse_shortcut(g)?;
+    }
+
     let mut config = read_config_sync(&app)?;
-    config.global_hotkey = Some(update.hotkey);
-    if let Some(game) = update.game_hotkey {
-        config.global_hotkey_game = Some(game);
+    config.global_hotkey = Some(base.clone());
+    if let Some(g) = &game {
+        config.global_hotkey_game = Some(g.clone());
     }
 
     let path = config_path(&app)?;
     let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
 
-    register_base_hotkey(&app, &config, game_mode)
+    register_base_hotkey(&app, &config, game_mode)?;
+
+    #[cfg(target_os = "linux")]
+    {
+        let base = config.global_hotkey.as_deref().unwrap_or("Ctrl+Space");
+        let game = config.global_hotkey_game.as_deref().unwrap_or("Alt+Space");
+        super::linux_shortcuts::update_toggle_shortcut_with(base, game, game_mode);
+    }
+
+    Ok(())
 }
 
 /// Update the stored screenshot hotkey and re-register it. The binding is
