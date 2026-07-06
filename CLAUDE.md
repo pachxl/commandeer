@@ -70,7 +70,7 @@ Hyprland-style: hold **Alt** and drag any window to move it, Alt + right-drag to
 - **Tiling** — resizing a shared edge moves **every** window flush along it (`find_neighbors` samples the whole edge, not one midpoint), in a single `DeferWindowPos` batch, clamped so none drops below `MIN_SIZE`. Neighbor facing edges are overlapped 3/4 of the combined invisible border to shrink the visible gap.
 - **Aero-Snap on move** — previews + commits half/quarter/maximize when a drag reaches a screen edge (160 px band). Snapping to a side **fills the space** beside an already-snapped window (`snap_fill_x`) instead of a fixed half.
 
-**macOS** implements move/resize only (`CGEventTap` + Accessibility, needs the Accessibility grant) and is **unverified** — written blind on Windows. **Linux** is unsupported by design (Wayland forbids a client from moving other apps' windows; COSMIC provides Super+drag natively), so the Settings entry is hidden there.
+**macOS** implements move/resize + raise-on-grab (`CGEventTap` + Accessibility, needs the Accessibility grant). It now **compiles and links on macOS** (the `kAX*` attribute constants are `CFSTR` macros, not linkable symbols, so they're built at runtime via `CFStringCreateWithCString`); behavioral testing on-device is still owed. **Linux** is unsupported by design (Wayland forbids a client from moving other apps' windows; COSMIC provides Super+drag natively), so the Settings entry is hidden there.
 
 ### Frontend (`src/`)
 

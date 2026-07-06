@@ -1893,7 +1893,13 @@ mod platform {
 
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
+        static kCFAllocatorDefault: CFTypeRef;
         static kCFRunLoopCommonModes: CFStringRef;
+        fn CFStringCreateWithCString(
+            alloc: CFTypeRef,
+            cstr: *const std::os::raw::c_char,
+            encoding: u32,
+        ) -> CFStringRef;
         fn CFMachPortCreateRunLoopSource(
             alloc: CFTypeRef,
             port: CFMachPortRef,
@@ -1906,12 +1912,12 @@ mod platform {
         fn CFRelease(cf: CFTypeRef);
     }
 
+    // The kAX* constants are CFSTR("...") macros in the SDK headers, not
+    // exported linkable symbols (verified: they're absent from
+    // HIServices.tbd on modern macOS). Build the CFStringRefs at runtime
+    // instead and cache them for the process lifetime.
     #[link(name = "ApplicationServices", kind = "framework")]
     extern "C" {
-        static kAXPositionAttribute: CFStringRef;
-        static kAXSizeAttribute: CFStringRef;
-        static kAXWindowAttribute: CFStringRef;
-        static kAXTopLevelUIElementAttribute: CFStringRef;
         fn AXIsProcessTrusted() -> bool;
         fn AXUIElementCreateSystemWide() -> AXUIElementRef;
         fn AXUIElementCopyElementAtPosition(
@@ -1930,9 +1936,13 @@ mod platform {
             attr: CFStringRef,
             value: CFTypeRef,
         ) -> i32;
+        fn AXUIElementPerformAction(element: AXUIElementRef, action: CFStringRef) -> i32;
         fn AXValueCreate(the_type: u32, value_ptr: *const c_void) -> AXValueRef;
         fn AXValueGetValue(value: AXValueRef, the_type: u32, value_ptr: *mut c_void) -> bool;
     }
+
+    // kCFStringEncodingUTF8
+    const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 
     // CGEventType
     const K_LEFT_DOWN: u32 = 1;
@@ -1952,6 +1962,59 @@ mod platform {
     const K_AXVALUE_CGSIZE: u32 = 2;
 
     const MIN_SIZE: f64 = 120.0;
+
+    /// Create a CFStringRef from a literal and cache it for the process
+    /// lifetime (CFStringRefs are immutable and never need releasing).
+    fn ax_cfstr(literal: &'static str) -> CFStringRef {
+        use std::sync::OnceLock;
+        // CFStringRef is *const c_void, which isn't Send/Sync by default.
+        // CFStrings are immutable and thread-safe, so sharing the pointer is
+        // sound — wrap it in a Send+Sync newtype to satisfy OnceLock.
+        struct CFStr(CFStringRef);
+        unsafe impl Send for CFStr {}
+        unsafe impl Sync for CFStr {}
+        static POS: OnceLock<CFStr> = OnceLock::new();
+        static SIZE: OnceLock<CFStr> = OnceLock::new();
+        static WIN: OnceLock<CFStr> = OnceLock::new();
+        static TOP: OnceLock<CFStr> = OnceLock::new();
+        static RAISE: OnceLock<CFStr> = OnceLock::new();
+        macro_rules! get {
+            ($cell:expr) => {{
+                $cell
+                    .get_or_init(|| CFStr(unsafe {
+                        CFStringCreateWithCString(
+                            kCFAllocatorDefault,
+                            literal.as_ptr() as *const std::os::raw::c_char,
+                            K_CF_STRING_ENCODING_UTF8,
+                        )
+                    }))
+                    .0
+            }};
+        }
+        match literal {
+            "AXPosition" => get!(POS),
+            "AXSize" => get!(SIZE),
+            "AXWindow" => get!(WIN),
+            "AXTopLevelUIElement" => get!(TOP),
+            "AXRaise" => get!(RAISE),
+            _ => std::ptr::null(),
+        }
+    }
+    fn k_position() -> CFStringRef {
+        ax_cfstr("AXPosition")
+    }
+    fn k_size() -> CFStringRef {
+        ax_cfstr("AXSize")
+    }
+    fn k_window() -> CFStringRef {
+        ax_cfstr("AXWindow")
+    }
+    fn k_toplevel() -> CFStringRef {
+        ax_cfstr("AXTopLevelUIElement")
+    }
+    fn k_raise() -> CFStringRef {
+        ax_cfstr("AXRaise")
+    }
 
     #[derive(Clone, Copy, PartialEq)]
     enum Mode {
@@ -2103,8 +2166,8 @@ mod platform {
                 };
                 if let Some(win) = window_at(loc.x, loc.y) {
                     if let (Some(origin), Some(size)) = (
-                        read_point(win, kAXPositionAttribute),
-                        read_size(win, kAXSizeAttribute),
+                        read_point(win, k_position()),
+                        read_size(win, k_size()),
                     ) {
                         st.active = true;
                         st.mode = mode;
@@ -2115,6 +2178,11 @@ mod platform {
                         if mode == Mode::Resize {
                             st.edges = pick_edges(loc, origin, size);
                         }
+                        // Raise the grabbed window to the front, matching the
+                        // Windows arm's raise-on-grab. Best-effort: a failure
+                        // (e.g. the element doesn't implement AXRaise) doesn't
+                        // abort the drag.
+                        let _ = AXUIElementPerformAction(win, k_raise());
                         ACTIVE.store(true, Ordering::Relaxed);
                         return std::ptr::null_mut(); // consume the click
                     }
@@ -2171,9 +2239,9 @@ mod platform {
             return None;
         }
         // The hit element is usually a control; climb to its window.
-        let mut win = copy_attr(el, kAXWindowAttribute);
+        let mut win = copy_attr(el, k_window());
         if win.is_null() {
-            win = copy_attr(el, kAXTopLevelUIElementAttribute);
+            win = copy_attr(el, k_toplevel());
         }
         CFRelease(el as CFTypeRef);
         if win.is_null() {
@@ -2272,7 +2340,7 @@ mod platform {
             Mode::Move => {
                 set_point(
                     win,
-                    kAXPositionAttribute,
+                    k_position(),
                     CGPoint {
                         x: st.origin.x + dx,
                         y: st.origin.y + dy,
@@ -2312,10 +2380,10 @@ mod platform {
                 }
                 // Move the origin first so AX doesn't clamp the new size against
                 // the old frame when a top/left edge is being dragged.
-                set_point(win, kAXPositionAttribute, CGPoint { x: left, y: top });
+                set_point(win, k_position(), CGPoint { x: left, y: top });
                 set_size(
                     win,
-                    kAXSizeAttribute,
+                    k_size(),
                     CGSize {
                         width: right - left,
                         height: bottom - top,

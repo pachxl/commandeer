@@ -51,27 +51,33 @@ The full feature set lives in the Windows `platform` module:
   (`snap_fill_x`) rather than a fixed half. (Screen-edge snapping is
   **move-only**; resize never border-snaps.)
 
-### macOS — basic move/resize only, UNVERIFIED
+### macOS — basic move/resize + raise, COMPILING (behaviorally UNVERIFIED)
 
-The macOS `platform` module implements **move + resize only** (`CGEventTap` +
-Accessibility `AXUIElement`); none of the snapping / indicator / tiling features
-above are ported. It was written on a Windows box and has **never been compiled
-or run on a Mac**. Someone with a Mac needs to:
+The macOS `platform` module implements **move + resize + raise-on-grab**
+(`CGEventTap` + Accessibility `AXUIElement`); none of the snapping /
+indicator / tiling features below are ported. It now **compiles and links
+cleanly on macOS** (cargo build + the 19-test suite pass on arm64), but
+has **never been behaviorally run on a Mac**. Originally written blind on
+a Windows box, it hit the predicted FFI friction on first compile: the
+`kAX*Attribute` constants are `CFSTR("...")` macros in the SDK headers,
+not exported linkable symbols (absent from `HIServices.tbd` on modern
+macOS), so they're now built at runtime via `CFStringCreateWithCString`
+and cached in `OnceLock`s. Someone with a Mac still needs to:
 
-1. **Compile it.** `npm run tauri build -- --no-bundle` (after `source ~/.cargo/env`).
-   Raw FFI to CoreGraphics / CoreFoundation / ApplicationServices. Likely
-   first-build friction: extern-static linkage of the `kAX*`/`kCFRunLoopCommonModes`
-   constants (HIServices, via the `ApplicationServices` umbrella `paste.rs`
-   already links); by-value `CGPoint` across FFI; `bool` vs `Boolean` (`u8`).
-2. **Grant Accessibility.** System Settings → Privacy & Security → Accessibility.
-   Without it `CGEventTapCreate` returns null and `enable()` errors (surfaced as
-   a toast). Same permission paste uses.
-3. **Behavioral test.** Alt + left-drag moves; Alt + right-drag resizes from the
-   cursor's cell; confirm the Alt+click is swallowed.
-4. **Coordinate check.** `CGEventGetLocation` and `kAXPositionAttribute` are both
-   top-left-origin global coords. Watch multi-display and Retina point-vs-pixel.
-5. **Optional:** raise the window on grab (`AXUIElementPerformAction` +
-   `kAXRaiseAction`); port the snapping features from the Windows module.
+1. ~~Compile it.~~ **Done** — `cargo build` / `cargo test` green on arm64.
+2. **Grant Accessibility.** System Settings → Privacy & Security →
+   Accessibility. Without it `CGEventTapCreate` returns null and `enable()`
+   errors (surfaced as a toast). Same permission paste uses.
+3. **Behavioral test.** Alt + left-drag moves; Alt + right-drag resizes
+   from the cursor's cell; confirm the Alt+click is swallowed; confirm the
+   grabbed window raises to the front.
+4. **Coordinate check.** `CGEventGetLocation` and `kAXPositionAttribute`
+   are both top-left-origin global coords. Watch multi-display and Retina
+   point-vs-pixel.
+5. **Optional:** port the snapping features from the Windows module
+   (hover indicator, edge selection, tiling, Aero-Snap). macOS Sequoia
+   already does native drag-to-edge tiling, so the gap is smaller than on
+   Windows.
 
 ### Linux — intentionally unsupported
 
