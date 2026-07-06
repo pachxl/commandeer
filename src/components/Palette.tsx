@@ -12,7 +12,7 @@ import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
 import { evaluateCalcQuery } from '../providers/calculator'
 import { tryTimeConversion } from '../lib/timezones'
-import { IS_LINUX, IS_MAC, envInfo, openPath, openUrl, pasteToPrevious, readQuicklinks, readNotes, revealPath, setCommandHotkey, writeClipboardText, writeQuicklinks, writeNotes, type Bookmark, type ClipboardItem, type CommandOverride, type Note, type Quicklink } from '../lib/tauri'
+import { IS_LINUX, IS_MAC, envInfo, openPath, openUrl, pasteToPrevious, readQuicklinks, readNotes, revealPath, runScriptCapture, setCommandHotkey, writeClipboardText, writeQuicklinks, writeNotes, type Bookmark, type ClipboardItem, type CommandOverride, type Note, type Quicklink } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
@@ -50,6 +50,7 @@ function commandToItem(cmd: Command): PaletteItem {
     color: cmd.color,
     accessories: cmd.accessories,
     metadata: cmd.metadata,
+    liveOutputKey: cmd.liveOutputKey,
   }
 }
 
@@ -272,9 +273,18 @@ const FIND_DEBOUNCE_MS = 120
 const PROVIDER_DEBOUNCE_MS = 150
 
 
+// An inline script the palette polls on a timer: its captured stdout replaces
+// the row's sublabel live (at render time, outside the ranked search text so
+// refreshes never re-rank the list).
+export interface InlineScript {
+  path: string
+  refreshSeconds: number
+}
+
 interface PaletteProps {
   config: AppConfig
   commands: Command[]
+  inlineScripts: InlineScript[]
   onConfigChange: (config: AppConfig) => void
   resetRef: MutableRefObject<(() => void) | null>
   commandHotkeyRef?: MutableRefObject<((commandId: string) => void) | null>
@@ -287,6 +297,7 @@ interface PaletteProps {
 export default function Palette({
   config,
   commands,
+  inlineScripts,
   onConfigChange: _onConfigChange,
   resetRef,
   commandHotkeyRef,
@@ -302,6 +313,14 @@ export default function Palette({
   const [actionPanelIndex, setActionPanelIndex] = useState(0)
   const [formValues, setFormValues] = useState<Record<string, unknown>>({})
   const [toasts, setToasts] = useState<ToastMessage[]>([])
+  // Live-captured stdout for inline scripts, keyed by script path. Replaces
+  // the row's sublabel at render time (see displayItems). Stored outside the
+  // reducer so refreshes never re-rank the list.
+  const [inlineOutputs, setInlineOutputs] = useState<Record<string, string>>({})
+  // Whether the palette window is focused — polling pauses while hidden so we
+  // don't run user scripts in the background.
+  const [windowFocused, setWindowFocused] = useState(true)
+  const inlineTimersRef = useRef<number[]>([])
   const toastIdRef = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const configRef = useRef(config)
@@ -327,6 +346,44 @@ export default function Palette({
     appEvents.toast = toast
     return () => { appEvents.toast = undefined }
   }, [resetRef, toast])
+
+  // Re-run an inline script and update its live sublabel. Used by the polling
+  // timers and by Enter on an inline row (force-refresh). On error the
+  // previous output is kept (first failure shows an ellipsis).
+  const refreshInline = useCallback(async (path: string) => {
+    try {
+      const out = await runScriptCapture(path)
+      setInlineOutputs(prev => (prev[path] === out ? prev : { ...prev, [path]: out }))
+    } catch {
+      setInlineOutputs(prev => (path in prev ? prev : { ...prev, [path]: '…' }))
+    }
+  }, [])
+
+  // Pause polling while the palette is hidden (focus loss auto-hides it) so we
+  // don't keep running user scripts in the background.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    ;(async () => {
+      unlisten = await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+        setWindowFocused(focused)
+      })
+    })()
+    return () => { unlisten?.() }
+  }, [])
+
+  // Seed + poll each inline script on its @vicinae.refreshTime interval. Only
+  // runs while focused; re-seeds on re-focus.
+  useEffect(() => {
+    inlineTimersRef.current.forEach(clearInterval)
+    inlineTimersRef.current = []
+    if (!windowFocused) return
+    for (const s of inlineScripts) {
+      void refreshInline(s.path)
+      const id = window.setInterval(() => { void refreshInline(s.path) }, Math.max(1, s.refreshSeconds) * 1000)
+      inlineTimersRef.current.push(id)
+    }
+    return () => { inlineTimersRef.current.forEach(clearInterval); inlineTimersRef.current = [] }
+  }, [inlineScripts, windowFocused, refreshInline])
 
   // Commands can come from the static list (scripts, settings) or
   // from a provider's per-query search results
@@ -665,8 +722,21 @@ export default function Palette({
   const noMatches = matchedItems.length === 0
 
   const visibleItems = matchedItems.slice(0, 50)
+  // Overlay live inline-script outputs onto the displayed rows: an inline
+  // item's sublabel becomes the script's captured stdout (or "…" until the
+  // first refresh resolves). Done at render time, outside the ranked search
+  // text, so a changing output never re-ranks the list mid-tick.
+  const displayItems = Object.keys(inlineOutputs).length === 0
+    ? visibleItems
+    : visibleItems.map(i => {
+        const key = i.liveOutputKey
+        if (!key) return i
+        const out = inlineOutputs[key]
+        if (out === undefined) return i
+        return { ...i, sublabel: out }
+      })
   const clampedIndex = Math.min(state.selectedIndex, Math.max(0, visibleItems.length - 1))
-  const selectedItem = visibleItems[clampedIndex] ?? null
+  const selectedItem = displayItems[clampedIndex] ?? null
 
   // Settings is reachable from a fixed footer button instead of the results list
   const settingsCmd = !currentStep && !isInputStep && atRaw === null
@@ -1230,6 +1300,13 @@ export default function Palette({
         }
         return
       }
+      // Inline script: Enter force-refreshes its captured output (re-runs the
+      // script and updates the live sublabel). Stays open so the row updates.
+      if (item.liveOutputKey) {
+        await refreshInline(item.liveOutputKey)
+        toast('Refreshed', 'info')
+        return
+      }
       const cmd = resolveCommand(item.id)
       if (!cmd) return
       if (cmd.action) {
@@ -1471,7 +1548,7 @@ export default function Palette({
           <div style={{ flex: 1, minWidth: 0 }}>
             {isGridStep ? (
               <ResultsGrid
-                items={visibleItems}
+                items={displayItems}
                 selectedIndex={clampedIndex}
                 query={state.query}
                 columns={currentStep?.gridColumns}
@@ -1480,7 +1557,7 @@ export default function Palette({
               />
             ) : (
               <ResultsList
-                items={visibleItems}
+                items={displayItems}
                 selectedIndex={clampedIndex}
                 onSelect={handleSelect}
                 onHover={i => dispatch({ type: 'MOVE_SELECTION', delta: i - clampedIndex })}

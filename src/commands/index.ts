@@ -49,6 +49,17 @@ function scriptAccessories(script: ScriptInfo) {
   return mode ? [{ text: mode }] : undefined
 }
 
+// An inline script (@vicinae.mode inline + refreshTime) produces a single
+// live-refreshing row whose sublabel is the script's captured stdout. We mark
+// it with liveOutputKey so the palette polls it and overrides the sublabel at
+// render time (not in the ranked search text, to avoid re-ranking on refresh).
+function inlineRefreshKey(script: ScriptInfo): string | undefined {
+  if (script.metadata?.mode === 'inline' && script.metadata.refresh_seconds != null) {
+    return script.path
+  }
+  return undefined
+}
+
 // Confirmation step for scripts that declare @vicinae.needsConfirmation true —
 // a fuzzy-matched "res" shouldn't immediately run a destructive script.
 function scriptConfirmStep(script: ScriptInfo): Step {
@@ -94,6 +105,7 @@ export function scriptsToCommands(scripts: ScriptInfo[]): Command[] {
             sublabel: s.metadata?.description ?? undefined,
             keywords: s.metadata?.keywords,
             accessories: scriptAccessories(s),
+            liveOutputKey: inlineRefreshKey(s),
             data: s.path,
           })),
           onSelect: async (item, _cfg) => {
@@ -107,6 +119,7 @@ export function scriptsToCommands(scripts: ScriptInfo[]): Command[] {
         }),
       })
     } else {
+      const liveKey = inlineRefreshKey(script)
       const base: Command = {
         id: `script:${script.path}`,
         label: scriptTitle(script),
@@ -116,6 +129,8 @@ export function scriptsToCommands(scripts: ScriptInfo[]): Command[] {
         keywords: script.metadata?.keywords,
         description: script.metadata?.description ?? undefined,
         accessories: scriptAccessories(script),
+        liveOutputKey: liveKey,
+        actionLabel: liveKey ? 'Refresh' : undefined,
         data: script.path,
       }
       if (script.metadata?.needs_confirmation) {

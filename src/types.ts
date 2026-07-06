@@ -70,6 +70,10 @@ export interface PaletteItem {
   accessories?: PaletteAccessory[]
   // Key/value rows rendered in the detail pane
   metadata?: PaletteMetadata[]
+  // For inline scripts (@vicinae.mode inline + refreshTime): the script path
+  // the frontend polls, whose captured stdout replaces this item's sublabel
+  // live. Presence marks the item as a live-refreshing inline script.
+  liveOutputKey?: string
 }
 
 export type StepResult =
@@ -168,6 +172,10 @@ export interface Command {
   accessories?: PaletteAccessory[]
   // Key/value rows rendered in the detail pane
   metadata?: PaletteMetadata[]
+  // For inline scripts (@vicinae.mode inline + refreshTime): the script path
+  // the frontend polls, whose captured stdout becomes a live sublabel. When
+  // set, Enter force-refreshes instead of fire-and-forget running.
+  liveOutputKey?: string
 }
 
 // A source of commands: static entries for the root list (getCommands) and/or

@@ -652,6 +652,90 @@ pub async fn run_script(path: String) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Run a script and capture its first line of stdout — used by inline scripts
+/// (`@vicinae.mode inline`) whose output becomes a live-refreshing palette row.
+/// Only direct-exec script types are supported (shell scripts with a shebang,
+/// `.sh`, or Windows `.bat`/`.cmd`); launchers that open in another app
+/// (`.code-workspace`, `.desktop`, `.command`, `.lnk`) can't be captured and
+/// error out. A 10 s timeout guards against hung scripts blocking the palette.
+fn capture_script_output(path: &str) -> Result<String, String> {
+    let script_path = std::path::Path::new(path);
+    let ext = script_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    #[cfg(target_os = "windows")]
+    {
+        if ext != "bat" && ext != "cmd" && ext != "sh" {
+            return Err("inline mode only supports .bat/.cmd/.sh scripts on Windows".into());
+        }
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.arg("/c").arg(path);
+        if let Some(dir) = script_path.parent() {
+            cmd.current_dir(dir);
+        }
+        return run_and_read_first_line(&mut cmd);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if ext == "code-workspace" {
+            return Err("inline mode is not supported for .code-workspace files".into());
+        }
+        #[cfg(target_os = "linux")]
+        if ext == "desktop" {
+            return Err("inline mode is not supported for .desktop launchers".into());
+        }
+        #[cfg(target_os = "macos")]
+        if ext == "command" {
+            return Err("inline mode is not supported for .command files".into());
+        }
+        let mut cmd = if is_executable(script_path) {
+            std::process::Command::new(path)
+        } else if ext == "sh" {
+            let mut c = std::process::Command::new("sh");
+            c.arg(path);
+            c
+        } else {
+            // No shebang, no exec bit, not .sh — try sh anyway as a last resort.
+            let mut c = std::process::Command::new("sh");
+            c.arg(path);
+            c
+        };
+        if let Some(dir) = script_path.parent() {
+            cmd.current_dir(dir);
+        }
+        run_and_read_first_line(&mut cmd)
+    }
+}
+
+fn run_and_read_first_line(cmd: &mut std::process::Command) -> Result<String, String> {
+    let out = cmd.output().map_err(|e| format!("Failed to run script: {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let line = stdout.lines().next().unwrap_or("").trim().to_string();
+    if !line.is_empty() {
+        return Ok(if line.len() > 200 { line[..200].to_string() } else { line });
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let err_line = stderr.lines().next().unwrap_or("").trim();
+    if !err_line.is_empty() {
+        return Err(err_line.to_string());
+    }
+    Err("Script produced no output".into())
+}
+
+#[tauri::command]
+pub async fn run_script_capture(path: String) -> Result<String, String> {
+    let timeout = std::time::Duration::from_secs(10);
+    let handle = tokio::task::spawn_blocking(move || capture_script_output(&path));
+    let join = tokio::time::timeout(timeout, handle)
+        .await
+        .map_err(|_| "Script timed out (>10s)".to_string())?;
+    join.map_err(|e| e.to_string())?
+}
+
 /// Reveal a file or folder in the platform file manager with the item
 /// selected: Finder on macOS (`open -R`), File Explorer on Windows
 /// (`explorer /select,`), and the default manager on Linux via the

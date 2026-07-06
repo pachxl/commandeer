@@ -12,7 +12,7 @@ import { appEvents } from './lib/appEvents'
 import { applyThemeByName } from './lib/themes'
 import { onCommandHotkey, readConfig, setGameMode, setWindowTransparency, type ScriptInfo } from './lib/tauri'
 import type { AppConfig, Command } from './types'
-import Palette from './components/Palette'
+import Palette, { type InlineScript } from './components/Palette'
 
 // Fallback used only until the real config (with a platform-appropriate
 // scripts_dir) is loaded from the backend.
@@ -58,6 +58,9 @@ export default function App() {
   const [systemStatsVisible, setSystemStatsVisible] = useState(
     () => localStorage.getItem(SYSTEM_STATS_KEY) !== 'false'
   )
+  // Inline scripts (@vicinae.mode inline + refreshTime) the palette polls for
+  // live stdout. Computed from the loaded scripts in refresh().
+  const [inlineScripts, setInlineScripts] = useState<InlineScript[]>([])
   const resetRef = useRef<(() => void) | null>(null)
   // Palette registers its per-command hotkey handler here; the Rust side fires
   // 'command-hotkey' events for registered shortcuts and deep links
@@ -67,6 +70,11 @@ export default function App() {
     try {
       const { commands: cmds, scripts } = await loadScriptCommands(configRef.current)
       localStorage.setItem(SCRIPTS_CACHE_KEY, JSON.stringify(scripts))
+      // Inline+refresh scripts are polled by the palette for live stdout.
+      const inline = scripts
+        .filter(s => !s.is_folder && s.metadata?.mode === 'inline' && s.metadata.refresh_seconds != null)
+        .map(s => ({ path: s.path, refreshSeconds: s.metadata!.refresh_seconds! }))
+      setInlineScripts(inline)
       const providerCmds = await loadProviderCommands(configRef.current).catch(err => {
         console.error(err)
         return [] as Command[]
@@ -190,6 +198,7 @@ export default function App() {
     <Palette
       config={config}
       commands={commands}
+      inlineScripts={inlineScripts}
       onConfigChange={() => {}}
       resetRef={resetRef}
       commandHotkeyRef={commandHotkeyRef}

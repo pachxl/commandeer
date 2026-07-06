@@ -556,6 +556,7 @@ pub fn run() {
             commands::config::write_config,
             commands::fs::list_scripts,
             commands::fs::run_script,
+            commands::fs::run_script_capture,
             commands::fs::reveal_path,
             commands::claude::claude_usage,
             commands::store::data_dir,

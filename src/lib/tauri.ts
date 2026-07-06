@@ -49,6 +49,13 @@ export const listScripts = (scriptsDir: string) =>
 export const runScript = (path: string) =>
   invoke<void>('run_script', { path })
 
+// Run a script and capture its first line of stdout. Used by inline scripts
+// (@vicinae.mode inline) whose output becomes a live-refreshing palette row.
+// Errors (non-capturable file type, timeout >10s, no output) surface as
+// rejections — the frontend shows "…" until a refresh succeeds.
+export const runScriptCapture = (path: string) =>
+  invoke<string>('run_script_capture', { path })
+
 export const setGameMode = (enabled: boolean) =>
   invoke<void>('set_game_mode', { enabled })
 
