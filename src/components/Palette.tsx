@@ -68,6 +68,21 @@ function commandsToFlatItems(commands: Command[]): PaletteItem[] {
   }))
 }
 
+// Fallback commands shown when a root query matches nothing — so the palette
+// is never a dead end. Injected into the results list (keyboard-navigable,
+// unlike a static empty-state message). Web/GitHub open a browser; "files"
+// hands off to the @find mode so the query keeps refining in-place.
+function buildFallbackItems(query: string): PaletteItem[] {
+  const q = query.trim()
+  if (!q) return []
+  const data = (kind: string) => ({ kind, q }) as unknown
+  return [
+    { id: 'fallback:web', label: `Search the web for “${q}”`, icon: 'search', source: 'builtin', data: data('web'), actionLabel: 'Open' },
+    { id: 'fallback:files', label: `Search files for “${q}”`, icon: 'folder', source: 'builtin', data: data('files'), actionLabel: 'Search' },
+    { id: 'fallback:github', label: `Search GitHub for “${q}”`, icon: 'search', source: 'builtin', data: data('github'), actionLabel: 'Open' },
+  ]
+}
+
 // ── Overrides (aliases & pins) ────────────────────────────────────────────────
 
 type Overrides = Record<string, CommandOverride>
@@ -714,6 +729,11 @@ export default function Palette({
     const seen = new Set<string>()
     const deduped = merged.filter(i => (seen.has(i.id) ? false : (seen.add(i.id), true)))
     matchedItems = buildQueryResults(deduped, state.query, overrides)
+    // Nothing matched: surface actionable fallback rows so the palette is
+    // never a dead end (web / files / GitHub).
+    if (matchedItems.length === 0) {
+      matchedItems = buildFallbackItems(state.query)
+    }
   } else {
     // Root browse: folders first, then scripts with last-used floating up —
     // exactly as assembled in the __root__ cache
@@ -1307,6 +1327,27 @@ export default function Palette({
         toast('Refreshed', 'info')
         return
       }
+      // Fallback commands (web / files / GitHub) shown when a query matched
+      // nothing. Files hands off to @find mode in-place; the rest open a URL.
+      if (item.id.startsWith('fallback:')) {
+        const data = item.data as { kind: string; q: string }
+        try {
+          if (data.kind === 'files') {
+            dispatch({ type: 'SET_QUERY', query: `@find ${data.q}` })
+            return
+          }
+          const url = data.kind === 'github'
+            ? `https://github.com/search?q=${encodeURIComponent(data.q)}`
+            : `https://www.google.com/search?q=${encodeURIComponent(data.q)}`
+          await openUrl(url)
+          recordUse(item.id)
+          dispatch({ type: 'RESET' })
+          await getCurrentWindow().hide()
+        } catch (err) {
+          dispatch({ type: 'SET_ERROR', error: String(err) })
+        }
+        return
+      }
       const cmd = resolveCommand(item.id)
       if (!cmd) return
       if (cmd.action) {
@@ -1504,42 +1545,6 @@ export default function Palette({
               ? `No files matching '${folderMode ? folderQuery : findQuery}'`
               : `No commands matching '${state.query}'`}
           </div>
-
-          {!folderMode && !findMode && !calcMode && !timeMode && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <div
-                onClick={async () => {
-                  const url = `https://www.google.com/search?q=${encodeURIComponent(state.query)}`
-                  try {
-                    await openUrl(url)
-                    dispatch({ type: 'RESET' })
-                    await getCurrentWindow().hide()
-                  } catch (err) {
-                    dispatch({ type: 'SET_ERROR', error: String(err) })
-                  }
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '5px 8px',
-                  borderRadius: 5,
-                  cursor: 'pointer',
-                  color: 'var(--text)',
-                  fontSize: 13,
-                  fontFamily: 'var(--font)',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-select)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="m21 21-4.3-4.3" />
-                </svg>
-                <span>Search the web for "{state.query}"</span>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
