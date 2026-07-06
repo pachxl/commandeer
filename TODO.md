@@ -18,23 +18,38 @@ The full feature set lives in the Windows `platform` module:
   `GetCursorPos` at ~200 Hz (`timeBeginPeriod(1)` while dragging) and repositions
   via `SetWindowPos`. The hook never swallows `WM_MOUSEMOVE` (that freezes the
   cursor) and never calls `SetWindowPos` (that can stall system input).
-- **Resize corner** is picked from the cursor's 2×2 quadrant.
+- **Raise on grab.** The grabbed window is brought to the front via
+  `AttachThreadInput` + `SetForegroundWindow` + `BringWindowToTop` (a plain
+  cross-process `SetWindowPos(HWND_TOP)` is ignored by the foreground lock).
+- **Games left alone.** `is_fullscreen_window` rejects a window that is not
+  `IsZoomed`, covers its whole monitor (incl. the taskbar), and is borderless —
+  so an Alt-drag never moves/resizes a fullscreen or borderless game, and the
+  click passes straight through.
+- **Resize edge selection.**
+  - A half-screen snapped window resizes from its one free edge.
+  - An un-snapped window whose edge is **cleanly tiled** — shared with
+    neighbor(s) that span it exactly, none overhanging (`clean_tile_edge`) —
+    resizes only that edge (nearest the cursor) and locks the rest, so a
+    quarter-tiled window keeps its width and position. Two windows stacked in a
+    column resize only their shared divider.
+  - Otherwise the corner is picked from the cursor's 2×2 quadrant (free resize).
 - **Hover indicator.** While Alt is held over a draggable window, a
   click-through per-pixel-alpha overlay (`UpdateLayeredWindow`, sized to the DWM
   extended-frame bounds, rounded corners) dims the window and highlights the
-  region a resize would grab — four quadrants for a normal window, two halves
-  for a snapped one. Hidden while dragging and when a snapped window is tiled
-  against a neighbor (only one drag is possible then).
-- **Snapped-window resize.** A window snapped to a screen edge resizes from its
-  one free edge only, keeping its snapped dimension.
-- **Tiling.** Two windows snapped flush share an edge: resizing one moves the
-  neighbor's facing edge too (single `DeferWindowPos` batch so they stay locked
-  together), clamped so neither drops below the min size.
+  region a resize would grab — four quadrants for a free window, two halves for
+  a snapped one. Hidden while dragging and whenever the resize is locked to a
+  single shared divider (same `clean_tile_edge` test as the resize).
+- **Tiling (N windows).** Resizing a shared edge moves **every** window flush
+  along it — `find_neighbors` samples the whole edge (not one midpoint), so one
+  tall window beside a stack of two resizes both — applied in a single
+  `DeferWindowPos` batch, clamped so none drops below `MIN_SIZE`. Neighbor
+  facing edges overlap 3/4 of the combined invisible border to shrink the gap.
 - **Aero-Snap on move.** Dragging toward a screen edge previews and (on release)
-  snaps to a half / quarter, or maximizes at the top edge — even splits of the
-  work area, offset by the invisible border so visible edges line up. Edge
-  trigger band is 80 px. (Screen-edge snapping is **move-only**; resize never
-  border-snaps.)
+  snaps to a half / quarter, or maximizes at the top edge, offset by the
+  invisible border so visible edges line up. Edge trigger band is 160 px.
+  Snapping to a side **fills the space** beside an already-snapped window
+  (`snap_fill_x`) rather than a fixed half. (Screen-edge snapping is
+  **move-only**; resize never border-snaps.)
 
 ### macOS — basic move/resize only, UNVERIFIED
 
