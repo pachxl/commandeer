@@ -157,6 +157,19 @@ mod platform {
         }
     }
 
+    // One window snapped flush against the resized target's free edge. Its
+    // facing edge tracks the target's shared boundary (three edges stay fixed)
+    // so shrinking the target grows the neighbour — tiling. `overlap` is how far
+    // its facing edge is pushed past the boundary into the invisible-border
+    // region, to halve the visible gap; it's per-neighbour because border insets
+    // can differ between windows.
+    #[derive(Clone, Copy)]
+    struct Neighbor {
+        hwnd: isize,
+        rect: RECT,
+        overlap: i32,
+    }
+
     // Drag parameters, set once per grab by the hook and read by the mover
     // thread. The hook never tracks the moving cursor at all — the mover polls
     // `GetCursorPos` itself — so the hook's hot path does zero work.
@@ -173,16 +186,10 @@ mod platform {
         restore_max: bool,
         // Snap orientation of a resized window (None for a normal window).
         snap: SnapKind,
-        // A window snapped flush against the target's free edge; its facing edge
-        // tracks the target's so shrinking one grows the other (tiling). 0 = none.
-        neighbor: isize,
-        // The neighbor's rect at grab; three edges stay fixed, the facing edge
-        // follows the target's free edge.
-        neighbor_rect: RECT,
-        // How far to overlap the neighbor's facing edge past the shared boundary
-        // (into the invisible-border region), to halve the visible gap between
-        // the two tiled windows. 0 when there's no neighbor.
-        tile_overlap: i32,
+        // Every window snapped flush along the target's free edge. Resizing the
+        // target moves all of their facing edges together, so an arbitrary grid
+        // (e.g. one tall window beside a stack of two) stays tiled. Empty = none.
+        neighbors: Vec<Neighbor>,
         // The moved window's invisible-border insets, captured at grab so an
         // edge-snap on release lines the visible frame up with the work area.
         border: RECT,
@@ -200,9 +207,7 @@ mod platform {
                 edges: Edges::default(),
                 restore_max: false,
                 snap: SnapKind::None,
-                neighbor: 0,
-                neighbor_rect: RECT::default(),
-                tile_overlap: 0,
+                neighbors: Vec::new(),
                 border: RECT::default(),
             }
         }
@@ -363,17 +368,51 @@ mod platform {
                     st.rect = rect;
                     st.restore_max = restore_max;
                     st.snap = SnapKind::None;
-                    st.neighbor = 0;
+                    st.neighbors.clear();
                     if mode == Mode::Resize {
-                        // A snapped window resizes from its one free edge only
-                        // (keeping its snapped dimension); a normal window picks
-                        // the corner from the cursor's quadrant. Maximized
-                        // targets are restored to a normal size first, so treat
-                        // them as normal.
-                        let snap = if restore_max {
+                        // Decide how the resize behaves:
+                        //  1. A half-screen snapped window resizes from its one
+                        //     free edge and tiles along it.
+                        //  2. Otherwise, if the edge nearest the cursor is shared
+                        //     with flush neighbors, resize just that edge and tile
+                        //     along it — so a stacked/side-by-side grid (e.g.
+                        //     windows 2 and 3) redistributes space like Windows.
+                        //  3. Failing both, a normal quadrant-corner resize.
+                        // Maximized targets are restored first, so never tile.
+                        let real_snap = if restore_max {
                             SnapKind::None
                         } else {
                             snap_kind(hwnd, &rect)
+                        };
+                        let (snap, raw) = if real_snap != SnapKind::None {
+                            (real_snap, find_neighbors(real_snap, &rect, hwnd))
+                        } else if !restore_max {
+                            // Among the edges cleanly tiled with neighbors, resize
+                            // the one nearest the cursor; the rest (screen borders,
+                            // partially-shared edges) stay locked so the window's
+                            // other dimensions and position are preserved.
+                            let mut best: Option<(SnapKind, Vec<(HWND, RECT)>)> = None;
+                            let mut best_dist = i32::MAX;
+                            for e in [
+                                SnapKind::Left,
+                                SnapKind::Right,
+                                SnapKind::Top,
+                                SnapKind::Bottom,
+                            ] {
+                                if let Some(nb) = clean_tile_edge(e, &rect, hwnd) {
+                                    let d = edge_dist(e, px, py, &rect);
+                                    if d < best_dist {
+                                        best_dist = d;
+                                        best = Some((e, nb));
+                                    }
+                                }
+                            }
+                            match best {
+                                Some((e, nb)) => (e, nb),
+                                None => (SnapKind::None, Vec::new()),
+                            }
+                        } else {
+                            (SnapKind::None, Vec::new())
                         };
                         st.snap = snap;
                         st.edges = if snap == SnapKind::None {
@@ -381,24 +420,30 @@ mod platform {
                         } else {
                             snap.free_edge()
                         };
-                        // A window snapped flush against the free edge tiles
-                        // with it: shrinking the target lets the neighbor grow.
+                        // Every window flush along the resized edge tiles with the
+                        // target: shrinking it grows all of them. Push each
+                        // neighbor's facing edge past the boundary by half the
+                        // combined invisible border to halve the visible gap.
                         if snap != SnapKind::None {
-                            if let Some((nh, nrect)) = find_neighbor(snap, &rect) {
-                                st.neighbor = nh.0 as isize;
-                                st.neighbor_rect = nrect;
-                                // Overlap the neighbor into the shared border
-                                // region by half the combined invisible border,
-                                // halving the visible gap between the two.
-                                let ti = border_insets(hwnd, &rect);
+                            let ti = border_insets(hwnd, &rect);
+                            for (nh, nrect) in raw {
                                 let ni = border_insets(nh, &nrect);
-                                st.tile_overlap = match snap {
-                                    SnapKind::Right => (ti.left + ni.right) / 2,
-                                    SnapKind::Left => (ti.right + ni.left) / 2,
-                                    SnapKind::Top => (ti.bottom + ni.top) / 2,
-                                    SnapKind::Bottom => (ti.top + ni.bottom) / 2,
+                                // Push the neighbor's facing edge 3/4 of the way
+                                // across the combined invisible border, leaving a
+                                // visible gap of 1/4 of it — half of the previous
+                                // 1/2 (i.e. the gap halved once more).
+                                let overlap = match snap {
+                                    SnapKind::Right => (ti.left + ni.right) * 3 / 4,
+                                    SnapKind::Left => (ti.right + ni.left) * 3 / 4,
+                                    SnapKind::Top => (ti.bottom + ni.top) * 3 / 4,
+                                    SnapKind::Bottom => (ti.top + ni.bottom) * 3 / 4,
                                     SnapKind::None => 0,
                                 };
+                                st.neighbors.push(Neighbor {
+                                    hwnd: nh.0 as isize,
+                                    rect: nrect,
+                                    overlap,
+                                });
                             }
                         }
                     } else {
@@ -596,96 +641,188 @@ mod platform {
     /// resize can move both edges together (tiling). Probes just past the free
     /// edge, at the mid-point of the shared side, and accepts the window there
     /// if its facing edge sits on the boundary.
-    unsafe fn find_neighbor(snap: SnapKind, rect: &RECT) -> Option<(HWND, RECT)> {
+    /// Every distinct window snapped flush along the target's free edge. The
+    /// free edge is sampled at many points just outside it (not one midpoint):
+    /// a full-height window beside a stack of two shorter ones borders *both*,
+    /// and both must tile. `WindowFromPoint` respects Z-order, so only the
+    /// windows actually visible against the edge are picked up. Deduped by HWND.
+    unsafe fn find_neighbors(snap: SnapKind, rect: &RECT, self_hwnd: HWND) -> Vec<(HWND, RECT)> {
         const PROBE: i32 = 8;
         // GetWindowRect includes the ~7px invisible border on both windows, so
         // two flush windows' facing edges can differ by ~2 borders.
         const TOL: i32 = 20;
-        let hcx = (rect.left + rect.right) / 2;
-        let hcy = (rect.top + rect.bottom) / 2;
-        let probe = match snap {
-            SnapKind::Right => POINT {
-                x: rect.left - PROBE,
-                y: hcy,
-            },
-            SnapKind::Left => POINT {
-                x: rect.right + PROBE,
-                y: hcy,
-            },
-            SnapKind::Top => POINT {
-                x: hcx,
-                y: rect.bottom + PROBE,
-            },
-            SnapKind::Bottom => POINT {
-                x: hcx,
-                y: rect.top - PROBE,
-            },
-            SnapKind::None => return None,
-        };
-        let root = GetAncestor(WindowFromPoint(probe), GA_ROOT);
-        if !is_draggable_root(root) {
-            return None;
+        // Evenly spaced samples along the edge; even a MIN_SIZE-wide cell on a
+        // wide monitor lands on at least one. Inset a little from the corners so
+        // a probe never straddles a perpendicular neighbor.
+        const SAMPLES: i32 = 48;
+        const INSET: i32 = 6;
+        let mut out: Vec<(HWND, RECT)> = Vec::new();
+        if snap == SnapKind::None {
+            return out;
         }
-        let mut nr = RECT::default();
-        if GetWindowRect(root, &mut nr).is_err() {
-            return None;
-        }
-        let flush = match snap {
-            SnapKind::Right => (nr.right - rect.left).abs() <= TOL,
-            SnapKind::Left => (nr.left - rect.right).abs() <= TOL,
-            SnapKind::Top => (nr.top - rect.bottom).abs() <= TOL,
-            SnapKind::Bottom => (nr.bottom - rect.top).abs() <= TOL,
-            SnapKind::None => false,
-        };
-        if flush {
-            Some((root, nr))
+        // (start, end) is the range swept along the edge; the axis is x for the
+        // Top/Bottom free edges and y for Left/Right.
+        let along_x = matches!(snap, SnapKind::Top | SnapKind::Bottom);
+        let (start, end) = if along_x {
+            (rect.left + INSET, rect.right - INSET)
         } else {
-            None
+            (rect.top + INSET, rect.bottom - INSET)
+        };
+        if end <= start {
+            return out;
         }
+        for i in 0..=SAMPLES {
+            let t = start + (end - start) * i / SAMPLES;
+            let probe = match snap {
+                SnapKind::Right => POINT { x: rect.left - PROBE, y: t },
+                SnapKind::Left => POINT { x: rect.right + PROBE, y: t },
+                SnapKind::Top => POINT { x: t, y: rect.bottom + PROBE },
+                SnapKind::Bottom => POINT { x: t, y: rect.top - PROBE },
+                SnapKind::None => continue,
+            };
+            let root = GetAncestor(WindowFromPoint(probe), GA_ROOT);
+            if root == self_hwnd || !is_draggable_root(root) {
+                continue;
+            }
+            if out.iter().any(|(h, _)| *h == root) {
+                continue;
+            }
+            let mut nr = RECT::default();
+            if GetWindowRect(root, &mut nr).is_err() {
+                continue;
+            }
+            let flush = match snap {
+                SnapKind::Right => (nr.right - rect.left).abs() <= TOL,
+                SnapKind::Left => (nr.left - rect.right).abs() <= TOL,
+                SnapKind::Top => (nr.top - rect.bottom).abs() <= TOL,
+                SnapKind::Bottom => (nr.bottom - rect.top).abs() <= TOL,
+                SnapKind::None => false,
+            };
+            if flush {
+                out.push((root, nr));
+            }
+        }
+        out
     }
 
-    /// Given the target's resized edges `(tl, tt, tr, tb)`, move the neighbor's
-    /// facing edge to the shared boundary (keeping its other three edges), and
-    /// clamp the boundary so neither window drops below `MIN_SIZE`. Returns the
-    /// (possibly clamped) target edges and the neighbor edges.
-    fn coordinate_neighbor(
+    /// Given the target's resized edges `(tl, tt, tr, tb)`, move every neighbor's
+    /// facing edge to the shared boundary (keeping their other three edges), and
+    /// clamp the boundary so neither the target nor *any* neighbor drops below
+    /// `MIN_SIZE`. Returns the (possibly clamped) target edges plus each
+    /// neighbor's `(hwnd, rect)` to apply.
+    fn coordinate_neighbors(
         snap: SnapKind,
-        nr: RECT,
-        overlap: i32,
+        neighbors: &[Neighbor],
         tl: i32,
         tt: i32,
         tr: i32,
         tb: i32,
-    ) -> ((i32, i32, i32, i32), (i32, i32, i32, i32)) {
-        // The target's free edge sits at the shared boundary `b`; the neighbor's
-        // facing edge is pushed `overlap` past it (into the invisible border) so
-        // the visible gap is halved. Use `.max(lo).min(hi)` rather than
-        // `.clamp(lo, hi)`: if the combined span is too small the bounds cross,
-        // and `clamp` would panic — this degrades to honouring the target's
-        // minimum instead.
+    ) -> ((i32, i32, i32, i32), Vec<(isize, RECT)>) {
+        // The target's free edge sits at the shared boundary `b`; each neighbor's
+        // facing edge is pushed its own `overlap` past it (into the invisible
+        // border) so the visible gap is halved. Use `.max(lo).min(hi)` rather
+        // than `.clamp(lo, hi)`: if the combined span is too small the bounds
+        // cross and `clamp` would panic — this degrades gracefully instead. The
+        // boundary is clamped against the *tightest* neighbor so none collapses.
         match snap {
-            // Target free edge = left; neighbor is the left window (facing edge
-            // = its right). Boundary = shared vertical line.
+            // Target free edge = left; neighbors are the windows on the left
+            // (facing edge = their right). Boundary = shared vertical line.
             SnapKind::Right => {
-                let b = tl.max(nr.left + MIN_SIZE).min(tr - MIN_SIZE);
-                ((b, tt, tr, tb), (nr.left, nr.top, b + overlap, nr.bottom))
+                let lo = neighbors
+                    .iter()
+                    .map(|n| n.rect.left + MIN_SIZE)
+                    .max()
+                    .unwrap_or(i32::MIN);
+                let b = tl.max(lo).min(tr - MIN_SIZE);
+                let nrects = neighbors
+                    .iter()
+                    .map(|n| {
+                        (
+                            n.hwnd,
+                            RECT {
+                                left: n.rect.left,
+                                top: n.rect.top,
+                                right: b + n.overlap,
+                                bottom: n.rect.bottom,
+                            },
+                        )
+                    })
+                    .collect();
+                ((b, tt, tr, tb), nrects)
             }
-            // Free edge = right; neighbor is the right window (facing = its left).
+            // Free edge = right; neighbors on the right (facing = their left).
             SnapKind::Left => {
-                let b = tr.max(tl + MIN_SIZE).min(nr.right - MIN_SIZE);
-                ((tl, tt, b, tb), (b - overlap, nr.top, nr.right, nr.bottom))
+                let hi = neighbors
+                    .iter()
+                    .map(|n| n.rect.right - MIN_SIZE)
+                    .min()
+                    .unwrap_or(i32::MAX);
+                let b = tr.max(tl + MIN_SIZE).min(hi);
+                let nrects = neighbors
+                    .iter()
+                    .map(|n| {
+                        (
+                            n.hwnd,
+                            RECT {
+                                left: b - n.overlap,
+                                top: n.rect.top,
+                                right: n.rect.right,
+                                bottom: n.rect.bottom,
+                            },
+                        )
+                    })
+                    .collect();
+                ((tl, tt, b, tb), nrects)
             }
-            // Free edge = bottom; neighbor below (facing = its top).
+            // Free edge = bottom; neighbors below (facing = their top).
             SnapKind::Top => {
-                let b = tb.max(tt + MIN_SIZE).min(nr.bottom - MIN_SIZE);
-                ((tl, tt, tr, b), (nr.left, b - overlap, nr.right, nr.bottom))
+                let hi = neighbors
+                    .iter()
+                    .map(|n| n.rect.bottom - MIN_SIZE)
+                    .min()
+                    .unwrap_or(i32::MAX);
+                let b = tb.max(tt + MIN_SIZE).min(hi);
+                let nrects = neighbors
+                    .iter()
+                    .map(|n| {
+                        (
+                            n.hwnd,
+                            RECT {
+                                left: n.rect.left,
+                                top: b - n.overlap,
+                                right: n.rect.right,
+                                bottom: n.rect.bottom,
+                            },
+                        )
+                    })
+                    .collect();
+                ((tl, tt, tr, b), nrects)
             }
-            // Free edge = top; neighbor above (facing = its bottom).
+            // Free edge = top; neighbors above (facing = their bottom).
             SnapKind::Bottom => {
-                let b = tt.max(nr.top + MIN_SIZE).min(tb - MIN_SIZE);
-                ((tl, b, tr, tb), (nr.left, nr.top, nr.right, b + overlap))
+                let lo = neighbors
+                    .iter()
+                    .map(|n| n.rect.top + MIN_SIZE)
+                    .max()
+                    .unwrap_or(i32::MIN);
+                let b = tt.max(lo).min(tb - MIN_SIZE);
+                let nrects = neighbors
+                    .iter()
+                    .map(|n| {
+                        (
+                            n.hwnd,
+                            RECT {
+                                left: n.rect.left,
+                                top: n.rect.top,
+                                right: n.rect.right,
+                                bottom: b + n.overlap,
+                            },
+                        )
+                    })
+                    .collect();
+                ((tl, b, tr, tb), nrects)
             }
-            SnapKind::None => ((tl, tt, tr, tb), (nr.left, nr.top, nr.right, nr.bottom)),
+            SnapKind::None => ((tl, tt, tr, tb), Vec::new()),
         }
     }
 
@@ -738,9 +875,10 @@ mod platform {
     /// corners give quarters, the top edge maximizes.
     fn snap_zone(p: POINT, work: RECT) -> Option<SnapZone> {
         // Trigger band along each screen edge. Generous so a fast drag lands in
-        // it without having to creep up on the edge (and, on multi-monitor
-        // setups, without overshooting onto the next display).
-        const EDGE: i32 = 80;
+        // it well before the cursor reaches the edge — on multi-monitor setups
+        // that means you can snap without slowing down to avoid overshooting
+        // onto the next display.
+        const EDGE: i32 = 160;
         const CORNER: i32 = 100; // how far along an edge still counts as a corner
         let near_left = p.x <= work.left + EDGE;
         let near_right = p.x >= work.right - EDGE;
@@ -768,14 +906,51 @@ mod platform {
         }
     }
 
-    /// The target window rect for a snap zone — an exact half / quarter / full
-    /// split of the work area, offset by the window's invisible border so the
-    /// visible edges line up. The bool marks a full-screen (maximize) target
-    /// (drawn with square corners); `Maximize` uses the OS maximize on commit,
-    /// this rect is only for the preview.
-    fn zone_rect(zone: SnapZone, work: RECT, border: RECT) -> (RECT, bool) {
+    /// The interior vertical boundary a half-snap should fill up to, if a window
+    /// is already snapped against the opposite wall — Windows-style: snapping
+    /// left when the right half is occupied fills the *remaining* space (up to
+    /// that window's visible edge) instead of a fixed 50%. `None` (no opposite
+    /// snapped window) falls back to the work-area midpoint. Probes 3/4 of the
+    /// way across, so a half-height quarter won't be mistaken for a full column.
+    unsafe fn snap_fill_x(zone: SnapZone, work: RECT, dragged: HWND) -> Option<i32> {
+        let w = work.right - work.left;
+        let (probe_x, want) = match zone {
+            SnapZone::Left => (work.left + w * 3 / 4, SnapKind::Right),
+            SnapZone::Right => (work.left + w / 4, SnapKind::Left),
+            _ => return None,
+        };
+        let probe = POINT {
+            x: probe_x,
+            y: (work.top + work.bottom) / 2,
+        };
+        let root = GetAncestor(WindowFromPoint(probe), GA_ROOT);
+        if root == dragged || !is_draggable_root(root) {
+            return None;
+        }
+        let mut wr = RECT::default();
+        if GetWindowRect(root, &mut wr).is_err() || snap_kind(root, &wr) != want {
+            return None;
+        }
+        // Fill up to the occupant's *visible* facing edge so the two touch flush.
+        let vb = visible_bounds(root).unwrap_or(wr);
+        Some(match want {
+            SnapKind::Right => vb.left, // occupant on the right; fill our right edge to its left
+            _ => vb.right,             // occupant on the left; fill our left edge to its right
+        })
+    }
+
+    /// The target window rect for a snap zone — a half / quarter / full split of
+    /// the work area, offset by the window's invisible border so the visible
+    /// edges line up. `fill_x` overrides the interior vertical boundary of a
+    /// half-snap so it fills the space beside an already-snapped window. The
+    /// bool marks a full-screen (maximize) target (drawn with square corners);
+    /// `Maximize` uses the OS maximize on commit, this rect is only for preview.
+    fn zone_rect(zone: SnapZone, work: RECT, border: RECT, fill_x: Option<i32>) -> (RECT, bool) {
         let midx = (work.left + work.right) / 2;
         let midy = (work.top + work.bottom) / 2;
+        // For a left/right half, the interior edge fills up to an existing
+        // neighbor when there is one; otherwise it's the midpoint.
+        let bound = fill_x.unwrap_or(midx);
         let (bl, bt, br, bb) = (border.left, border.top, border.right, border.bottom);
         let mk = |l: i32, t: i32, r: i32, b: i32| RECT {
             left: l,
@@ -785,11 +960,11 @@ mod platform {
         };
         match zone {
             SnapZone::Left => (
-                mk(work.left - bl, work.top - bt, midx + br, work.bottom + bb),
+                mk(work.left - bl, work.top - bt, bound + br, work.bottom + bb),
                 false,
             ),
             SnapZone::Right => (
-                mk(midx - bl, work.top - bt, work.right + br, work.bottom + bb),
+                mk(bound - bl, work.top - bt, work.right + br, work.bottom + bb),
                 false,
             ),
             SnapZone::Maximize => (mk(work.left, work.top, work.right, work.bottom), true),
@@ -1017,11 +1192,24 @@ mod platform {
             return;
         }
 
-        // A snapped window tiled against a flush neighbor has exactly one
-        // possible drag (the shared edge), so the overlay would be noise —
-        // don't show it at all.
+        // A window whose resize is locked to a single shared divider has exactly
+        // one possible drag, so the overlay would be noise — don't show it. That
+        // covers both a half-snapped window tiled against a neighbor and a
+        // quarter-tiled window (e.g. windows 2/3) with one cleanly-tiled edge.
         let sk = snap_kind(target, &wr);
-        if sk != SnapKind::None && find_neighbor(sk, &wr).is_some() {
+        let tiled = if sk != SnapKind::None {
+            !find_neighbors(sk, &wr, target).is_empty()
+        } else {
+            [
+                SnapKind::Left,
+                SnapKind::Right,
+                SnapKind::Top,
+                SnapKind::Bottom,
+            ]
+            .into_iter()
+            .any(|e| clean_tile_edge(e, &wr, target).is_some())
+        };
+        if tiled {
             hide_indicator();
             return;
         }
@@ -1058,8 +1246,8 @@ mod platform {
     /// uniform translucent fill of the target half / quarter / full-screen, or
     /// hide it when the cursor isn't in a zone (or the drag is a resize).
     unsafe fn move_snap_preview() {
-        let (mode, border) = match state().lock() {
-            Ok(st) => (st.mode, st.border),
+        let (mode, border, dragged) = match state().lock() {
+            Ok(st) => (st.mode, st.border, HWND(st.hwnd as *mut _)),
             Err(_) => {
                 hide_indicator();
                 return;
@@ -1082,7 +1270,8 @@ mod platform {
             hide_indicator();
             return;
         };
-        let (rect, maximized) = zone_rect(zone, work, border);
+        let fill_x = snap_fill_x(zone, work, dragged);
+        let (rect, maximized) = zone_rect(zone, work, border, fill_x);
         paint_indicator(rect, 2, 2, maximized, PREVIEW_ALPHA, PREVIEW_ALPHA);
     }
 
@@ -1249,6 +1438,70 @@ mod platform {
         e
     }
 
+    /// Distance from the cursor to the edge whose free edge is `e` — used to
+    /// pick which of a window's tileable edges a resize grabs.
+    fn edge_dist(e: SnapKind, px: i32, py: i32, r: &RECT) -> i32 {
+        match e {
+            SnapKind::Right => px - r.left,  // free edge = left
+            SnapKind::Left => r.right - px,  // free edge = right
+            SnapKind::Bottom => py - r.top,  // free edge = top
+            SnapKind::Top => r.bottom - py,  // free edge = bottom
+            SnapKind::None => i32::MAX,
+        }
+    }
+
+    /// If the window's edge (named by the virtual `SnapKind` whose free edge is
+    /// that edge) is shared with flush neighbors that *cleanly* tile it — they
+    /// span the whole edge and none overhangs past it — return those neighbors.
+    ///
+    /// This is what keeps a quarter-tiled window's width fixed: window 2's bottom
+    /// edge is cleanly tiled by window 3 (same width, aligned), so it resizes;
+    /// but its left edge is shared with the full-height window 1, which overhangs
+    /// below window 2, so that edge stays locked (moving it would misalign
+    /// window 3). Screen-border edges have no neighbor and are never resizable.
+    unsafe fn clean_tile_edge(
+        e: SnapKind,
+        rect: &RECT,
+        self_hwnd: HWND,
+    ) -> Option<Vec<(HWND, RECT)>> {
+        const TOL: i32 = 24;
+        let nb = find_neighbors(e, rect, self_hwnd);
+        if nb.is_empty() {
+            return None;
+        }
+        // The edge runs along the perpendicular axis: x for a Top/Bottom free
+        // edge, y for Left/Right.
+        let horizontal = matches!(e, SnapKind::Top | SnapKind::Bottom);
+        let (w_start, w_end) = if horizontal {
+            (rect.left, rect.right)
+        } else {
+            (rect.top, rect.bottom)
+        };
+        let mut cover_start = i32::MAX;
+        let mut cover_end = i32::MIN;
+        for (_, nr) in &nb {
+            let (n_start, n_end) = if horizontal {
+                (nr.left, nr.right)
+            } else {
+                (nr.top, nr.bottom)
+            };
+            // A neighbor that spills past our edge is shared with other windows
+            // too (a full-height window beside a half-height one) — moving it
+            // would misalign them, so this edge isn't cleanly tileable.
+            if n_start < w_start - TOL || n_end > w_end + TOL {
+                return None;
+            }
+            cover_start = cover_start.min(n_start);
+            cover_end = cover_end.max(n_end);
+        }
+        // The neighbors must span our whole edge, or resizing would leave a gap.
+        if cover_start <= w_start + TOL && cover_end >= w_end - TOL {
+            Some(nb)
+        } else {
+            None
+        }
+    }
+
     /// Resolve the target frame (x, y, w, h) for the current cursor position.
     fn compute_target(
         mode: Mode,
@@ -1339,36 +1592,22 @@ mod platform {
 
             // Snapshot the per-grab params under a brief lock (never held during
             // SetWindowPos, so the hook's button handlers don't stall).
-            let (
-                mode,
-                hwnd,
-                sx,
-                sy,
-                mut rect,
-                mut edges,
-                restore_max,
-                snap,
-                neighbor,
-                neighbor_rect,
-                tile_overlap,
-                border,
-            ) = match state().lock() {
-                Ok(st) => (
-                    st.mode,
-                    st.hwnd,
-                    st.start_x,
-                    st.start_y,
-                    st.rect,
-                    st.edges,
-                    st.restore_max,
-                    st.snap,
-                    st.neighbor,
-                    st.neighbor_rect,
-                    st.tile_overlap,
-                    st.border,
-                ),
-                Err(_) => continue,
-            };
+            let (mode, hwnd, sx, sy, mut rect, mut edges, restore_max, snap, neighbors, border) =
+                match state().lock() {
+                    Ok(st) => (
+                        st.mode,
+                        st.hwnd,
+                        st.start_x,
+                        st.start_y,
+                        st.rect,
+                        st.edges,
+                        st.restore_max,
+                        st.snap,
+                        st.neighbors.clone(),
+                        st.border,
+                    ),
+                    Err(_) => continue,
+                };
             let gen = GEN.load(Ordering::Relaxed);
             let new_grab = gen != local_gen;
             if new_grab {
@@ -1458,7 +1697,8 @@ mod platform {
                         if zone == SnapZone::Maximize {
                             maximize_apply = true;
                         } else {
-                            let (rc, _) = zone_rect(zone, work, border);
+                            let fill_x = unsafe { snap_fill_x(zone, work, hw) };
+                            let (rc, _) = zone_rect(zone, work, border, fill_x);
                             x = rc.left;
                             y = rc.top;
                             w = rc.right - rc.left;
@@ -1469,18 +1709,21 @@ mod platform {
                 }
             }
 
-            // Tiling: a snapped resize whose free edge is shared with a neighbor
-            // moves that neighbor's facing edge too (clamped so neither drops
-            // below MIN_SIZE), so shrinking one window grows the other.
-            let mut neighbor_apply: Option<(i32, i32, i32, i32)> = None;
-            if mode == Mode::Resize && snap != SnapKind::None && neighbor != 0 {
-                let ((tl, tt, tr, tb), (nl, nt, nr, nb)) =
-                    coordinate_neighbor(snap, neighbor_rect, tile_overlap, x, y, x + w, y + h);
+            // Tiling: a snapped resize whose free edge is shared with neighbors
+            // moves every neighbor's facing edge too (clamped so none drops
+            // below MIN_SIZE), so shrinking the target grows all of them.
+            let mut neighbor_apply: Vec<(isize, i32, i32, i32, i32)> = Vec::new();
+            if mode == Mode::Resize && snap != SnapKind::None && !neighbors.is_empty() {
+                let ((tl, tt, tr, tb), nrects) =
+                    coordinate_neighbors(snap, &neighbors, x, y, x + w, y + h);
                 x = tl;
                 y = tt;
                 w = tr - tl;
                 h = tb - tt;
-                neighbor_apply = Some((nl, nt, nr - nl, nb - nt));
+                neighbor_apply = nrects
+                    .into_iter()
+                    .map(|(nh, r)| (nh, r.left, r.top, r.right - r.left, r.bottom - r.top))
+                    .collect();
             }
 
             // Dead-zone: skip sub-2px changes to absorb high-polling-mouse
@@ -1493,21 +1736,33 @@ mod platform {
                 continue;
             }
             unsafe {
-                if let Some((nx, ny, nw, nh)) = neighbor_apply {
-                    // Tiling: move BOTH windows in one deferred batch so the
-                    // window manager applies them in a single screen-refresh
-                    // cycle — the shared edge stays locked instead of the
-                    // neighbor trailing the target. Synchronous (no
-                    // SWP_ASYNCWINDOWPOS) so they land together this frame.
+                if !neighbor_apply.is_empty() {
+                    // Tiling: move the target and ALL its neighbors in one
+                    // deferred batch so the window manager applies them in a
+                    // single screen-refresh cycle — the shared edges stay locked
+                    // instead of the neighbors trailing the target. Synchronous
+                    // (no SWP_ASYNCWINDOWPOS) so they land together this frame.
                     let dflags = SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE;
-                    let nhw = HWND(neighbor as *mut _);
-                    if let Ok(h1) = BeginDeferWindowPos(2) {
-                        if let Ok(h2) = DeferWindowPos(h1, hw, HWND::default(), x, y, w, h, dflags) {
-                            if let Ok(h3) =
-                                DeferWindowPos(h2, nhw, HWND::default(), nx, ny, nw, nh, dflags)
-                            {
-                                let _ = EndDeferWindowPos(h3);
+                    if let Ok(mut hdwp) = BeginDeferWindowPos(1 + neighbor_apply.len() as i32) {
+                        if let Ok(h) = DeferWindowPos(hdwp, hw, HWND::default(), x, y, w, h, dflags) {
+                            hdwp = h;
+                            for (nh, nx, ny, nw, nhh) in &neighbor_apply {
+                                let nhw = HWND(*nh as *mut _);
+                                match DeferWindowPos(
+                                    hdwp,
+                                    nhw,
+                                    HWND::default(),
+                                    *nx,
+                                    *ny,
+                                    *nw,
+                                    *nhh,
+                                    dflags,
+                                ) {
+                                    Ok(h) => hdwp = h,
+                                    Err(_) => break,
+                                }
                             }
+                            let _ = EndDeferWindowPos(hdwp);
                         }
                     }
                 } else if maximize_apply {
