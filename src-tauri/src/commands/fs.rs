@@ -767,10 +767,16 @@ pub async fn reveal_path(path: String) -> Result<(), String> {
 
         #[cfg(target_os = "windows")]
         {
-            // explorer.exe exits 1 even on success, so spawn without checking
-            // the status; a spawn error is the only real failure signal.
+            use std::os::windows::process::CommandExt;
+            // explorer.exe has its own quirky command-line parsing: the switch
+            // and path must arrive as the single token `/select,"C:\the\path"`.
+            // std's `.arg()` quotes the WHOLE argument when it contains a space
+            // (`"/select,C:\the path"`), which explorer can't parse — it then
+            // silently falls back to opening the default folder (Documents).
+            // `raw_arg` writes the command line verbatim so the quotes land
+            // around the path only.
             std::process::Command::new("explorer")
-                .arg(format!("/select,{path}"))
+                .raw_arg(format!("/select,\"{path}\""))
                 .spawn()
                 .map_err(|e| format!("explorer failed to run: {e}"))?;
             Ok(())
