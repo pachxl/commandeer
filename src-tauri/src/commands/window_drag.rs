@@ -89,15 +89,17 @@ mod platform {
         BeginDeferWindowPos, BringWindowToTop, CallNextHookEx, CreateWindowExW, DeferWindowPos,
         DefWindowProcW, DestroyWindow, DispatchMessageW, EndDeferWindowPos, GetAncestor,
         GetClassNameW, GetCursorPos, GetDesktopWindow, GetForegroundWindow, GetMessageW,
-        GetShellWindow, SetForegroundWindow,
+        GetShellWindow, GetWindowLongW, SetForegroundWindow,
         GetWindowRect, GetWindowThreadProcessId, IsWindowVisible, IsZoomed, PostThreadMessageW,
         RegisterClassW, SetTimer, SetWindowPos, SetWindowsHookExW, ShowWindow, TranslateMessage,
-        UnhookWindowsHookEx, UpdateLayeredWindow, WindowFromPoint, GA_ROOT, HHOOK, HWND_TOP, MSG,
+        UnhookWindowsHookEx, UpdateLayeredWindow, WindowFromPoint, GA_ROOT, GWL_STYLE, HHOOK,
+        HWND_TOP, MSG,
         MSLLHOOKSTRUCT, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
         SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SW_SHOWNA, ULW_ALPHA,
         WH_MOUSE_LL,
         WM_LBUTTONDOWN,
         WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
+        WS_CAPTION, WS_THICKFRAME,
         WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
         WS_POPUP,
     };
@@ -467,7 +469,51 @@ mod platform {
         if pid == GetCurrentProcessId() {
             return false;
         }
-        !(root == GetDesktopWindow() || root == GetShellWindow() || is_shell_class(root))
+        !(root == GetDesktopWindow()
+            || root == GetShellWindow()
+            || is_shell_class(root)
+            || is_fullscreen_window(root))
+    }
+
+    /// A borderless / exclusive window that covers its whole monitor — the shape
+    /// a game takes in fullscreen or borderless mode. We keep hands off these so
+    /// an Alt-drag never accidentally moves or resizes a running game (League,
+    /// etc.). A normal maximized window is explicitly excluded: it's `IsZoomed`,
+    /// keeps its caption + resize frame, and only fills the work area (not the
+    /// taskbar), so it stays draggable.
+    unsafe fn is_fullscreen_window(hwnd: HWND) -> bool {
+        if IsZoomed(hwnd).as_bool() {
+            return false;
+        }
+        let mut rect = RECT::default();
+        if GetWindowRect(hwnd, &mut rect).is_err() {
+            return false;
+        }
+        let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(hmon, &mut mi).as_bool() {
+            return false;
+        }
+        // Covers the entire monitor, taskbar included (a maximized window only
+        // reaches the work area, and its invisible borders make it IsZoomed).
+        const TOL: i32 = 2;
+        let m = mi.rcMonitor;
+        let covers = rect.left <= m.left + TOL
+            && rect.top <= m.top + TOL
+            && rect.right >= m.right - TOL
+            && rect.bottom >= m.bottom - TOL;
+        if !covers {
+            return false;
+        }
+        // ...and is borderless — no caption bar and no resize frame. A normal
+        // window this large still carries both, so this only catches games.
+        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+        let has_caption = style & WS_CAPTION.0 == WS_CAPTION.0;
+        let has_thickframe = style & WS_THICKFRAME.0 != 0;
+        !(has_caption || has_thickframe)
     }
 
     /// Classify a window as snapped to a screen edge: it fills the work area in
