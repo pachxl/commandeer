@@ -6,6 +6,7 @@
 // Icons resolve lazily per visible row via iconPath → path_icon.
 import type { Command, CommandProvider } from '../types'
 import { appEvents } from '../lib/appEvents'
+import { prewarmShellIcons } from '../components/ResultRow'
 import { listApps, runningAppPaths, runApp, type AppInfo } from '../lib/tauri'
 
 const TTL_MS = 5 * 60_000
@@ -23,9 +24,20 @@ function loadCachedApps(): AppInfo[] {
   }
 }
 
+// Resolve every app's shell icon up front (via the shared ResultRow cache) so
+// the Apps folder's first render paints real icons instead of flashing the
+// generic glyph per row. iconPath/icon here must match appToCommand's.
+function prewarmAppIcons(list: AppInfo[]): void {
+  prewarmShellIcons(list.map(app => ({ icon: 'app', iconPath: app.path })))
+}
+
 let apps: AppInfo[] = loadCachedApps()
 let fetchedAt = 0
 let inflight: Promise<void> | null = null
+
+// Warm icons from the cached list immediately at startup, before the palette
+// is ever shown.
+prewarmAppIcons(apps)
 
 let running = new Set<string>()
 let runningFetchedAt = 0
@@ -59,6 +71,9 @@ function refreshApps(): Promise<void> {
       const serialized = JSON.stringify(next)
       const changed = serialized !== JSON.stringify(apps)
       apps = next
+      // Warm any icons for apps not in the previous list (prewarm skips keys
+      // already requested, so this is cheap even when nothing changed).
+      prewarmAppIcons(next)
       if (changed) {
         localStorage.setItem(APPS_CACHE_KEY, serialized)
         // Re-render only when the list actually changed, so this can't loop

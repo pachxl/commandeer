@@ -23,7 +23,11 @@ interface ResultRowProps {
 const shellIconCache = new Map<string, Promise<string | null>>()
 const resolvedIconCache = new Map<string, string | null>()
 
-function shellIconKey(item: PaletteItem): string {
+// Only icon + iconPath are needed to key and resolve a shell icon, so callers
+// (rows, the app-list pre-warm) can pass anything Command/PaletteItem-shaped.
+type IconTarget = Pick<PaletteItem, 'icon' | 'iconPath'>
+
+function shellIconKey(item: IconTarget): string {
   const path = item.iconPath!
   const ext = /\.([^./\\]+)$/.exec(path)?.[1]?.toLowerCase() ?? ''
   // .app first: bundles are directories, so they'd otherwise fall into the
@@ -35,7 +39,7 @@ function shellIconKey(item: PaletteItem): string {
     : ext
 }
 
-function shellIconFor(item: PaletteItem): Promise<string | null> {
+function shellIconFor(item: IconTarget): Promise<string | null> {
   const key = shellIconKey(item)
   let cached = shellIconCache.get(key)
   if (!cached) {
@@ -44,6 +48,19 @@ function shellIconFor(item: PaletteItem): Promise<string | null> {
     cached.then(icon => resolvedIconCache.set(key, icon))
   }
   return cached
+}
+
+// Eagerly resolve the shell icons for a batch of items (e.g. every installed
+// app) so the folder's first render paints real icons synchronously from
+// resolvedIconCache instead of flashing the generic glyph for a frame per row.
+// Each distinct key resolves once — already-requested keys are skipped, so this
+// is a no-op after the first call and safe to invoke on every list refresh.
+export function prewarmShellIcons(items: IconTarget[]): void {
+  for (const item of items) {
+    if (!item.iconPath || item.icon.startsWith('data:')) continue
+    if (shellIconCache.has(shellIconKey(item))) continue
+    void shellIconFor(item)
+  }
 }
 
 const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
