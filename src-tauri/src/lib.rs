@@ -33,6 +33,37 @@ fn resize_palette(app: tauri::AppHandle, height: i32, width: Option<i32>) {
     let _ = (&app, height, width);
 }
 
+/// Horizontally re-center the palette on the monitor it currently sits on,
+/// keeping its current vertical position. Called after a scale-driven width
+/// change: `setSize` keeps the top-left corner fixed (growing rightward), so
+/// without this the palette drifts off-center until the next show. Reads the
+/// live outer size, so it's exact and free of the frontend's DPI/position races.
+/// No-op on Wayland, where the layer-shell surface centers itself.
+#[tauri::command]
+fn recenter_palette(app: tauri::AppHandle) {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        return;
+    }
+    if let Some(win) = app.get_webview_window("palette") {
+        let monitor = win
+            .current_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| win.primary_monitor().ok().flatten());
+        let Some(monitor) = monitor else { return };
+        let mpos = monitor.position();
+        let msize = monitor.size();
+        let width = win.outer_size().map(|s| s.width as i32).unwrap_or(669);
+        let y = win
+            .outer_position()
+            .map(|p| p.y)
+            .unwrap_or(mpos.y + msize.height as i32 / 5);
+        let x = mpos.x + (msize.width as i32 - width) / 2;
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+}
+
 /// Runtime environment facts the frontend can't reliably sniff from the user
 /// agent — chiefly Wayland vs X11, which decides how the palette resizes.
 #[derive(serde::Serialize)]
@@ -619,6 +650,7 @@ pub fn run() {
             get_autostart,
             set_game_mode,
             resize_palette,
+            recenter_palette,
             env_info,
         ])
         .run(tauri::generate_context!())

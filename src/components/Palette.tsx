@@ -1,7 +1,7 @@
 import { useReducer, useEffect, useRef, useState, useCallback, MutableRefObject } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi'
+import { LogicalSize } from '@tauri-apps/api/dpi'
 import { fuzzyFilter, fuzzyScoreFieldsBatch } from '../lib/fuzzy'
 import { frecencyBonus, recordUse } from '../lib/frecency'
 import { appEvents } from '../lib/appEvents'
@@ -1590,31 +1590,22 @@ export default function Palette({
     // is absorbed by the dead-band; a width change always goes through).
     if (!widthChanged && Math.abs(h - lastHeightRef.current) < 2) return
     lastHeightRef.current = h
+    // Re-center only when the width actually changes (scale), not on the height
+    // churn from typing. Guard against the first apply (no prior width yet).
+    const shouldRecenter = widthChanged && lastWidthRef.current > 0
+    lastWidthRef.current = w
     if (IS_LINUX && (await envInfo()).wayland) {
       await invoke('resize_palette', { height: h, width: w })
-      lastWidthRef.current = w
       return
     }
-    const win = getCurrentWindow()
-    // setSize keeps the top-left corner fixed, so a width change would grow the
-    // window rightward and drift off-center. When the width changes, shift the
-    // window left by half the delta so it grows symmetrically about its center.
-    if (widthChanged && lastWidthRef.current > 0) {
-      try {
-        const factor = await win.scaleFactor()
-        const pos = await win.outerPosition() // physical px
-        const deltaLogical = (w - lastWidthRef.current) / 2
-        const x = pos.x / factor - deltaLogical
-        const y = pos.y / factor
-        await win.setSize(new LogicalSize(w, h))
-        await win.setPosition(new LogicalPosition(x, y))
-      } catch {
-        await win.setSize(new LogicalSize(w, h))
-      }
-    } else {
-      await win.setSize(new LogicalSize(w, h))
+    await getCurrentWindow().setSize(new LogicalSize(w, h))
+    // setSize keeps the top-left corner fixed, so a width change grows the
+    // window rightward and drifts off-center. Let Rust re-center on the current
+    // monitor (authoritative, reads the live size — no frontend DPI/position
+    // races), matching the show-time centering.
+    if (shouldRecenter) {
+      await invoke('recenter_palette')
     }
-    lastWidthRef.current = w
   }, [])
 
   // Re-apply the window size whenever the scale changes, even if the measured
