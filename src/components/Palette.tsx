@@ -1,7 +1,7 @@
 import { useReducer, useEffect, useRef, useState, useCallback, MutableRefObject } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { LogicalSize } from '@tauri-apps/api/dpi'
+import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi'
 import { fuzzyFilter, fuzzyScoreFieldsBatch } from '../lib/fuzzy'
 import { frecencyBonus, recordUse } from '../lib/frecency'
 import { appEvents } from '../lib/appEvents'
@@ -1430,18 +1430,43 @@ export default function Palette({
   const sizeRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const lastHeightRef = useRef(0)
+  const lastWidthRef = useRef(0)
   const applySize = useCallback(async () => {
     const el = sizeRef.current
     if (!el) return
     const h = Math.ceil(el.getBoundingClientRect().height)
-    if (!h || Math.abs(h - lastHeightRef.current) < 2) return
-    lastHeightRef.current = h
+    if (!h) return
     const w = Math.round(PALETTE_WIDTH * scaleRef.current)
+    const widthChanged = w !== lastWidthRef.current
+    // Skip only when nothing meaningful changed (small height churn while typing
+    // is absorbed by the dead-band; a width change always goes through).
+    if (!widthChanged && Math.abs(h - lastHeightRef.current) < 2) return
+    lastHeightRef.current = h
     if (IS_LINUX && (await envInfo()).wayland) {
       await invoke('resize_palette', { height: h, width: w })
+      lastWidthRef.current = w
       return
     }
-    await getCurrentWindow().setSize(new LogicalSize(w, h))
+    const win = getCurrentWindow()
+    // setSize keeps the top-left corner fixed, so a width change would grow the
+    // window rightward and drift off-center. When the width changes, shift the
+    // window left by half the delta so it grows symmetrically about its center.
+    if (widthChanged && lastWidthRef.current > 0) {
+      try {
+        const factor = await win.scaleFactor()
+        const pos = await win.outerPosition() // physical px
+        const deltaLogical = (w - lastWidthRef.current) / 2
+        const x = pos.x / factor - deltaLogical
+        const y = pos.y / factor
+        await win.setSize(new LogicalSize(w, h))
+        await win.setPosition(new LogicalPosition(x, y))
+      } catch {
+        await win.setSize(new LogicalSize(w, h))
+      }
+    } else {
+      await win.setSize(new LogicalSize(w, h))
+    }
+    lastWidthRef.current = w
   }, [])
 
   // Re-apply the window size whenever the scale changes, even if the measured
