@@ -23,13 +23,15 @@ const KIND_ORDER = ['session', 'weekly_all']
 const CLAUDE_ORANGE = '#D97757'
 
 // The Claude Code mark, rendered inline in Claude orange so it needs no
-// network/brand asset. Path traced from the official claudecode.svg (24×24).
-function ClaudeLogo({ height = 14 }: { height?: number }) {
+// network/brand asset. Path from the official claudecode.svg; the viewBox is
+// cropped to the path's tight bounds (the artwork only spans y=5..20 of the
+// original 24×24 box) so the mark fills its space instead of floating in it.
+function ClaudeLogo({ height = 20 }: { height?: number }) {
   return (
     <svg
-      width={height}
+      width={height * (24 / 15)}
       height={height}
-      viewBox="0 0 24 24"
+      viewBox="0 5 24 15"
       fill={CLAUDE_ORANGE}
       fillRule="evenodd"
       role="img"
@@ -274,7 +276,7 @@ export default function ClaudeUsage() {
         alignItems: 'center',
         justifyContent: 'space-between',
       }}>
-        <ClaudeLogo height={14} />
+        <ClaudeLogo height={20} />
         {loading && (
           <svg style={{ animation: 'spin 1s linear infinite' }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12a9 9 0 1 1-6.219-8.56" />
