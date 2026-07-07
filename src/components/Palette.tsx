@@ -21,6 +21,9 @@ import FormView from './FormView'
 import ActionPanel from './ActionPanel'
 import DetailPane from './DetailPane'
 import { ToastContainer, type ToastKind, type ToastMessage } from './Toast'
+import { getIconSvg, hasIcon } from './Icon'
+import ConfirmOverlay from './ConfirmOverlay'
+import { isConfirmSuppressed, suppressConfirm, type ConfirmOptions } from '../lib/confirm'
 import ClaudeUsage from './ClaudeUsage'
 import SystemStatsPanel from './SystemStats'
 import Footer from './Footer'
@@ -52,6 +55,7 @@ function commandToItem(cmd: Command): PaletteItem {
     metadata: cmd.metadata,
     liveOutputKey: cmd.liveOutputKey,
     running: cmd.running,
+    detailMarkdown: cmd.detailMarkdown,
   }
 }
 
@@ -336,8 +340,28 @@ export default function Palette({
   const [providerCommands, setProviderCommands] = useState<Command[]>([])
   const [actionPanelOpen, setActionPanelOpen] = useState(false)
   const [actionPanelIndex, setActionPanelIndex] = useState(0)
+  // Submenu navigation within the action panel: each entry is a nested menu the
+  // user drilled into (empty = the root action list). See ActionItem.submenu.
+  const [actionMenuStack, setActionMenuStack] = useState<ActionItem[]>([])
   const [formValues, setFormValues] = useState<Record<string, unknown>>({})
   const [toasts, setToasts] = useState<ToastMessage[]>([])
+  // HUD: a Raycast-style confirmation shown *instead of* the palette body after
+  // an action, kept up briefly while the window is still visible, then the
+  // window hides. Fixes the old "toast fires then the window hides immediately,
+  // so you never see it" gap for copy/paste-style actions.
+  const [hud, setHud] = useState<{ message: string; icon?: string } | null>(null)
+  // Pending confirmation prompt (see ConfirmOverlay + appEvents.confirm). The
+  // resolve fn settles the promise the requesting action is awaiting.
+  const [confirmReq, setConfirmReq] = useState<
+    { options: ConfirmOptions; resolve: (ok: boolean) => void } | null
+  >(null)
+  const [confirmRemember, setConfirmRemember] = useState(false)
+  const [confirmFocus, setConfirmFocus] = useState<'confirm' | 'cancel'>('confirm')
+  // Refs mirror the confirm state so resolveConfirm can read the latest values
+  // without nesting setState updaters.
+  const confirmReqRef = useRef<{ options: ConfirmOptions; resolve: (ok: boolean) => void } | null>(null)
+  const confirmRememberRef = useRef(false)
+  confirmRememberRef.current = confirmRemember
   // Live-captured stdout for inline scripts, keyed by script path. Replaces
   // the row's sublabel at render time (see displayItems). Stored outside the
   // reducer so refreshes never re-rank the list.
@@ -367,12 +391,54 @@ export default function Palette({
     }, 2000)
   }, [])
 
-  // Expose reset function to App and the toast helper to the rest of the app
+  // Show the HUD, then dismiss the launcher once it's been seen. Replaces the
+  // action body so it reads as a single floating confirmation pill.
+  const showHud = useCallback((message: string, icon?: string) => {
+    setHud({ message, icon })
+    window.setTimeout(async () => {
+      setHud(null)
+      dispatch({ type: 'RESET' })
+      await getCurrentWindow().hide()
+    }, 1000)
+  }, [])
+
+  // Ask for confirmation. A remembered key resolves immediately; otherwise the
+  // returned promise settles when the user answers via ConfirmOverlay.
+  const requestConfirm = useCallback((options: ConfirmOptions): Promise<boolean> => {
+    if (options.key && isConfirmSuppressed(options.key)) return Promise.resolve(true)
+    setConfirmRemember(false)
+    setConfirmFocus('confirm')
+    return new Promise<boolean>(resolve => {
+      const req = { options, resolve }
+      confirmReqRef.current = req
+      setConfirmReq(req)
+    })
+  }, [])
+
+  // Settle the pending confirm; persist "Don't ask again" only on a positive,
+  // remembered answer. Reads latest values from refs to avoid nested setState.
+  const resolveConfirm = useCallback((ok: boolean) => {
+    const req = confirmReqRef.current
+    if (!req) return
+    if (ok && confirmRememberRef.current && req.options.key) suppressConfirm(req.options.key)
+    req.resolve(ok)
+    confirmReqRef.current = null
+    setConfirmReq(null)
+    setConfirmRemember(false)
+  }, [])
+
+  // Expose reset function to App and the toast/HUD/confirm helpers app-wide
   useEffect(() => {
     resetRef.current = () => dispatch({ type: 'RESET' })
     appEvents.toast = toast
-    return () => { appEvents.toast = undefined }
-  }, [resetRef, toast])
+    appEvents.showHud = showHud
+    appEvents.confirm = requestConfirm
+    return () => {
+      appEvents.toast = undefined
+      appEvents.showHud = undefined
+      appEvents.confirm = undefined
+    }
+  }, [resetRef, toast, showHud, requestConfirm])
 
   // Re-run an inline script and update its live sublabel. Used by the polling
   // timers and by Enter on an inline row (force-refresh). On error the
@@ -614,6 +680,7 @@ export default function Palette({
   useEffect(() => {
     setActionPanelOpen(false)
     setActionPanelIndex(0)
+    setActionMenuStack([])
   }, [state.selectedIndex, state.query, currentStep])
 
   // Initialize form field defaults when a form step is pushed
@@ -822,8 +889,7 @@ export default function Palette({
         icon: 'copy',
         handler: async () => {
           await navigator.clipboard.writeText(value)
-          toast('Copied to clipboard', 'success')
-          await getCurrentWindow().hide()
+          showHud('Copied to clipboard', 'copy')
         },
       })
     }
@@ -849,22 +915,44 @@ export default function Palette({
     }
 
     switch (item.source) {
-      case 'file':
+      case 'file': {
+        const filePath = item.data as string
+        // Path parts for the Copy… submenu (POSIX + Windows separators)
+        const base = filePath.replace(/[/\\]+$/, '').split(/[/\\]/).pop() ?? filePath
+        const dir = filePath.slice(0, filePath.length - base.length).replace(/[/\\]+$/, '') || filePath
+        const copyLeaf = (id: string, label: string, value: string): ActionItem => ({
+          id, label, icon: 'copy',
+          handler: async () => {
+            await navigator.clipboard.writeText(value)
+            showHud('Copied to clipboard', 'copy')
+          },
+        })
         actions.push({
           id: 'open',
           label: 'Open file',
           shortcut: '↵',
-          handler: async () => { await openPath(item.data as string); await getCurrentWindow().hide() },
+          handler: async () => { await openPath(filePath); await getCurrentWindow().hide() },
         })
         actions.push({
           id: 'reveal',
           label: IS_MAC ? 'Reveal in Finder' : IS_LINUX ? 'Reveal in File Manager' : 'Reveal in File Explorer',
           shortcut: 'R',
           icon: 'folder',
-          handler: async () => { await revealPath(item.data as string); await getCurrentWindow().hide() },
+          handler: async () => { await revealPath(filePath); await getCurrentWindow().hide() },
         })
-        pushCopy('Copy path', item.data as string, 'C')
+        actions.push({
+          id: 'copy',
+          label: 'Copy…',
+          shortcut: 'C',
+          icon: 'copy',
+          submenu: [
+            copyLeaf('copy-path', 'Copy Full Path', filePath),
+            copyLeaf('copy-name', 'Copy File Name', base),
+            copyLeaf('copy-dir', 'Copy Containing Folder', dir),
+          ],
+        })
         break
+      }
       case 'clipboard': {
         const clip = item.data as ClipboardItem
         if (clip && typeof clip === 'object' && 'text' in clip) {
@@ -875,7 +963,7 @@ export default function Palette({
             handler: async () => {
               try {
                 const pasted = await pasteToPrevious(clip.text)
-                if (!pasted) toast('Copied — press Ctrl+V to paste', 'success')
+                if (!pasted) showHud('Copied — press Ctrl+V to paste', 'copy')
               } catch (err) {
                 toast('Failed to paste', 'error')
                 throw err
@@ -889,8 +977,7 @@ export default function Palette({
             icon: 'copy',
             handler: async () => {
               await writeClipboardText(clip.text)
-              toast('Copied to clipboard', 'success')
-              await getCurrentWindow().hide()
+              showHud('Copied to clipboard', 'copy')
             },
           })
         } else {
@@ -917,6 +1004,14 @@ export default function Palette({
           shortcut: '⌫',
           icon: 'trash',
           handler: async () => {
+            const ok = await requestConfirm({
+              key: 'delete-quicklink',
+              message: `Delete "${q.name}"?`,
+              detail: 'This quick link cannot be recovered.',
+              confirmLabel: 'Delete',
+              danger: true,
+            })
+            if (!ok) return
             const all = await readQuicklinks()
             await writeQuicklinks(all.filter(x => x.id !== q.id))
             appEvents.refreshCommands?.()
@@ -935,6 +1030,14 @@ export default function Palette({
           shortcut: '⌫',
           icon: 'trash',
           handler: async () => {
+            const ok = await requestConfirm({
+              key: 'delete-note',
+              message: `Delete "${n.title}"?`,
+              detail: 'This note cannot be recovered.',
+              confirmLabel: 'Delete',
+              danger: true,
+            })
+            if (!ok) return
             const all = await readNotes()
             await writeNotes(all.filter(x => x.id !== n.id))
             appEvents.refreshCommands?.()
@@ -1036,12 +1139,19 @@ export default function Palette({
     }
 
     return actions
-  }, [resolveCommand, toast, refreshOverrides])
+  }, [resolveCommand, toast, showHud, requestConfirm, refreshOverrides])
 
   const actionItems = selectedItem && !isInputStep && !isSliderStep && !isFormStep
     ? buildActions(selectedItem)
     : []
-  const actionPanelClampedIndex = Math.min(actionPanelIndex, Math.max(0, actionItems.length - 1))
+  // The menu currently shown: a drilled-into submenu, or the root action list.
+  const currentActionMenu = actionMenuStack.length > 0
+    ? (actionMenuStack[actionMenuStack.length - 1].submenu ?? [])
+    : actionItems
+  const actionMenuTitle = actionMenuStack.length > 0
+    ? actionMenuStack[actionMenuStack.length - 1].label
+    : undefined
+  const actionPanelClampedIndex = Math.min(actionPanelIndex, Math.max(0, currentActionMenu.length - 1))
 
   const handleFormSubmit = useCallback(async () => {
     if (!currentStep?.isFormStep || !currentStep.onSubmit) return
@@ -1078,17 +1188,49 @@ export default function Palette({
 
   // Keyboard handler
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
+    // Confirm dialog owns the keyboard while pending (above the action panel).
+    if (confirmReq) {
+      e.preventDefault()
+      if (e.key === 'Escape') { resolveConfirm(false); return }
+      if (e.key === 'Enter') { resolveConfirm(confirmFocus === 'confirm'); return }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Tab') {
+        setConfirmFocus(f => (f === 'confirm' ? 'cancel' : 'confirm'))
+        return
+      }
+      // R or Space toggles "Don't ask again" (only meaningful for keyed prompts)
+      if ((e.key.toLowerCase() === 'r' || e.key === ' ') && confirmReq.options.key) {
+        setConfirmRemember(v => !v)
+        return
+      }
+      return
+    }
+
     // Action panel mode: it owns the keyboard until closed
     if (actionPanelOpen) {
-      if (e.key === 'Escape') {
-        e.preventDefault()
+      const closePanel = () => {
         setActionPanelOpen(false)
         setActionPanelIndex(0)
+        setActionMenuStack([])
+      }
+      const popMenu = () => {
+        setActionMenuStack(s => s.slice(0, -1))
+        setActionPanelIndex(0)
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        // Esc backs out one submenu level at a time, then closes the panel.
+        if (actionMenuStack.length > 0) popMenu()
+        else closePanel()
+        return
+      }
+      if (e.key === 'ArrowLeft' && actionMenuStack.length > 0) {
+        e.preventDefault()
+        popMenu()
         return
       }
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setActionPanelIndex(i => Math.min(i + 1, Math.max(0, actionItems.length - 1)))
+        setActionPanelIndex(i => Math.min(i + 1, Math.max(0, currentActionMenu.length - 1)))
         return
       }
       if (e.key === 'ArrowUp') {
@@ -1097,33 +1239,38 @@ export default function Palette({
         return
       }
 
-      const runAction = async (action: ActionItem) => {
+      // Selecting a row: drill into a submenu, or run the leaf handler.
+      const activate = async (action: ActionItem) => {
+        if (action.submenu) {
+          setActionMenuStack(s => [...s, action])
+          setActionPanelIndex(0)
+          return
+        }
         if (selectedItem) recordUse(selectedItem.id)
-        try { await action.handler() } catch (err) { dispatch({ type: 'SET_ERROR', error: String(err) }) }
-        setActionPanelOpen(false)
-        setActionPanelIndex(0)
+        try { await action.handler?.() } catch (err) { dispatch({ type: 'SET_ERROR', error: String(err) }) }
+        closePanel()
       }
 
-      if (e.key === 'Enter') {
+      if (e.key === 'Enter' || e.key === 'ArrowRight') {
         e.preventDefault()
-        const action = actionItems[actionPanelClampedIndex]
-        if (action) await runAction(action)
-        else { setActionPanelOpen(false); setActionPanelIndex(0) }
+        const action = currentActionMenu[actionPanelClampedIndex]
+        if (action) await activate(action)
+        else if (e.key === 'Enter') closePanel()
         return
       }
       // Number shortcuts 1-9
       const digit = parseInt(e.key, 10)
-      if (!Number.isNaN(digit) && digit >= 1 && digit <= actionItems.length) {
+      if (!Number.isNaN(digit) && digit >= 1 && digit <= currentActionMenu.length) {
         e.preventDefault()
-        await runAction(actionItems[digit - 1])
+        await activate(currentActionMenu[digit - 1])
         return
       }
       // Letter shortcut matching action.shortcut
       if (/^[a-z]$/i.test(e.key)) {
-        const action = actionItems.find(a => a.shortcut?.toLowerCase() === e.key.toLowerCase())
+        const action = currentActionMenu.find(a => a.shortcut?.toLowerCase() === e.key.toLowerCase())
         if (action) {
           e.preventDefault()
-          await runAction(action)
+          await activate(action)
           return
         }
       }
@@ -1170,6 +1317,7 @@ export default function Palette({
       if (selectedItem && actionItems.length > 0) {
         setActionPanelOpen(true)
         setActionPanelIndex(0)
+        setActionMenuStack([])
       }
       return
     }
@@ -1289,7 +1437,7 @@ export default function Palette({
       await handleSelect(selected)
       return
     }
-  }, [state, currentStep, isInputStep, isSliderStep, sliderValue, visibleItems, clampedIndex, actionPanelOpen, actionItems, actionPanelClampedIndex, selectedItem, previewResult, calcMode, timeMode]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state, currentStep, isInputStep, isSliderStep, sliderValue, visibleItems, clampedIndex, actionPanelOpen, actionItems, currentActionMenu, actionMenuStack, actionPanelClampedIndex, selectedItem, previewResult, calcMode, timeMode, confirmReq, confirmFocus]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSelect = useCallback(async (item: PaletteItem) => {
     // Root level: find command and either run action or push step
@@ -1534,6 +1682,55 @@ export default function Palette({
     >
       <ToastContainer toasts={toasts} />
 
+      {hud && (
+        // Full-cover confirmation pill; the container is position:relative so
+        // this sits over the (about-to-be-hidden) body and reads as a HUD.
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 200,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--bg)',
+          backdropFilter: 'blur(60px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(60px) saturate(180%)',
+          borderRadius: 'inherit',
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '14px 22px',
+            borderRadius: 12,
+            background: 'var(--bg-elevated, rgba(36,40,59,0.9))',
+            border: '1px solid var(--border)',
+            boxShadow: '0 8px 30px rgba(0,0,0,0.35)',
+            color: 'var(--text)',
+            fontSize: 15,
+            fontFamily: 'var(--font)',
+          }}>
+            {hud.icon && hasIcon(hud.icon) && (
+              <div
+                style={{ width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ece6a' }}
+                dangerouslySetInnerHTML={{ __html: getIconSvg(hud.icon, '#9ece6a', 18) ?? '' }}
+              />
+            )}
+            {hud.message}
+          </div>
+        </div>
+      )}
+
+      {confirmReq && (
+        <ConfirmOverlay
+          options={confirmReq.options}
+          remember={confirmRemember}
+          focus={confirmFocus}
+          onToggleRemember={() => setConfirmRemember(v => !v)}
+          onResolve={resolveConfirm}
+        />
+      )}
+
       {isSliderStep && currentStep ? (
         <SliderInput
           value={sliderValue}
@@ -1641,13 +1838,21 @@ export default function Palette({
 
       {actionPanelOpen && actionItems.length > 0 && (
         <ActionPanel
-          items={actionItems}
+          items={currentActionMenu}
           selectedIndex={actionPanelClampedIndex}
+          title={actionMenuTitle}
+          onBack={() => { setActionMenuStack(s => s.slice(0, -1)); setActionPanelIndex(0) }}
           onSelect={async item => {
+            if (item.submenu) {
+              setActionMenuStack(s => [...s, item])
+              setActionPanelIndex(0)
+              return
+            }
             if (selectedItem) recordUse(selectedItem.id)
-            try { await item.handler() } catch (err) { dispatch({ type: 'SET_ERROR', error: String(err) }) }
+            try { await item.handler?.() } catch (err) { dispatch({ type: 'SET_ERROR', error: String(err) }) }
             setActionPanelOpen(false)
             setActionPanelIndex(0)
+            setActionMenuStack([])
           }}
           onHover={i => setActionPanelIndex(i)}
         />

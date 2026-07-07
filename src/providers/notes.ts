@@ -14,6 +14,9 @@ function noteCommand(note: Note): Command {
     keywords: [note.title, note.content],
     actionLabel: 'Copy to clipboard',
     data: note,
+    // Notes are often written in markdown; show the full body formatted in the
+    // detail pane while the row keeps a one-line plain-text preview.
+    detailMarkdown: note.content,
     action: async () => {
       await writeClipboardText(note.content)
       appEvents.toast?.('Note copied', 'success')

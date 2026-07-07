@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { fileInfo, readTextPreview, type FileInfo } from '../lib/tauri'
+import { renderMarkdown } from '../lib/markdown'
 import type { PaletteItem, PaletteMetadata } from '../types'
 
 // Extensions the backend can thumbnail (raw bytes as a data URL)
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|ico)$/i
 // Extensions we can preview as plain text
 const TEXT_EXT = /\.(txt|md|markdown|json|jsonc|js|jsx|ts|tsx|mjs|cjs|html|htm|css|scss|sass|less|xml|yaml|yml|toml|ini|cfg|conf|sh|bash|zsh|fish|ps1|py|rb|go|rs|c|cpp|h|hpp|cs|java|kt|swift|php|sql|log)$/i
+const MARKDOWN_EXT = /\.(md|markdown)$/i
 
 export function isImagePath(path: string): boolean {
   return IMAGE_EXT.test(path)
@@ -13,6 +15,22 @@ export function isImagePath(path: string): boolean {
 
 function isTextPath(path: string): boolean {
   return TEXT_EXT.test(path)
+}
+
+function isMarkdownPath(path: string): boolean {
+  return MARKDOWN_EXT.test(path)
+}
+
+// Shared renderer for a block of markdown (generic detail + .md previews).
+function MarkdownBlock({ label, source }: { label: string; source: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--text-dim)' }}>
+        {label}
+      </span>
+      <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(source) }} />
+    </div>
+  )
 }
 
 function formatBytes(bytes: number): string {
@@ -84,8 +102,10 @@ export default function DetailPane({ item }: DetailPaneProps) {
     return () => { cancelled = true }
   }, [item.id, path, isText, isFile])
 
+  const isMarkdown = path ? isMarkdownPath(path) : false
   const title = item.label
-  const hasContent = isImage || isText || item.color || item.fontFamily || (item.metadata && item.metadata.length > 0)
+  const hasContent = isImage || isText || item.color || item.fontFamily || item.detailMarkdown
+    || (item.metadata && item.metadata.length > 0)
   if (!hasContent) return null
 
   return (
@@ -159,7 +179,18 @@ export default function DetailPane({ item }: DetailPaneProps) {
         </div>
       )}
 
-      {isText && textPreview && (
+      {item.detailMarkdown && (
+        <MarkdownBlock label="Details" source={item.detailMarkdown} />
+      )}
+
+      {isText && textPreview && isMarkdown && (
+        // .md/.markdown files render their preview as formatted markdown
+        <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+          <MarkdownBlock label="Preview" source={textPreview} />
+        </div>
+      )}
+
+      {isText && textPreview && !isMarkdown && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--text-dim)' }}>
             Preview

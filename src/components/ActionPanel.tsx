@@ -8,9 +8,12 @@ interface ActionPanelProps {
   selectedIndex: number
   onSelect: (item: ActionItem) => void
   onHover: (index: number) => void
+  // When inside a submenu: its label (shown in the header) and a back handler
+  title?: string
+  onBack?: () => void
 }
 
-export default function ActionPanel({ items, selectedIndex, onSelect, onHover }: ActionPanelProps) {
+export default function ActionPanel({ items, selectedIndex, onSelect, onHover, title, onBack }: ActionPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<HTMLDivElement>(null)
   const lastMousePos = useRef<{ x: number; y: number } | null>(null)
@@ -59,15 +62,22 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover }:
         zIndex: 10,
       }}
     >
-      <div style={{
-        padding: '2px 8px 8px',
-        fontSize: 10,
-        fontFamily: 'var(--font-ui)',
-        color: 'var(--text-dim)',
-        textTransform: 'uppercase',
-        letterSpacing: 0.6,
-      }}>
-        Actions
+      <div
+        onClick={title && onBack ? onBack : undefined}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '2px 8px 8px',
+          fontSize: 10,
+          fontFamily: 'var(--font-ui)',
+          color: 'var(--text-dim)',
+          textTransform: 'uppercase',
+          letterSpacing: 0.6,
+          cursor: title && onBack ? 'pointer' : 'default',
+        }}
+      >
+        {title ? `‹ ${title}` : 'Actions'}
       </div>
       {items.map((item, i) => {
         const selected = i === selectedIndex
@@ -118,6 +128,16 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover }:
               }}>
                 {item.shortcut}
               </kbd>
+            )}
+            {item.submenu && (
+              <span style={{
+                fontSize: 13,
+                lineHeight: '14px',
+                color: selected ? '#ffffff' : 'var(--text-dim)',
+                flexShrink: 0,
+              }}>
+                ›
+              </span>
             )}
           </div>
         )

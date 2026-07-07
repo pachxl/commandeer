@@ -80,6 +80,8 @@ export interface PaletteItem {
   liveOutputKey?: string
   // App is currently running — renders a small status dot before the label
   running?: boolean
+  // Markdown rendered as a formatted "Details" section in the detail pane
+  detailMarkdown?: string
 }
 
 export type StepResult =
@@ -184,6 +186,8 @@ export interface Command {
   liveOutputKey?: string
   // App is currently running — renders a small status dot before the label
   running?: boolean
+  // Markdown rendered as a formatted "Details" section in the detail pane
+  detailMarkdown?: string
 }
 
 // A source of commands: static entries for the root list (getCommands) and/or
@@ -202,7 +206,11 @@ export interface ActionItem {
   label: string
   shortcut?: string
   icon?: string
-  handler: () => Promise<void>
+  // Leaf action: runs when selected. Omit when `submenu` is set.
+  handler?: () => Promise<void>
+  // Nested actions: selecting this row opens them as a sub-menu instead of
+  // running a handler (e.g. a "Copy…" group). Esc / ← returns to the parent.
+  submenu?: ActionItem[]
 }
 
 export interface PaletteState {
