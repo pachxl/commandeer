@@ -32,6 +32,11 @@ pub struct AppConfig {
     /// = off. Applied at startup and toggled from Settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_drag: Option<bool>,
+    /// Palette scale factor (CSS zoom applied to the whole palette). 1.0 =
+    /// default size; the Settings slider maps 0–100% onto 0.5×–1.5× (50% = 1.0×).
+    /// None = 1.0. Persisted here so it survives across builds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub palette_scale: Option<f64>,
 }
 
 impl Default for AppConfig {
@@ -45,6 +50,7 @@ impl Default for AppConfig {
             global_hotkey_game: None,
             screenshot_hotkey: None,
             window_drag: None,
+            palette_scale: None,
         }
     }
 }

@@ -10,6 +10,10 @@ export const appEvents: {
   isClaudeUsageVisible?: () => boolean
   isWebSearchVisible?: () => boolean
   isSystemStatsVisible?: () => boolean
+  // Palette scale (CSS zoom factor). getScale reads the current factor; setScale
+  // applies it live (used by the Settings scale slider for real-time feedback).
+  getScale?: () => number
+  setScale?: (scale: number) => void
   // Rebuild the root command list (e.g. after a note or quick link changes)
   refreshCommands?: () => void
   // Show a transient toast above the results list (registered by Palette)

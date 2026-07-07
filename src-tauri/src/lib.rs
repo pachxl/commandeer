@@ -15,19 +15,22 @@ const PALETTE_TOP_MARGIN: i32 = 150;
 /// Windows and macOS the frontend resizes via setSize instead, so this is a
 /// no-op there.
 #[tauri::command]
-fn resize_palette(app: tauri::AppHandle, height: i32) {
+fn resize_palette(app: tauri::AppHandle, height: i32, width: Option<i32>) {
     #[cfg(target_os = "linux")]
     {
         use gtk::prelude::*;
+        // width tracks the palette scale (669 × scale); default to the base
+        // width when the frontend doesn't supply one.
+        let w = width.unwrap_or(669).max(1);
         if let Some(win) = app.get_webview_window("palette") {
             if let Ok(gtk_win) = win.gtk_window() {
-                gtk_win.set_size_request(669, height.max(1));
+                gtk_win.set_size_request(w, height.max(1));
             }
         }
     }
     // Windows and macOS resize via the frontend's setSize, so this is a no-op.
     #[cfg(not(target_os = "linux"))]
-    let _ = (&app, height);
+    let _ = (&app, height, width);
 }
 
 /// Runtime environment facts the frontend can't reliably sniff from the user

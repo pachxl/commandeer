@@ -58,6 +58,9 @@ export default function App() {
   const [systemStatsVisible, setSystemStatsVisible] = useState(
     () => localStorage.getItem(SYSTEM_STATS_KEY) !== 'false'
   )
+  // Palette scale factor (CSS zoom). Seeded from config once it loads; 1.0 =
+  // default size. Held in React state so the scale slider updates the palette live.
+  const [paletteScale, setPaletteScale] = useState(1)
   // Inline scripts (@vicinae.mode inline + refreshTime) the palette polls for
   // live stdout. Computed from the loaded scripts in refresh().
   const [inlineScripts, setInlineScripts] = useState<InlineScript[]>([])
@@ -128,6 +131,9 @@ export default function App() {
         if (cfg.transparency !== undefined) {
           setWindowTransparency(cfg.transparency).catch(console.error)
         }
+        if (cfg.palette_scale !== undefined) {
+          setPaletteScale(cfg.palette_scale)
+        }
       } catch (err) {
         console.error(err)
       }
@@ -192,12 +198,15 @@ export default function App() {
   appEvents.isClaudeUsageVisible = () => claudeUsageVisible
   appEvents.isWebSearchVisible = isWebSearchVisible
   appEvents.isSystemStatsVisible = () => systemStatsVisible
+  appEvents.getScale = () => paletteScale
+  appEvents.setScale = setPaletteScale
   appEvents.refreshCommands = () => { void refresh() }
 
   return (
     <Palette
       config={config}
       commands={commands}
+      scale={paletteScale}
       inlineScripts={inlineScripts}
       onConfigChange={() => {}}
       resetRef={resetRef}

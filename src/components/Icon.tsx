@@ -55,6 +55,7 @@ const ICONS: Record<string, (color?: string, size?: number) => string> = {
   camera: icon('0 0 24 24', '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>'),
   volume: icon('0 0 24 24', '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>'),
   x: icon('0 0 24 24', '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
+  scale: icon('0 0 24 24', '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>'),
 }
 
 export function getIconSvg(name: string, color?: string, size?: number): string | null {

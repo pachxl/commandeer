@@ -40,6 +40,10 @@ export interface AppConfig {
   // Alt-drag window management: hold Alt to move any window, Alt + right-drag to
   // resize (Windows/macOS only). Default off.
   window_drag?: boolean
+  // Palette scale factor applied as a CSS zoom to the whole palette (and used to
+  // scale the window width/height). 1.0 = default size; the Settings slider maps
+  // 0–100% onto 0.5×–1.5× with 50% = 1.0×.
+  palette_scale?: number
 }
 
 export interface PaletteItem {

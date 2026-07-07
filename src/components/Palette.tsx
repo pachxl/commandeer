@@ -280,6 +280,11 @@ const AT_PREFIXES = [
   { token: '@time', icon: 'clock', description: 'Convert time zones (4pm bst to est)' },
 ]
 
+// Base (unscaled) logical width of the palette window. The scale factor
+// multiplies this for the window size and is applied as a CSS zoom on the
+// content, so the whole palette grows/shrinks uniformly.
+const PALETTE_WIDTH = 669
+
 // Debounce between keystrokes and the global-search IPC round trip
 const FIND_DEBOUNCE_MS = 120
 
@@ -299,6 +304,9 @@ export interface InlineScript {
 interface PaletteProps {
   config: AppConfig
   commands: Command[]
+  // Palette scale factor applied as a CSS zoom (1.0 = default). Drives the
+  // window width/height so the whole palette grows/shrinks uniformly.
+  scale: number
   inlineScripts: InlineScript[]
   onConfigChange: (config: AppConfig) => void
   resetRef: MutableRefObject<(() => void) | null>
@@ -312,6 +320,7 @@ interface PaletteProps {
 export default function Palette({
   config,
   commands,
+  scale,
   inlineScripts,
   onConfigChange: _onConfigChange,
   resetRef,
@@ -343,9 +352,11 @@ export default function Palette({
   const providerCommandsRef = useRef(providerCommands)
   const providerRequestRef = useRef(0)
   const providerTimeoutRef = useRef<number | null>(null)
+  const scaleRef = useRef(scale)
   configRef.current = config
   commandsRef.current = commands
   providerCommandsRef.current = providerCommands
+  scaleRef.current = scale
 
   const toast = useCallback((message: string, kind: ToastKind = 'info') => {
     const id = ++toastIdRef.current
@@ -1412,23 +1423,35 @@ export default function Palette({
   // resize_palette (in-place, no flicker). Linux/X11 has no layer shell — the
   // window is a normal toplevel positioned by the backend on show, so it uses
   // the same setSize path as Windows.
+  // sizeRef is the *unscaled* wrapper we measure; its height already includes
+  // the inner zoom (the zoomed content lays out scaled in the wrapper), so it is
+  // the final logical window height. Width is derived from the scale directly.
+  const sizeRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const lastHeightRef = useRef(0)
   const applySize = useCallback(async () => {
-    const el = containerRef.current
+    const el = sizeRef.current
     if (!el) return
     const h = Math.ceil(el.getBoundingClientRect().height)
     if (!h || Math.abs(h - lastHeightRef.current) < 2) return
     lastHeightRef.current = h
+    const w = Math.round(PALETTE_WIDTH * scaleRef.current)
     if (IS_LINUX && (await envInfo()).wayland) {
-      await invoke('resize_palette', { height: h })
+      await invoke('resize_palette', { height: h, width: w })
       return
     }
-    await getCurrentWindow().setSize(new LogicalSize(669, h))
+    await getCurrentWindow().setSize(new LogicalSize(w, h))
   }, [])
 
+  // Re-apply the window size whenever the scale changes, even if the measured
+  // height happens to land within the dead-band (width still needs updating).
   useEffect(() => {
-    const el = containerRef.current
+    lastHeightRef.current = 0
+    void applySize()
+  }, [scale, applySize])
+
+  useEffect(() => {
+    const el = sizeRef.current
     if (!el) return
     const observer = new ResizeObserver(() => { void applySize() })
     observer.observe(el)
@@ -1454,13 +1477,19 @@ export default function Palette({
     : (currentStep?.placeholder ?? 'Search commands...')
 
   return (
+    // Outer wrapper is unscaled and full-width: we measure its height (which
+    // already reflects the inner zoom) to size the window. The inner container
+    // is a fixed base width scaled by `zoom`, so it renders at PALETTE_WIDTH ×
+    // scale — exactly the window width applySize sets.
+    <div ref={sizeRef} style={{ width: '100%' }}>
     <div
       ref={containerRef}
       tabIndex={-1}
       style={{
         outline: 'none',
         position: 'relative',
-        width: '100%',
+        width: PALETTE_WIDTH,
+        zoom: scale,
         background: 'var(--bg)',
         backdropFilter: 'blur(60px) saturate(180%)',
         WebkitBackdropFilter: 'blur(60px) saturate(180%)',
@@ -1608,6 +1637,7 @@ export default function Palette({
         gameModeEnabled={gameModeEnabled}
         onToggleGameMode={onToggleGameMode}
       />
+    </div>
     </div>
   )
 }

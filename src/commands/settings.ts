@@ -13,8 +13,14 @@ const DEFAULT_SCREENSHOT_HOTKEY = IS_MAC ? '' : 'Insert'
 const DEFAULT_HOTKEY = IS_MAC ? 'Cmd+Shift+Space' : 'Ctrl+Space'
 const DEFAULT_GAME_HOTKEY = 'Alt+Space'
 
+// The Scale slider runs 0–100% and maps onto a 0.5×–1.5× zoom factor, so 50% =
+// 1.0× (the default size). These convert between the two representations.
+const scaleToPercent = (factor: number) => Math.round((factor - 0.5) * 100)
+const percentToScale = (percent: number) => 0.5 + percent / 100
+
 function settingsStep(config: AppConfig): Step {
   const transparencyPercent = Math.round((config.transparency ?? 0) * 100)
+  const scalePercent = scaleToPercent(config.palette_scale ?? 1)
 
   return {
     id: 'settings:root',
@@ -34,6 +40,14 @@ function settingsStep(config: AppConfig): Step {
         label: 'Window Transparency',
         sublabel: `Current: ${transparencyPercent}% - Use slider to adjust`,
         icon: 'eye',
+        isFolder: true,
+        actionLabel: 'Open',
+      },
+      {
+        id: 'settings:scale',
+        label: 'Scale',
+        sublabel: `Current: ${scalePercent}% - Use slider to adjust`,
+        icon: 'scale',
         isFolder: true,
         actionLabel: 'Open',
       },
@@ -128,6 +142,9 @@ function settingsStep(config: AppConfig): Step {
       }
       if (item.id === 'settings:transparency') {
         return { type: 'push', step: transparencyStep(config) }
+      }
+      if (item.id === 'settings:scale') {
+        return { type: 'push', step: scaleStep(config) }
       }
       if (item.id === 'settings:screenshot-hotkey') {
         return { type: 'push', step: screenshotHotkeyStep(config) }
@@ -249,6 +266,36 @@ function transparencyStep(config: AppConfig): Step {
       }
 
       const next: AppConfig = { ...config, transparency }
+      await writeConfig(next)
+      Object.assign(config, next)
+    },
+    load: async () => [],
+    onSelect: async () => ({ type: 'pop' }),
+  }
+}
+
+// Slider (0–100%) that scales the whole palette via a CSS zoom. 50% = 1.0× (the
+// default); dragging left shrinks (down to 0.5×), right grows (up to 1.5×). The
+// scale is applied live through appEvents so the palette resizes as you drag,
+// and persisted to config.palette_scale.
+function scaleStep(config: AppConfig): Step {
+  const currentPercent = scaleToPercent(config.palette_scale ?? 1)
+
+  return {
+    id: 'settings:scale',
+    label: 'Scale',
+    placeholder: `Adjust palette scale (Current: ${currentPercent}%)`,
+    icon: 'scale',
+    isSliderStep: true,
+    minValue: 0,
+    maxValue: 100,
+    stepValue: 1,
+    loadSliderValue: async () => scaleToPercent(config.palette_scale ?? 1),
+    onSliderChange: async (value: number): Promise<void> => {
+      const scale = percentToScale(Math.round(value))
+      // Apply immediately for real-time feedback (drives the App-level zoom).
+      appEvents.setScale?.(scale)
+      const next: AppConfig = { ...config, palette_scale: scale }
       await writeConfig(next)
       Object.assign(config, next)
     },
