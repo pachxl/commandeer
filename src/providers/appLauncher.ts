@@ -6,9 +6,12 @@
 // Icons resolve lazily per visible row via iconPath → path_icon.
 import type { Command, CommandProvider } from '../types'
 import { appEvents } from '../lib/appEvents'
-import { listApps, runApp, type AppInfo } from '../lib/tauri'
+import { listApps, runningAppPaths, runApp, type AppInfo } from '../lib/tauri'
 
 const TTL_MS = 5 * 60_000
+// Running state changes far faster than the installed-app list, so it has its
+// own short TTL and is refreshed in the background on every palette show.
+const RUNNING_TTL_MS = 3_000
 const APPS_CACHE_KEY = 'commandeer:apps'
 
 function loadCachedApps(): AppInfo[] {
@@ -23,6 +26,31 @@ function loadCachedApps(): AppInfo[] {
 let apps: AppInfo[] = loadCachedApps()
 let fetchedAt = 0
 let inflight: Promise<void> | null = null
+
+let running = new Set<string>()
+let runningFetchedAt = 0
+let runningInflight: Promise<void> | null = null
+
+function refreshRunning(): Promise<void> {
+  runningInflight ??= runningAppPaths()
+    .then(paths => {
+      runningFetchedAt = Date.now()
+      const next = new Set(paths)
+      // Re-render only when the running set actually changed (symmetric diff),
+      // so this can't loop against refresh().
+      const changed = next.size !== running.size || [...next].some(p => !running.has(p))
+      running = next
+      if (changed) appEvents.refreshCommands?.()
+    })
+    .catch(err => {
+      console.error('running_app_paths failed:', err)
+      runningFetchedAt = Date.now()
+    })
+    .finally(() => {
+      runningInflight = null
+    })
+  return runningInflight
+}
 
 function refreshApps(): Promise<void> {
   inflight ??= listApps()
@@ -57,6 +85,7 @@ function appToCommand(app: AppInfo): Command {
     source: 'app',
     folderName: 'Apps',
     actionLabel: 'Open',
+    running: running.has(app.path),
     action: async () => {
       await runApp(app.path)
     },
@@ -74,6 +103,9 @@ export const appLauncherProvider: CommandProvider = {
       if (apps.length === 0) await refreshApps()
       else void refreshApps()
     }
+    // Running state is always refreshed in the background (never blocks); the
+    // dots appear on the next re-render once the set is back.
+    if (Date.now() - runningFetchedAt > RUNNING_TTL_MS) void refreshRunning()
     return apps.map(appToCommand)
   },
 }

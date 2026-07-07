@@ -587,6 +587,7 @@ pub fn run() {
             commands::explorer::explorer_location,
             commands::explorer::list_files_recursive,
             commands::launcher::list_apps,
+            commands::launcher::running_app_paths,
             commands::launcher::run_app,
             commands::bookmarks::list_bookmarks,
             commands::search::search_files,

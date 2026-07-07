@@ -51,6 +51,7 @@ function commandToItem(cmd: Command): PaletteItem {
     accessories: cmd.accessories,
     metadata: cmd.metadata,
     liveOutputKey: cmd.liveOutputKey,
+    running: cmd.running,
   }
 }
 

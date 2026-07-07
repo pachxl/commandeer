@@ -306,6 +306,11 @@ export interface AppInfo {
 export const listApps = () =>
   invoke<AppInfo[]>('list_apps')
 
+// Subset of installed-app `path`s (same identity as list_apps) whose process is
+// currently running — powers the running-app indicator dot in the root list.
+export const runningAppPaths = () =>
+  invoke<string[]>('running_app_paths')
+
 export const runApp = (path: string) =>
   invoke<void>('run_app', { path })
 

@@ -114,6 +114,22 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
           </div>
         )}
 
+        {item.running && (
+          // Running-app status dot: a small green pip before the label, with a
+          // soft glow so it reads on both the transparent and accent-selected row.
+          <span
+            title="Running"
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              flexShrink: 0,
+              background: selected ? '#ffffff' : '#30d158',
+              boxShadow: selected ? 'none' : '0 0 4px rgba(48,209,88,0.9)',
+            }}
+          />
+        )}
+
         <span style={{
           flex: 1,
           fontSize: 13,

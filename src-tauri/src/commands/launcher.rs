@@ -170,44 +170,157 @@ mod tests {
             "expected a stock app in the list"
         );
     }
+
+    // Cross-references the real installed-app list against the live process
+    // table. On a dev Mac at least one /Applications app is always open, and
+    // every match must be a path the app list actually contains.
+    #[test]
+    fn smoke_running_app_paths() {
+        let apps = super::app_entries();
+        let procs = crate::commands::process::snapshot_processes();
+        let running = super::match_running_apps(&apps, &procs);
+        let known: std::collections::HashSet<&str> =
+            apps.iter().map(|a| a.path.as_str()).collect();
+        assert!(
+            running.iter().all(|p| known.contains(p.as_str())),
+            "matcher returned a path not in the app list"
+        );
+        assert!(
+            !running.is_empty(),
+            "no installed app matched a running process"
+        );
+    }
+}
+
+/// The platform's installed-app list, name-sorted. Shared by `list_apps` and
+/// the running-app matcher so both see the exact same `path` identities.
+fn app_entries() -> Vec<AppEntry> {
+    #[cfg(target_os = "windows")]
+    let mut apps = apps_folder_entries()
+        .filter(|a| !a.is_empty())
+        .unwrap_or_else(start_menu_entries);
+    #[cfg(target_os = "macos")]
+    let mut apps = mac_app_entries();
+    #[cfg(target_os = "linux")]
+    let mut apps = desktop_dir_entries();
+
+    apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    apps
 }
 
 #[tauri::command]
 pub async fn list_apps() -> Result<Vec<AppEntry>, String> {
-    #[cfg(target_os = "windows")]
-    {
-        tokio::task::spawn_blocking(|| {
-            let mut apps = apps_folder_entries()
-                .filter(|a| !a.is_empty())
-                .unwrap_or_else(start_menu_entries);
-            apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-            Ok(apps)
-        })
+    tokio::task::spawn_blocking(app_entries)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Cross-reference installed apps with running processes and return the subset
+/// of app `path`s (same identity as `list_apps`) that currently have a live
+/// process — powers the running-app indicator dot in the root list. Matching is
+/// per-platform and best-effort: a miss just omits the dot.
+///
+/// - **macOS**: a process whose executable lives inside the `Foo.app` bundle.
+/// - **Linux**: the desktop entry's `Exec` binary basename matches a running
+///   executable/`comm` name.
+/// - **Windows**: AppsFolder `path`s aren't real exe paths, so match the app's
+///   display name against the running executable basename (normalized).
+#[tauri::command]
+pub async fn running_app_paths() -> Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(|| {
+        let apps = app_entries();
+        let procs = super::process::snapshot_processes();
+        Ok(match_running_apps(&apps, &procs))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[cfg(target_os = "macos")]
+fn match_running_apps(
+    apps: &[AppEntry],
+    procs: &[crate::commands::process::ProcessInfo],
+) -> Vec<String> {
+    apps.iter()
+        .filter(|app| {
+            // /Applications/Foo.app  →  a process exe under /Applications/Foo.app/
+            let prefix = format!("{}/", app.path);
+            procs
+                .iter()
+                .any(|p| p.exe_path.as_deref().is_some_and(|e| e.starts_with(&prefix)))
+        })
+        .map(|app| app.path.clone())
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn match_running_apps(
+    apps: &[AppEntry],
+    procs: &[crate::commands::process::ProcessInfo],
+) -> Vec<String> {
+    use std::collections::HashSet;
+    use std::path::Path;
+
+    // Running executable basenames + comm names, lowercased for matching.
+    let mut running: HashSet<String> = HashSet::new();
+    for p in procs {
+        running.insert(p.name.to_lowercase());
+        if let Some(exe) = &p.exe_path {
+            if let Some(base) = Path::new(exe).file_name() {
+                running.insert(base.to_string_lossy().to_lowercase());
+            }
+        }
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        tokio::task::spawn_blocking(|| {
-            let mut apps = mac_app_entries();
-            apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-            Ok(apps)
+    apps.iter()
+        .filter(|app| {
+            let Ok(content) = std::fs::read_to_string(&app.path) else {
+                return false;
+            };
+            let Some(exec) = super::desktop::desktop_entry_value(&content, "Exec") else {
+                return false;
+            };
+            let Some(args) = super::desktop::parse_exec(&exec) else {
+                return false;
+            };
+            // First non-env token is the binary; comm truncates to 15 chars, so
+            // also accept a prefix match against the running name.
+            let bin = Path::new(&args[0])
+                .file_name()
+                .map(|b| b.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            !bin.is_empty()
+                && running
+                    .iter()
+                    .any(|r| r == &bin || (r.len() == 15 && bin.starts_with(r.as_str())))
         })
-        .await
-        .map_err(|e| e.to_string())?
-    }
+        .map(|app| app.path.clone())
+        .collect()
+}
 
-    #[cfg(target_os = "linux")]
-    {
-        tokio::task::spawn_blocking(|| {
-            let mut apps = desktop_dir_entries();
-            apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-            Ok(apps)
-        })
-        .await
-        .map_err(|e| e.to_string())?
+#[cfg(target_os = "windows")]
+fn match_running_apps(
+    apps: &[AppEntry],
+    procs: &[crate::commands::process::ProcessInfo],
+) -> Vec<String> {
+    // Squash to lowercase alphanumerics so "Windows Terminal" ↔ "WindowsTerminal.exe".
+    fn norm(s: &str) -> String {
+        s.chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(|c| c.to_lowercase())
+            .collect()
     }
+    let running: std::collections::HashSet<String> = procs
+        .iter()
+        .map(|p| norm(p.name.trim_end_matches(".exe")))
+        .collect();
+    apps.iter()
+        .filter(|app| {
+            let n = norm(&app.name);
+            !n.is_empty() && running.contains(&n)
+        })
+        .map(|app| app.path.clone())
+        .collect()
 }
 
 /// Enumerate installed apps from the XDG applications dirs (`~/.local/share`

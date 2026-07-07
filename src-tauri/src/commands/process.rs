@@ -13,106 +13,16 @@ pub struct ProcessInfo {
 pub async fn list_processes() -> Result<Vec<ProcessInfo>, String> {
     #[cfg(target_os = "windows")]
     {
-        tokio::task::spawn_blocking(|| {
-            use windows::Win32::Foundation::CloseHandle;
-            use windows::Win32::System::ProcessStatus::{
-                EnumProcesses, K32GetModuleBaseNameW, K32GetProcessMemoryInfo,
-                PROCESS_MEMORY_COUNTERS,
-            };
-            use windows::core::PWSTR;
-            use windows::Win32::System::Threading::{
-                OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-                PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
-            };
-
-            let mut pids = vec![0u32; 8192];
-            let mut needed: u32 = 0;
-            unsafe {
-                EnumProcesses(
-                    pids.as_mut_ptr(),
-                    (pids.len() * std::mem::size_of::<u32>()) as u32,
-                    &mut needed,
-                )
-                .map_err(|e| e.to_string())?;
-            }
-            let count = (needed as usize) / std::mem::size_of::<u32>();
-
-            let mut out = Vec::new();
-            for &pid in &pids[..count] {
-                if pid == 0 {
-                    continue;
-                }
-                unsafe {
-                    let Ok(handle) =
-                        OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid)
-                    else {
-                        continue;
-                    };
-                    let mut name_buf = [0u16; 260];
-                    let len = K32GetModuleBaseNameW(handle, None, &mut name_buf);
-                    let mut mem = PROCESS_MEMORY_COUNTERS {
-                        cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
-                        ..Default::default()
-                    };
-                    let _ = K32GetProcessMemoryInfo(handle, &mut mem, mem.cb);
-                    let mut path_buf = [0u16; 1024];
-                    let mut path_len = path_buf.len() as u32;
-                    let exe_path = QueryFullProcessImageNameW(
-                        handle,
-                        PROCESS_NAME_WIN32,
-                        PWSTR(path_buf.as_mut_ptr()),
-                        &mut path_len,
-                    )
-                    .ok()
-                    .filter(|_| path_len > 0)
-                    .map(|_| {
-                        String::from_utf16_lossy(&path_buf[..path_len as usize]).replace('\\', "/")
-                    });
-                    let _ = CloseHandle(handle);
-                    if len == 0 {
-                        continue;
-                    }
-                    out.push(ProcessInfo {
-                        pid,
-                        name: String::from_utf16_lossy(&name_buf[..len as usize]),
-                        memory_bytes: mem.WorkingSetSize as u64,
-                        exe_path,
-                    });
-                }
-            }
-            Ok(out)
-        })
-        .await
-        .map_err(|e| e.to_string())?
+        tokio::task::spawn_blocking(windows_processes)
+            .await
+            .map_err(|e| e.to_string())?
     }
 
     #[cfg(target_os = "macos")]
     {
-        tokio::task::spawn_blocking(|| {
-            use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
-
-            let mut sys = System::new();
-            sys.refresh_processes_specifics(
-                ProcessesToUpdate::All,
-                true,
-                ProcessRefreshKind::nothing()
-                    .with_memory()
-                    .with_exe(UpdateKind::OnlyIfNotSet),
-            );
-            let out = sys
-                .processes()
-                .iter()
-                .map(|(pid, p)| ProcessInfo {
-                    pid: pid.as_u32(),
-                    name: p.name().to_string_lossy().into_owned(),
-                    memory_bytes: p.memory(),
-                    exe_path: p.exe().map(|e| e.to_string_lossy().into_owned()),
-                })
-                .collect();
-            Ok(out)
-        })
-        .await
-        .map_err(|e| e.to_string())?
+        tokio::task::spawn_blocking(macos_processes)
+            .await
+            .map_err(|e| e.to_string())?
     }
 
     #[cfg(target_os = "linux")]
@@ -121,6 +31,116 @@ pub async fn list_processes() -> Result<Vec<ProcessInfo>, String> {
             .await
             .map_err(|e| e.to_string())?
     }
+}
+
+/// Best-effort synchronous process snapshot shared by the app-running indicator
+/// (`running_app_paths`). Returns an empty list rather than an error so a
+/// transient enumeration failure just hides the dots instead of surfacing.
+pub(crate) fn snapshot_processes() -> Vec<ProcessInfo> {
+    #[cfg(target_os = "windows")]
+    {
+        windows_processes().unwrap_or_default()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos_processes().unwrap_or_default()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux_processes().unwrap_or_default()
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_processes() -> Result<Vec<ProcessInfo>, String> {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::ProcessStatus::{
+        EnumProcesses, K32GetModuleBaseNameW, K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows::core::PWSTR;
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_INFORMATION,
+        PROCESS_VM_READ,
+    };
+
+    let mut pids = vec![0u32; 8192];
+    let mut needed: u32 = 0;
+    unsafe {
+        EnumProcesses(
+            pids.as_mut_ptr(),
+            (pids.len() * std::mem::size_of::<u32>()) as u32,
+            &mut needed,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    let count = (needed as usize) / std::mem::size_of::<u32>();
+
+    let mut out = Vec::new();
+    for &pid in &pids[..count] {
+        if pid == 0 {
+            continue;
+        }
+        unsafe {
+            let Ok(handle) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid)
+            else {
+                continue;
+            };
+            let mut name_buf = [0u16; 260];
+            let len = K32GetModuleBaseNameW(handle, None, &mut name_buf);
+            let mut mem = PROCESS_MEMORY_COUNTERS {
+                cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+                ..Default::default()
+            };
+            let _ = K32GetProcessMemoryInfo(handle, &mut mem, mem.cb);
+            let mut path_buf = [0u16; 1024];
+            let mut path_len = path_buf.len() as u32;
+            let exe_path = QueryFullProcessImageNameW(
+                handle,
+                PROCESS_NAME_WIN32,
+                PWSTR(path_buf.as_mut_ptr()),
+                &mut path_len,
+            )
+            .ok()
+            .filter(|_| path_len > 0)
+            .map(|_| String::from_utf16_lossy(&path_buf[..path_len as usize]).replace('\\', "/"));
+            let _ = CloseHandle(handle);
+            if len == 0 {
+                continue;
+            }
+            out.push(ProcessInfo {
+                pid,
+                name: String::from_utf16_lossy(&name_buf[..len as usize]),
+                memory_bytes: mem.WorkingSetSize as u64,
+                exe_path,
+            });
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_processes() -> Result<Vec<ProcessInfo>, String> {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing()
+            .with_memory()
+            .with_exe(UpdateKind::OnlyIfNotSet),
+    );
+    let out = sys
+        .processes()
+        .iter()
+        .map(|(pid, p)| ProcessInfo {
+            pid: pid.as_u32(),
+            name: p.name().to_string_lossy().into_owned(),
+            memory_bytes: p.memory(),
+            exe_path: p.exe().map(|e| e.to_string_lossy().into_owned()),
+        })
+        .collect();
+    Ok(out)
 }
 
 #[cfg(all(test, target_os = "macos"))]

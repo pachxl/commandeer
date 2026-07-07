@@ -78,6 +78,8 @@ export interface PaletteItem {
   // the frontend polls, whose captured stdout replaces this item's sublabel
   // live. Presence marks the item as a live-refreshing inline script.
   liveOutputKey?: string
+  // App is currently running — renders a small status dot before the label
+  running?: boolean
 }
 
 export type StepResult =
@@ -180,6 +182,8 @@ export interface Command {
   // the frontend polls, whose captured stdout becomes a live sublabel. When
   // set, Enter force-refreshes instead of fire-and-forget running.
   liveOutputKey?: string
+  // App is currently running — renders a small status dot before the label
+  running?: boolean
 }
 
 // A source of commands: static entries for the root list (getCommands) and/or
