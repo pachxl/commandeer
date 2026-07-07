@@ -4,8 +4,7 @@ Status: **Phases 1–4 complete** — Commandeer runs on macOS with UX parity
 (vibrancy, tray, hotkey, positioning), native feature backends (launcher,
 screenshot, paste, audio, system actions, processes), packaging (`.app`
 bundle, `.icns`, `CFBundleURLTypes`), sync hygiene (cross-platform `release`
-script; CI matrix in `.github/workflows/ci.yml`), and file-search /
-system-stats parity. This document is the port plan; the macOS notes in
+script), and file-search / system-stats parity. This document is the port plan; the macOS notes in
 `CLAUDE.md` are the up-to-date reference for current platform behavior and
 permission handling. Commandeer targets **Windows**, **Linux (Wayland/COSMIC)**,
 and **macOS** from the same codebase.

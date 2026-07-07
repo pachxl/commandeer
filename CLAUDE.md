@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Commandeer is a Raycast-style command palette built with Tauri 2 (React/TypeScript frontend, Rust backend). It is **cross-platform: Windows, Linux (Wayland/COSMIC), and macOS** — originally Windows-only, then ported to Linux, then to macOS. It is **still in active development** with new features being added regularly; keep this file updated as the app evolves.
 
-Checks: `npm run build` runs `tsc` (strict) and is the frontend type-check; `npm run lint` runs ESLint (react-hooks rules only); `cargo test` in `src-tauri/` runs the Rust unit tests; `cargo clippy --all-targets -- -D warnings` must stay clean. CI (`.github/workflows/ci.yml`) runs all four on push — clippy/test on a 3-OS matrix.
+Checks: `npm run build` runs `tsc` (strict) and is the frontend type-check; `npm run lint` runs ESLint (react-hooks rules only); `cargo test` in `src-tauri/` runs the Rust unit tests; `cargo clippy --all-targets -- -D warnings` must stay clean. There is deliberately **no CI** — it was added and removed twice; don't re-add it. Clippy lints are platform-gated, so a clean local run only proves the current OS: treat cross-OS clippy as unverified until the code is pulled on the other machines.
 
 ## Commands
 
