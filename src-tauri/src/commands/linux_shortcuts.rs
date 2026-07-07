@@ -54,15 +54,9 @@ fn gnome_binding(mods: &[&str], key: &str) -> String {
     s
 }
 
-/// Sync the toggle (Ctrl+Space / Alt+Space in game mode) and PrtScn-screenshot
-/// bindings with whichever desktop is running. Never fatal.
-pub fn update_toggle_shortcut(game_mode: bool) {
-    update_toggle_shortcut_with("Ctrl+Space", "Alt+Space", game_mode)
-}
-
-/// Same as [update_toggle_shortcut] but with explicit hotkey strings from
-/// config.json, so the user-edited base + game hotkeys are reflected in the
-/// COSMIC/GNOME bindings (not just the hardcoded defaults).
+/// Sync the toggle and PrtScn-screenshot bindings with whichever desktop is
+/// running, using the base + game hotkey strings from config.json so the
+/// user-edited hotkeys are reflected in the COSMIC/GNOME bindings. Never fatal.
 pub fn update_toggle_shortcut_with(base: &str, game: &str, game_mode: bool) {
     let hotkey = if game_mode { game } else { base };
     let desktop = std::env::var("XDG_CURRENT_DESKTOP")

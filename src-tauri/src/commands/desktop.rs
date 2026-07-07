@@ -254,13 +254,11 @@ pub(crate) fn parse_exec(exec: &str) -> Option<Vec<String>> {
                 }
             }
             '%' if !in_quotes => {
-                match chars.next() {
-                    Some('%') => {
-                        cur.push('%');
-                        has_token = true;
-                    }
-                    // Any other field code: drop it (we launch with no args).
-                    Some(_) | None => {}
+                // "%%" is a literal '%'; any other field code is dropped
+                // (we launch with no args).
+                if let Some('%') = chars.next() {
+                    cur.push('%');
+                    has_token = true;
                 }
             }
             c if c.is_whitespace() && !in_quotes => {

@@ -18,11 +18,8 @@ pub fn icon_for_path(path: &str) -> Option<String> {
     mac::icon_for_path(path)
 }
 
-#[cfg(target_os = "linux")]
-pub fn icon_for_path(path: &str) -> Option<String> {
-    let _ = path;
-    None
-}
+// Linux has no icon_for_path: file-search icons resolve through the
+// .desktop-theme lookup in search.rs's linux_icons instead.
 
 /// Data-URL icon for a specific file path, resolving shortcuts and app icons.
 /// Cached per path; slower than icon_for_path but accurate for shortcuts.

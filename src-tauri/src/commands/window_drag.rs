@@ -705,6 +705,10 @@ mod platform {
         out
     }
 
+    /// The (possibly clamped) target edges `(l, t, r, b)` plus each neighbor's
+    /// `(hwnd, rect)` to apply.
+    type NeighborPlan = ((i32, i32, i32, i32), Vec<(isize, RECT)>);
+
     /// Given the target's resized edges `(tl, tt, tr, tb)`, move every neighbor's
     /// facing edge to the shared boundary (keeping their other three edges), and
     /// clamp the boundary so neither the target nor *any* neighbor drops below
@@ -717,7 +721,7 @@ mod platform {
         tt: i32,
         tr: i32,
         tb: i32,
-    ) -> ((i32, i32, i32, i32), Vec<(isize, RECT)>) {
+    ) -> NeighborPlan {
         // The target's free edge sits at the shared boundary `b`; each neighbor's
         // facing edge is pushed its own `overlap` past it (into the invisible
         // border) so the visible gap is halved. Use `.max(lo).min(hi)` rather
@@ -1127,9 +1131,10 @@ mod platform {
             std::mem::size_of::<RECT>() as u32,
         )
         .is_ok();
-        if dwm_ok && r.right > r.left && r.bottom > r.top {
-            Some(r)
-        } else if GetWindowRect(hwnd, &mut r).is_ok() {
+        // Fall back to GetWindowRect (which refills `r`) when the DWM bounds
+        // are unavailable or degenerate.
+        if (dwm_ok && r.right > r.left && r.bottom > r.top) || GetWindowRect(hwnd, &mut r).is_ok()
+        {
             Some(r)
         } else {
             None

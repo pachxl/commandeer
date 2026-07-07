@@ -676,7 +676,7 @@ fn capture_script_output(path: &str) -> Result<String, String> {
         if let Some(dir) = script_path.parent() {
             cmd.current_dir(dir);
         }
-        return run_and_read_first_line(&mut cmd);
+        run_and_read_first_line(&mut cmd)
     }
 
     #[cfg(not(target_os = "windows"))]

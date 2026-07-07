@@ -135,7 +135,7 @@ fn capture_screen_to(dest: &std::path::Path, dir: &std::path::Path) -> Result<()
             if saved.is_empty() {
                 return Err("cosmic-screenshot printed no path".into());
             }
-            if PathBuf::from(&saved) != dest {
+            if std::path::Path::new(&saved) != dest {
                 std::fs::rename(&saved, dest).map_err(|e| e.to_string())?;
             }
             return Ok(());

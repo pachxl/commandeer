@@ -145,6 +145,9 @@ fn read_firefox_bookmarks(profile_dir: &Path, out: &mut Vec<Bookmark>) {
 }
 
 fn chromium_browser_paths(home: &Path) -> Vec<(String, PathBuf)> {
+    // Windows resolves via %LOCALAPPDATA% rather than the home dir.
+    #[cfg(target_os = "windows")]
+    let _ = home;
     let mut browsers: Vec<(String, PathBuf)> = Vec::new();
 
     #[cfg(target_os = "macos")]
@@ -190,6 +193,9 @@ fn chromium_browser_paths(home: &Path) -> Vec<(String, PathBuf)> {
 }
 
 fn firefox_parent_dir(home: &Path) -> Option<PathBuf> {
+    // Windows resolves via %APPDATA% rather than the home dir.
+    #[cfg(target_os = "windows")]
+    let _ = home;
     #[cfg(target_os = "macos")]
     {
         Some(home.join("Library/Application Support/Firefox/Profiles"))

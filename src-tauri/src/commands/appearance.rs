@@ -38,7 +38,7 @@ fn set_dark_mode_sync(enabled: bool) -> Result<(), String> {
 #[cfg(target_os = "windows")]
 fn windows_set_dark_mode(enabled: bool) -> Result<(), String> {
     use windows::core::w;
-    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
         SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
     };
