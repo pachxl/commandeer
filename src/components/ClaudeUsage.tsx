@@ -22,30 +22,6 @@ const JITTER_MS = 15_000
 const KIND_ORDER = ['session', 'weekly_all']
 const CLAUDE_ORANGE = '#D97757'
 
-// The Claude Code mark, rendered inline in Claude orange so it needs no
-// network/brand asset. Path from the official claudecode.svg; the viewBox is
-// cropped to the path's tight bounds (the artwork only spans y=5..20 of the
-// original 24×24 box) so the mark fills its space instead of floating in it.
-function ClaudeLogo({ height = 20 }: { height?: number }) {
-  return (
-    <svg
-      width={height * (24 / 15)}
-      height={height}
-      viewBox="0 5 24 15"
-      fill={CLAUDE_ORANGE}
-      fillRule="evenodd"
-      role="img"
-      aria-label="Claude Code"
-    >
-      <title>Claude Code</title>
-      <path
-        clipRule="evenodd"
-        d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"
-      />
-    </svg>
-  )
-}
-
 interface CachedUsage {
   limits: ClaudeLimit[]
   fetchedAt: number
@@ -276,7 +252,9 @@ export default function ClaudeUsage() {
         alignItems: 'center',
         justifyContent: 'space-between',
       }}>
-        <ClaudeLogo height={20} />
+        <span style={{ fontSize: 11, fontWeight: 600, color: CLAUDE_ORANGE }}>
+          Claude Usage
+        </span>
         {loading && (
           <svg style={{ animation: 'spin 1s linear infinite' }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12a9 9 0 1 1-6.219-8.56" />
