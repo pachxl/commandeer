@@ -84,7 +84,7 @@ function isValidIana(zone: string): boolean {
 }
 
 /// Resolve free text ("bst", "new york", "america/new_york") to an IANA zone.
-export function resolveZone(text: string): string | null {
+function resolveZone(text: string): string | null {
   const key = text.toLowerCase().replace(/[\s_-]+/g, '')
   if (ZONES[key]) return ZONES[key]
   // IANA ids pass through (allow spaces for underscores: "america/new york")

@@ -86,14 +86,8 @@ export function recordUse(id: string) {
   save(entries)
 }
 
-// Public frecency score, used for root suggestions and query ranking.
-export function frecencyScore(id: string): number {
+// Public frecency boost, used for root suggestions and query ranking.
+export function frecencyBonus(id: string): number {
   const entry = load()[id]
   return entry ? frecencyScoreInternal(entry) : 0
-}
-
-// Alias kept for call sites that expect a "bonus" name; it is the same two-term
-// boost used by frecencyScore.
-export function frecencyBonus(id: string): number {
-  return frecencyScore(id)
 }

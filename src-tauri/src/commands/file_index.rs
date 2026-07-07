@@ -749,10 +749,8 @@ mod tests {
         let index = mem_index();
         flush_batch(
             &index,
-            &vec![
-                ("home/user/downloads/report.pdf".to_string(), 1, 1),
-                ("home/user/desktop/notes.txt".to_string(), 2, 2),
-            ],
+            &[("home/user/downloads/report.pdf".to_string(), 1, 1),
+                ("home/user/desktop/notes.txt".to_string(), 2, 2)],
         )
         .unwrap();
 
@@ -777,10 +775,8 @@ mod tests {
         let index = mem_index();
         flush_batch(
             &index,
-            &vec![
-                ("home/user/go.txt".to_string(), 1, 1),
-                ("home/user/rust.rs".to_string(), 2, 2),
-            ],
+            &[("home/user/go.txt".to_string(), 1, 1),
+                ("home/user/rust.rs".to_string(), 2, 2)],
         )
         .unwrap();
 
@@ -802,10 +798,8 @@ mod tests {
         let index = mem_index();
         flush_batch(
             &index,
-            &vec![
-                ("home/user/downloads/readme.md".to_string(), 1, 1),
-                ("home/user/downloads/photo.png".to_string(), 2, 2),
-            ],
+            &[("home/user/downloads/readme.md".to_string(), 1, 1),
+                ("home/user/downloads/photo.png".to_string(), 2, 2)],
         )
         .unwrap();
 
@@ -828,10 +822,8 @@ mod tests {
         let index = mem_index();
         flush_batch(
             &index,
-            &vec![
-                ("home/user/a_b.txt".to_string(), 1, 1),
-                ("home/user/axb.txt".to_string(), 2, 2),
-            ],
+            &[("home/user/a_b.txt".to_string(), 1, 1),
+                ("home/user/axb.txt".to_string(), 2, 2)],
         )
         .unwrap();
 
@@ -879,8 +871,8 @@ mod tests {
         let index = FileIndex {
             conn: Arc::new(Mutex::new(conn)),
         };
-        flush_batch(&index, &vec![("new/file.txt".to_string(), 5, 5)]).unwrap();
-        flush_batch(&index, &vec![("new/file.txt".to_string(), 6, 6)]).unwrap();
+        flush_batch(&index, &[("new/file.txt".to_string(), 5, 5)]).unwrap();
+        flush_batch(&index, &[("new/file.txt".to_string(), 6, 6)]).unwrap();
         index.remove_path("new/file.txt").unwrap();
         assert!(index.search("file", 10).unwrap().is_empty());
     }

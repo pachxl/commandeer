@@ -274,7 +274,7 @@ function applyFunction(name: string, arg: number): number {
   }
 }
 
-export function evaluateMath(input: string): number | null {
+function evaluateMath(input: string): number | null {
   if (!input.trim()) return null
   try {
     const result = new Parser(input).parse()

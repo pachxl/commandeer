@@ -65,7 +65,7 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
         if (!cancelled && icon) setShellIcon(icon)
       })
       return () => { cancelled = true }
-    }, [item])
+    }, [item, wantsShellIcon])
 
     const displayIcon = shellIcon ?? item.icon
     const isDataUrl = displayIcon.startsWith('data:')

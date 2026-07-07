@@ -705,7 +705,7 @@ export default function Palette({
       // REPLACEs deliberately keep the highlighted row across the reload
       .then(items => dispatch({ type: 'SET_ITEMS', stepId: currentStep.id, items, preserveSelection: true }))
       .catch(err => dispatch({ type: 'SET_ERROR', error: String(err) }))
-  }, [currentStep]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentStep])
 
   // Notify the step when it leaves the top of the stack (pop, replace,
   // reset/hide) so uncommitted previews can be undone
@@ -1546,7 +1546,9 @@ export default function Palette({
     } catch (err) {
       dispatch({ type: 'SET_ERROR', error: String(err) })
     }
-  }, [currentStep])
+    // The ref assignment below keeps the latest closure available to callers;
+    // deliberately keyed on currentStep only.
+  }, [currentStep]) // eslint-disable-line react-hooks/exhaustive-deps
   handleSelectRef.current = handleSelect
 
   // Focus input whenever visible (the container on slider steps, so

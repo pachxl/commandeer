@@ -15,10 +15,6 @@ export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
   return { score: r.score, positions: [...r.positions].sort((a, b) => a - b) }
 }
 
-export function fuzzyScore(query: string, text: string): number | null {
-  return fuzzyMatch(query, text)?.score ?? null
-}
-
 export interface ScoredItem<T> {
   item: T
   score: number
@@ -59,29 +55,6 @@ export function fuzzyScoreFieldsBatch<T>(
       if (existing === undefined || weighted > existing) {
         best.set(r.item.item, weighted)
       }
-    }
-  }
-  return best
-}
-
-// Score a single item against a set of weighted fields and return the best
-// match. Prefer fuzzyScoreFieldsBatch when ranking a list — this rebuilds an Fzf
-// index per field on every call.
-export function fuzzyScoreFields<T>(
-  query: string,
-  item: T,
-  fields: FuzzyField<T>[],
-): { score: number; positions: number[]; fieldIndex: number } | null {
-  if (!query) return { score: 0, positions: [], fieldIndex: 0 }
-  let best: { score: number; positions: number[]; fieldIndex: number } | null = null
-  for (let i = 0; i < fields.length; i++) {
-    const text = fields[i].text(item)
-    if (!text) continue
-    const m = fuzzyMatch(query, text)
-    if (!m) continue
-    const weighted = m.score * fields[i].weight
-    if (best === null || weighted > best.score) {
-      best = { score: weighted, positions: m.positions, fieldIndex: i }
     }
   }
   return best

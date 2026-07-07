@@ -468,7 +468,7 @@ const beacon: Theme = {
   },
 }
 
-export const BUILTIN_THEMES: Theme[] = [
+const BUILTIN_THEMES: Theme[] = [
   tokyoNight,
   light,
   catppuccin,
