@@ -14,7 +14,9 @@ export default defineConfig({
   envPrefix: ['VITE_', 'TAURI_'],
   build: {
     target: 'chrome105',
-    minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
+    // Default minifier (oxc since the rolldown-based Vite 8); naming
+    // 'esbuild' now requires esbuild as a separate install.
+    minify: !process.env.TAURI_DEBUG,
     sourcemap: !!process.env.TAURI_DEBUG,
   },
 })
