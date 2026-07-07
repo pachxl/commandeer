@@ -1,5 +1,4 @@
 import { useReducer, useEffect, useRef, useState, useCallback, MutableRefObject } from 'react'
-import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import { fuzzyFilter, fuzzyScoreFieldsBatch } from '../lib/fuzzy'
@@ -12,7 +11,7 @@ import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
 import { evaluateCalcQuery } from '../providers/calculator'
 import { tryTimeConversion } from '../lib/timezones'
-import { IS_LINUX, IS_MAC, envInfo, openPath, openUrl, pasteToPrevious, readQuicklinks, readNotes, revealPath, runScriptCapture, setCommandHotkey, writeClipboardText, writeQuicklinks, writeNotes, type Bookmark, type ClipboardItem, type CommandOverride, type Note, type Quicklink } from '../lib/tauri'
+import { IS_LINUX, IS_MAC, envInfo, openPath, openUrl, pasteToPrevious, readQuicklinks, readNotes, recenterPalette, resizePalette, revealPath, runScriptCapture, setCommandHotkey, writeClipboardText, writeQuicklinks, writeNotes, type Bookmark, type ClipboardItem, type CommandOverride, type Note, type Quicklink } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
@@ -1595,7 +1594,7 @@ export default function Palette({
     const shouldRecenter = widthChanged && lastWidthRef.current > 0
     lastWidthRef.current = w
     if (IS_LINUX && (await envInfo()).wayland) {
-      await invoke('resize_palette', { height: h, width: w })
+      await resizePalette(h, w)
       return
     }
     await getCurrentWindow().setSize(new LogicalSize(w, h))
@@ -1604,7 +1603,7 @@ export default function Palette({
     // monitor (authoritative, reads the live size — no frontend DPI/position
     // races), matching the show-time centering.
     if (shouldRecenter) {
-      await invoke('recenter_palette')
+      await recenterPalette()
     }
   }, [])
 

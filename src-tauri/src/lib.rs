@@ -324,7 +324,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // A second launch carrying a commandeer:// URL is a deep link: route
             // it instead of toggling. Otherwise it's the "toggle" hotkey path.
-            if commands::deeplink::handle_args(app, args.into_iter()) {
+            if commands::deeplink::handle_args(app, args) {
                 return;
             }
             toggle_palette(app);
@@ -630,7 +630,6 @@ pub fn run() {
             commands::search::file_info,
             commands::search::path_icon,
             commands::fs::read_text_preview,
-            commands::file_index::search_indexed_files,
             commands::process::list_processes,
             commands::process::kill_process,
             commands::stats::system_stats,
@@ -650,7 +649,6 @@ pub fn run() {
             commands::shortcuts::set_global_hotkey,
             commands::shortcuts::set_screenshot_hotkey,
             commands::shortcuts::set_command_hotkey,
-            commands::shortcuts::get_command_hotkey,
             set_autostart,
             get_autostart,
             set_game_mode,

@@ -26,4 +26,3 @@ pub mod store;
 pub mod system;
 pub mod window;
 pub mod window_drag;
-pub mod workspace;

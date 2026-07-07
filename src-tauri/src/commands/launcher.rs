@@ -204,7 +204,7 @@ fn app_entries() -> Vec<AppEntry> {
     #[cfg(target_os = "linux")]
     let mut apps = desktop_dir_entries();
 
-    apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    apps.sort_by_key(|a| a.name.to_lowercase());
     apps
 }
 

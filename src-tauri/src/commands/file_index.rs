@@ -22,7 +22,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
-const MAX_RESULTS: usize = 100;
 const BATCH_SIZE: usize = 256;
 const IO_PACE_MS: u64 = 2;
 const SCAN_DEPTH: usize = 8;
@@ -665,18 +664,6 @@ fn read_roots(app: &AppHandle) -> Vec<PathBuf> {
         }
     }
     default_roots()
-}
-
-/// Tauri command: search the self-hosted index.
-#[tauri::command]
-pub async fn search_indexed_files(
-    index: tauri::State<'_, FileIndex>,
-    query: String,
-) -> Result<Vec<IndexedFile>, String> {
-    let index = (*index).clone();
-    tokio::task::spawn_blocking(move || index.search(&query, MAX_RESULTS))
-        .await
-        .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

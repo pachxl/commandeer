@@ -82,7 +82,7 @@ const TUTORIAL_PS1: &str = r#"# @raycast.schemaVersion 1
 Write-Output "Edit tutorial.ps1 in your scripts folder to build your own commands"
 "#;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
     pub scripts_dir: String,
     /// Used by the testing-branch build (file search); round-tripped here so
@@ -116,22 +116,6 @@ pub struct AppConfig {
     /// None = 1.0. Persisted here so it survives across builds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub palette_scale: Option<f64>,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            scripts_dir: String::new(),
-            search_paths: None,
-            theme: None,
-            transparency: None,
-            global_hotkey: None,
-            global_hotkey_game: None,
-            screenshot_hotkey: None,
-            window_drag: None,
-            palette_scale: None,
-        }
-    }
 }
 
 fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -208,13 +192,11 @@ pub fn ensure_scripts_seeded(app: &tauri::AppHandle) {
         ("tutorial.sh", TUTORIAL_SH)
     };
     let script = dir.join(name);
-    if !script.exists() {
-        if fs::write(&script, body).is_ok() {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = fs::set_permissions(&script, fs::Permissions::from_mode(0o755));
-            }
+    if !script.exists() && fs::write(&script, body).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&script, fs::Permissions::from_mode(0o755));
         }
     }
     let _ = fs::write(&marker, b"seeded by commandeer\n");

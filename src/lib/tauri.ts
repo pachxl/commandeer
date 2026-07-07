@@ -175,8 +175,15 @@ export const setWindowDrag = (enabled: boolean) =>
 export const setCommandHotkey = (commandId: string, hotkey: string | null) =>
   invoke<void>('set_command_hotkey', { commandId, hotkey })
 
-export const getCommandHotkey = (commandId: string) =>
-  invoke<string | null>('get_command_hotkey', { commandId })
+// Wayland-only: change the layer-shell size request in place (client setSize is
+// ignored by cosmic-comp; see CLAUDE.md "Window sizing/positioning").
+export const resizePalette = (height: number, width?: number) =>
+  invoke<void>('resize_palette', { height, width })
+
+// Re-center the palette on its current monitor after a width change (Rust reads
+// the live window size, so no frontend DPI/position races).
+export const recenterPalette = () =>
+  invoke<void>('recenter_palette')
 
 export const setAutostart = (enabled: boolean) =>
   invoke<void>('set_autostart', { enabled })

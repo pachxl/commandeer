@@ -276,12 +276,14 @@ fn file_key() -> Result<[u8; 32], String> {
     Ok(key)
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+// Linux-only: hex is only used for the Secret Service round-trip; the macOS
+// key file stores raw bytes.
+#[cfg(target_os = "linux")]
 fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn hex_decode(s: &str) -> Option<[u8; 32]> {
     let s = s.trim();
     if s.len() != 64 {

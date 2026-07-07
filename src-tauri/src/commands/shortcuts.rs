@@ -396,12 +396,6 @@ pub async fn set_command_hotkey(
     register_command_hotkeys(&app, &overrides)
 }
 
-#[tauri::command]
-pub async fn get_command_hotkey(app: AppHandle, command_id: String) -> Result<Option<String>, String> {
-    let overrides = read_overrides_sync(&app)?;
-    Ok(overrides.get(&command_id).and_then(|ov| ov.hotkey.clone()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::parse_shortcut;
