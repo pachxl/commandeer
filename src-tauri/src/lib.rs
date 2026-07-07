@@ -390,6 +390,22 @@ pub fn run() {
             // example of the script-command format.
             commands::config::ensure_scripts_seeded(app.app_handle());
 
+            // macOS app icons resolve through NSWorkspace at ~175 ms each cold,
+            // so back the icon cache with a file in the app cache dir (survives
+            // restarts) and warm every installed app's icon once in the
+            // background. After the first run the warm is served from disk, so
+            // the Apps folder paints real icons immediately instead of the
+            // generic glyph. (Windows/Linux resolution is cheap enough to stay
+            // in-memory-only.)
+            #[cfg(target_os = "macos")]
+            if let Ok(cache_dir) = app.path().app_cache_dir() {
+                let _ = std::fs::create_dir_all(&cache_dir);
+                commands::icons::set_cache_dir(cache_dir);
+                std::thread::spawn(|| {
+                    commands::icons::warm_app_icons(commands::launcher::installed_app_paths());
+                });
+            }
+
             // Self-hosted file index (SQLite + FTS5) backing the find: search.
             let file_index = commands::file_index::FileIndex::new(app.app_handle())?;
             let file_index_clone = file_index.clone();

@@ -215,6 +215,12 @@ pub async fn list_apps() -> Result<Vec<AppEntry>, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Installed-app bundle paths, for the macOS startup icon-cache warm.
+#[cfg(target_os = "macos")]
+pub fn installed_app_paths() -> Vec<String> {
+    app_entries().into_iter().map(|a| a.path).collect()
+}
+
 /// Cross-reference installed apps with running processes and return the subset
 /// of app `path`s (same identity as `list_apps`) that currently have a live
 /// process — powers the running-app indicator dot in the root list. Matching is

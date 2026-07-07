@@ -18,6 +18,22 @@ pub fn icon_for_path(path: &str) -> Option<String> {
     mac::icon_for_path(path)
 }
 
+/// Point the macOS icon cache at its on-disk backing file (the app cache dir).
+/// Call once at startup, before the first lookup, so resolved icons survive
+/// restarts instead of being re-resolved (NSWorkspace is ~175 ms/icon cold).
+#[cfg(target_os = "macos")]
+pub fn set_cache_dir(dir: std::path::PathBuf) {
+    mac::set_cache_dir(dir);
+}
+
+/// Resolve every installed app's icon into the (disk-persisted) cache once, so
+/// the first open of the Apps folder paints real icons. Run on a background
+/// thread; near-instant after the first run (served from disk).
+#[cfg(target_os = "macos")]
+pub fn warm_app_icons(paths: Vec<String>) {
+    mac::warm_app_icons(paths);
+}
+
 // Linux has no icon_for_path: file-search icons resolve through the
 // .desktop-theme lookup in search.rs's linux_icons instead.
 
@@ -376,11 +392,92 @@ mod win {
 #[cfg(target_os = "macos")]
 mod mac {
     use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, UNIX_EPOCH};
 
-    fn cache() -> &'static Mutex<HashMap<String, Option<String>>> {
-        static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
-        CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+    use serde::{Deserialize, Serialize};
+
+    // One cache slot. Path-keyed entries store the target's mtime so a bundle
+    // update (new mtime) re-resolves; generic folder/ext entries carry mtime 0
+    // and never expire.
+    #[derive(Clone, Serialize, Deserialize)]
+    struct Entry {
+        mtime: u64,
+        icon: Option<String>,
+    }
+
+    static CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
+    // Set whenever an entry is inserted; the flusher thread writes the map to
+    // disk on the next tick and clears it. Coalesces the warm's ~200 inserts
+    // into a handful of writes instead of one per icon.
+    static DIRTY: AtomicBool = AtomicBool::new(false);
+
+    pub fn set_cache_dir(dir: PathBuf) {
+        let _ = CACHE_DIR.set(dir);
+    }
+
+    fn cache_file() -> Option<PathBuf> {
+        CACHE_DIR.get().map(|d| d.join("icon-cache-v1.json"))
+    }
+
+    fn cache() -> &'static Mutex<HashMap<String, Entry>> {
+        static CACHE: OnceLock<Mutex<HashMap<String, Entry>>> = OnceLock::new();
+        CACHE.get_or_init(|| {
+            let map = load_from_disk().unwrap_or_default();
+            // Persist dirty state off the hot path (the app runs continuously).
+            std::thread::spawn(flush_loop);
+            Mutex::new(map)
+        })
+    }
+
+    fn load_from_disk() -> Option<HashMap<String, Entry>> {
+        let bytes = std::fs::read(cache_file()?).ok()?;
+        serde_json::from_slice(&bytes).ok()
+    }
+
+    fn flush_loop() {
+        loop {
+            std::thread::sleep(Duration::from_secs(3));
+            if DIRTY.swap(false, Ordering::AcqRel) {
+                flush();
+            }
+        }
+    }
+
+    fn flush() {
+        let Some(path) = cache_file() else { return };
+        let json = {
+            let Ok(guard) = cache().lock() else { return };
+            match serde_json::to_vec(&*guard) {
+                Ok(j) => j,
+                Err(_) => return,
+            }
+        };
+        // Temp-then-rename so a crash mid-write can't corrupt the cache file.
+        let tmp = path.with_extension("json.tmp");
+        if std::fs::write(&tmp, &json).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
+        }
+    }
+
+    fn path_mtime(path: &str) -> u64 {
+        std::fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
+    pub fn warm_app_icons(paths: Vec<String>) {
+        // One at a time: NSWorkspace serializes icon lookups internally, so a
+        // burst neither helps nor is kinder to on-demand lookups for the rows
+        // the user is actually looking at.
+        for p in paths {
+            let _ = icon_for_path(&p);
+        }
     }
 
     pub fn icon_for_path(path: &str) -> Option<String> {
@@ -395,20 +492,29 @@ mod mac {
         // rendered as whichever app resolved first). Extensionless files
         // (mach-O binaries in scripts dirs) also get per-path slots. Plain
         // folders and ordinary files share per-kind/per-extension slots.
-        let key = if ext == "app" || (ext.is_empty() && !p.is_dir()) {
+        let is_path_key = ext == "app" || (ext.is_empty() && !p.is_dir());
+        let key = if is_path_key {
             path.to_string()
         } else if p.is_dir() {
             "\u{0}folder".to_string()
         } else {
             ext
         };
-        if let Some(hit) = cache().lock().ok()?.get(&key) {
-            return hit.clone();
+        // Only path-keyed entries carry a meaningful mtime to invalidate on.
+        let mtime = if is_path_key { path_mtime(path) } else { 0 };
+
+        if let Ok(c) = cache().lock() {
+            if let Some(hit) = c.get(&key) {
+                if !is_path_key || hit.mtime == mtime {
+                    return hit.icon.clone();
+                }
+            }
         }
         let icon = nsimage_icon_for_path(path);
         if let Ok(mut c) = cache().lock() {
-            c.insert(key, icon.clone());
+            c.insert(key, Entry { mtime, icon: icon.clone() });
         }
+        DIRTY.store(true, Ordering::Release);
         icon
     }
 
