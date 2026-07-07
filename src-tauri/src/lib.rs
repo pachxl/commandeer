@@ -385,6 +385,11 @@ pub fn run() {
             // Pending screenshot capture (frame path + dimensions).
             app.manage(commands::screenshot::ScreenshotState::default());
 
+            // Ensure the scripts directory exists and, on first run only, seed a
+            // tutorial script so new users have a working, self-documenting
+            // example of the script-command format.
+            commands::config::ensure_scripts_seeded(app.app_handle());
+
             // Self-hosted file index (SQLite + FTS5) backing the find: search.
             let file_index = commands::file_index::FileIndex::new(app.app_handle())?;
             let file_index_clone = file_index.clone();
