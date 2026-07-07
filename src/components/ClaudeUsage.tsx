@@ -22,37 +22,24 @@ const JITTER_MS = 15_000
 const KIND_ORDER = ['session', 'weekly_all']
 const CLAUDE_ORANGE = '#D97757'
 
-// The Claude Code pixel-art mark, traced from the source PNG onto a 16×10 grid
-// (each unit = one 40px module). Rendered inline in Claude orange so it needs no
-// network/brand asset. The eye notches are left unfilled (they show the panel
-// background through), matching the original.
-const CLAUDE_LOGO_RECTS: Array<[number, number, number, number]> = [
-  [2, 0, 12, 2], // head top
-  [2, 2, 2, 2],  // eye row — left of left eye
-  [5, 2, 6, 2],  // eye row — between eyes
-  [12, 2, 2, 2], // eye row — right of right eye
-  [0, 4, 16, 2], // arms (full width)
-  [2, 6, 12, 2], // lower body
-  [3, 8, 1, 2],  // legs
-  [5, 8, 1, 2],
-  [10, 8, 1, 2],
-  [12, 8, 1, 2],
-]
-
+// The Claude Code mark, rendered inline in Claude orange so it needs no
+// network/brand asset. Path traced from the official claudecode.svg (24×24).
 function ClaudeLogo({ height = 14 }: { height?: number }) {
   return (
     <svg
-      width={height * 1.6}
+      width={height}
       height={height}
-      viewBox="0 0 16 10"
-      shapeRendering="crispEdges"
+      viewBox="0 0 24 24"
+      fill={CLAUDE_ORANGE}
+      fillRule="evenodd"
       role="img"
       aria-label="Claude Code"
     >
       <title>Claude Code</title>
-      {CLAUDE_LOGO_RECTS.map(([x, y, w, h], i) => (
-        <rect key={i} x={x} y={y} width={w} height={h} fill={CLAUDE_ORANGE} />
-      ))}
+      <path
+        clipRule="evenodd"
+        d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"
+      />
     </svg>
   )
 }
