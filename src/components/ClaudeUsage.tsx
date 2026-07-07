@@ -18,40 +18,40 @@ const MAX_INTERVAL_MS = 30 * 60_000
 const JITTER_MS = 15_000
 
 // Only the overall session + weekly limits are shown. The per-model
-// (weekly_scoped, e.g. Fable) limit is intentionally omitted — it added a third
-// bar that made the widget too tall for the value it carried.
+// (weekly_scoped, e.g. Fable) limit is intentionally omitted.
 const KIND_ORDER = ['session', 'weekly_all']
 const CLAUDE_ORANGE = '#D97757'
 
-// The Claude burst logomark, rendered inline in Claude orange (no network/brand
-// asset needed): 12 rays of alternating length radiating from center.
-function ClaudeLogo({ size = 14 }: { size?: number }) {
-  const cx = 12, cy = 12, inner = 2.2
-  const rays = Array.from({ length: 12 }, (_, i) => {
-    const a = (i * 30) * Math.PI / 180
-    const ro = i % 2 === 0 ? 9 : 6.8
-    return {
-      x1: cx + inner * Math.cos(a),
-      y1: cy + inner * Math.sin(a),
-      x2: cx + ro * Math.cos(a),
-      y2: cy + ro * Math.sin(a),
-    }
-  })
+// The Claude Code pixel-art mark, traced from the source PNG onto a 16×10 grid
+// (each unit = one 40px module). Rendered inline in Claude orange so it needs no
+// network/brand asset. The eye notches are left unfilled (they show the panel
+// background through), matching the original.
+const CLAUDE_LOGO_RECTS: Array<[number, number, number, number]> = [
+  [2, 0, 12, 2], // head top
+  [2, 2, 2, 2],  // eye row — left of left eye
+  [5, 2, 6, 2],  // eye row — between eyes
+  [12, 2, 2, 2], // eye row — right of right eye
+  [0, 4, 16, 2], // arms (full width)
+  [2, 6, 12, 2], // lower body
+  [3, 8, 1, 2],  // legs
+  [5, 8, 1, 2],
+  [10, 8, 1, 2],
+  [12, 8, 1, 2],
+]
+
+function ClaudeLogo({ height = 14 }: { height?: number }) {
   return (
     <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={CLAUDE_ORANGE}
-      strokeWidth={1.7}
-      strokeLinecap="round"
+      width={height * 1.6}
+      height={height}
+      viewBox="0 0 16 10"
+      shapeRendering="crispEdges"
       role="img"
-      aria-label="Claude"
+      aria-label="Claude Code"
     >
-      <title>Claude</title>
-      {rays.map((r, i) => (
-        <line key={i} x1={r.x1} y1={r.y1} x2={r.x2} y2={r.y2} />
+      <title>Claude Code</title>
+      {CLAUDE_LOGO_RECTS.map(([x, y, w, h], i) => (
+        <rect key={i} x={x} y={y} width={w} height={h} fill={CLAUDE_ORANGE} />
       ))}
     </svg>
   )
@@ -75,9 +75,11 @@ function clampInterval(ms: number): number {
   return Math.min(MAX_INTERVAL_MS, Math.max(BASE_INTERVAL_MS, ms))
 }
 
-// Short labels so the two bars fit comfortably side by side.
 function limitLabel(limit: ClaudeLimit): string {
-  return limit.kind === 'session' ? 'Session' : 'Week'
+  if (limit.kind === 'session') return 'Current session'
+  if (limit.kind === 'weekly_all') return 'Current week (all models)'
+  const model = limit.scope?.model?.display_name
+  return model ? `Current week (${model})` : 'Current week'
 }
 
 // Fixed traffic-light palette (blue → yellow → red) so usage reads the same
@@ -104,7 +106,7 @@ function formatReset(iso: string, now: number): string {
     const h = Math.floor(totalSeconds / 3600)
     const m = Math.floor((totalSeconds % 3600) / 60)
     const s = totalSeconds % 60
-    return `resets in ${h}:${pad(m)}:${pad(s)}`
+    return `resets in ${h}:${pad(m)} (${h}:${pad(m)}:${pad(s)})`
   }
 
   const text = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
@@ -285,7 +287,7 @@ export default function ClaudeUsage() {
         alignItems: 'center',
         justifyContent: 'space-between',
       }}>
-        <ClaudeLogo size={14} />
+        <ClaudeLogo height={14} />
         {loading && (
           <svg style={{ animation: 'spin 1s linear infinite' }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12a9 9 0 1 1-6.219-8.56" />
@@ -294,31 +296,29 @@ export default function ClaudeUsage() {
       </div>
 
       {/* Show the last-known bars whenever we have them — even while rate
-          limited or erroring — so the widget stays as informative as possible.
-          Session and weekly sit side by side to keep the widget compact. */}
+          limited or erroring — so the widget stays as informative as possible. */}
       {hasLimits && (
-        <div style={{ display: 'flex', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {limits!.map(limit => {
             const pct = Math.min(100, Math.max(0, Math.round(limit.percent)))
             const color = barColor(limit)
             return (
-              <div key={limit.kind + (limit.scope?.model?.display_name ?? '')} style={{ flex: 1, minWidth: 0 }}>
+              <div key={limit.kind + (limit.scope?.model?.display_name ?? '')}>
                 <div style={{
                   display: 'flex',
                   alignItems: 'baseline',
                   justifyContent: 'space-between',
-                  gap: 6,
                   marginBottom: 4,
                 }}>
                   <span style={{ fontSize: 11, color: 'var(--text)' }}>
                     {limitLabel(limit)}
                   </span>
-                  <span style={{
-                    fontSize: 10,
-                    color: pct >= 75 ? color : 'var(--text-dim)',
-                    fontVariantNumeric: 'tabular-nums',
-                  }}>
-                    {pct}%
+                  <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>
+                    <span style={{ color: pct >= 75 ? color : 'var(--text)' }}>{pct}% used</span>
+                    <span style={{ opacity: 0.5, margin: '0 4px' }}>·</span>
+                    <span style={{ color: 'var(--text)', opacity: 0.9, fontVariantNumeric: 'tabular-nums' }}>
+                      {formatReset(limit.resets_at, now)}
+                    </span>
                   </span>
                 </div>
                 <div style={{
@@ -334,17 +334,6 @@ export default function ClaudeUsage() {
                     background: color,
                     transition: 'width 0.4s ease',
                   }} />
-                </div>
-                <div style={{
-                  marginTop: 4,
-                  fontSize: 9.5,
-                  color: 'var(--text-dim)',
-                  fontVariantNumeric: 'tabular-nums',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}>
-                  {formatReset(limit.resets_at, now)}
                 </div>
               </div>
             )
