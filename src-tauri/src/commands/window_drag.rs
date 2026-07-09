@@ -1597,7 +1597,7 @@ mod platform {
 
             // Snapshot the per-grab params under a brief lock (never held during
             // SetWindowPos, so the hook's button handlers don't stall).
-            let (mode, hwnd, sx, sy, mut rect, mut edges, restore_max, snap, neighbors, border) =
+            let (mode, hwnd, sx, sy, mut rect, mut edges, restore_max, snap, neighbors, mut border) =
                 match state().lock() {
                     Ok(st) => (
                         st.mode,
@@ -1643,6 +1643,16 @@ mod platform {
                     let _ = ShowWindow(hw, SW_RESTORE);
                     let mut r = RECT::default();
                     if GetWindowRect(hw, &mut r).is_ok() {
+                        // Recompute the border insets from the *restored* frame.
+                        // The insets captured at grab time were the maximized
+                        // window's, whose rect overhangs the work area on all
+                        // four sides (including a ~8px top inset that a normal
+                        // window doesn't have). Reusing them for a move-snap
+                        // offsets the snapped window that far above the work
+                        // area — the title bar gets clipped and the window ends
+                        // up a few px too tall. The restored frame has the true,
+                        // ~0px top inset.
+                        border = border_insets(hw, &r);
                         if mode == Mode::Move {
                             let w = r.right - r.left;
                             let h = r.bottom - r.top;
@@ -1670,11 +1680,13 @@ mod platform {
                     }
                 }
                 if let Ok(mut st) = state().lock() {
-                    // Persist the corrected grab rect/edges unless a newer grab
-                    // already replaced this one (GEN bumps under the same lock).
+                    // Persist the corrected grab rect/edges/border unless a newer
+                    // grab already replaced this one (GEN bumps under the same
+                    // lock).
                     if GEN.load(Ordering::Relaxed) == gen {
                         st.rect = rect;
                         st.edges = edges;
+                        st.border = border;
                         st.restore_max = false;
                     }
                 }
