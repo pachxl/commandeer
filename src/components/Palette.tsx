@@ -1,31 +1,31 @@
 import { useReducer, useEffect, useRef, useState, useCallback, MutableRefObject } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { LogicalSize } from '@tauri-apps/api/dpi'
-import { fuzzyFilter } from '../lib/fuzzy'
 import { recordUse } from '../lib/frecency'
-import { appEvents } from '../lib/appEvents'
-import { getOverrides, invalidateOverridesCache, setOverride } from '../lib/overrides'
+import { getOverrides } from '../lib/overrides'
 import { SETTINGS_COMMAND_ID } from '../commands/settings'
 import { loadActiveFolderItems, openFileItem } from '../commands/fileSearch'
 import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
-import { evaluateCalcQuery } from '../providers/calculator'
-import { tryTimeConversion } from '../lib/timezones'
-import { IS_LINUX, IS_MAC, envInfo, openPath, openUrl, pasteToPrevious, readQuicklinks, readNotes, recenterPalette, resizePalette, revealPath, runScriptCapture, setCommandHotkey, writeClipboardText, writeQuicklinks, writeNotes, type Bookmark, type ClipboardItem, type Note, type Quicklink } from '../lib/tauri'
+import { IS_LINUX, IS_MAC, openUrl } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteItem } from '../types'
-import { commandToItem, commandsToItems, commandsToFlatItems, buildFallbackItems } from '../lib/paletteItems'
-import { applyOverride, buildQueryResults, type Overrides } from '../lib/paletteRanking'
+import { commandsToItems, commandsToFlatItems } from '../lib/paletteItems'
+import { applyOverride, type Overrides } from '../lib/paletteRanking'
+import { parseAtQuery, computeMatchedItems, computePreviewResult } from '../lib/paletteModes'
+import { buildItemActions } from '../lib/paletteActions'
+import { useInlineScripts, type InlineScript } from '../hooks/useInlineScripts'
+import { usePaletteWindowSize, PALETTE_WIDTH } from '../hooks/usePaletteWindowSize'
+import { usePaletteFeedback } from '../hooks/usePaletteFeedback'
 import { initialState, reducer } from '../lib/paletteReducer'
+import { applyStepResult } from '../lib/paletteNavigation'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
 import ResultsGrid from './ResultsGrid'
 import FormView from './FormView'
 import ActionPanel from './ActionPanel'
 import DetailPane from './DetailPane'
-import { ToastContainer, type ToastKind, type ToastMessage } from './Toast'
-import { getIconSvg, hasIcon } from './Icon'
+import { ToastContainer } from './Toast'
+import HudOverlay from './HudOverlay'
 import ConfirmOverlay from './ConfirmOverlay'
-import { isConfirmSuppressed, suppressConfirm, type ConfirmOptions } from '../lib/confirm'
 import ClaudeUsage from './ClaudeUsage'
 import SystemStatsPanel from './SystemStats'
 import Footer from './Footer'
@@ -33,24 +33,6 @@ import StepBreadcrumb from './StepBreadcrumb'
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const LAST_CMD_KEY = 'commandeer:last'
-
-// Root-level @ prefixes. Typing '@' (or a partial token) lists these as
-// suggestions; a completed token followed by a space activates the mode.
-//   @find   → global file search (FTS5 index → Everything → walkdir)
-//   @search → file search in the focused Explorer/Finder folder
-//   @web    → web search in the browser
-const AT_PREFIXES = [
-  { token: '@find', icon: 'folder', description: 'Find files across your computer' },
-  { token: '@search', icon: 'folder', description: IS_LINUX ? 'Search your home folder' : IS_MAC ? 'Search the focused Finder folder' : 'Search the focused Explorer folder' },
-  { token: '@web', icon: 'search', description: 'Search the web' },
-  { token: '@calc', icon: 'calculator', description: 'Calculate an expression (40+2, 100 usd to eur)' },
-  { token: '@time', icon: 'clock', description: 'Convert time zones (4pm bst to est)' },
-]
-
-// Base (unscaled) logical width of the palette window. The scale factor
-// multiplies this for the window size and is applied as a CSS zoom on the
-// content, so the whole palette grows/shrinks uniformly.
-const PALETTE_WIDTH = 669
 
 // Debounce between keystrokes and the global-search IPC round trip
 const FIND_DEBOUNCE_MS = 120
@@ -60,13 +42,7 @@ const FIND_DEBOUNCE_MS = 120
 const PROVIDER_DEBOUNCE_MS = 150
 
 
-// An inline script the palette polls on a timer: its captured stdout replaces
-// the row's sublabel live (at render time, outside the ranked search text so
-// refreshes never re-rank the list).
-export interface InlineScript {
-  path: string
-  refreshSeconds: number
-}
+export type { InlineScript }
 
 interface PaletteProps {
   config: AppConfig
@@ -106,139 +82,31 @@ export default function Palette({
   // user drilled into (empty = the root action list). See ActionItem.submenu.
   const [actionMenuStack, setActionMenuStack] = useState<ActionItem[]>([])
   const [formValues, setFormValues] = useState<Record<string, unknown>>({})
-  const [toasts, setToasts] = useState<ToastMessage[]>([])
-  // HUD: a Raycast-style confirmation shown *instead of* the palette body after
-  // an action, kept up briefly while the window is still visible, then the
-  // window hides. Fixes the old "toast fires then the window hides immediately,
-  // so you never see it" gap for copy/paste-style actions.
-  const [hud, setHud] = useState<{ message: string; icon?: string } | null>(null)
-  // Pending confirmation prompt (see ConfirmOverlay + appEvents.confirm). The
-  // resolve fn settles the promise the requesting action is awaiting.
-  const [confirmReq, setConfirmReq] = useState<
-    { options: ConfirmOptions; resolve: (ok: boolean) => void } | null
-  >(null)
-  const [confirmRemember, setConfirmRemember] = useState(false)
-  const [confirmFocus, setConfirmFocus] = useState<'confirm' | 'cancel'>('confirm')
-  // Refs mirror the confirm state so resolveConfirm can read the latest values
-  // without nesting setState updaters.
-  const confirmReqRef = useRef<{ options: ConfirmOptions; resolve: (ok: boolean) => void } | null>(null)
-  const confirmRememberRef = useRef(false)
-  confirmRememberRef.current = confirmRemember
-  // Live-captured stdout for inline scripts, keyed by script path. Replaces
-  // the row's sublabel at render time (see displayItems). Stored outside the
-  // reducer so refreshes never re-rank the list.
-  const [inlineOutputs, setInlineOutputs] = useState<Record<string, string>>({})
-  // Whether the palette window is focused — polling pauses while hidden so we
-  // don't run user scripts in the background.
-  const [windowFocused, setWindowFocused] = useState(true)
-  const inlineTimersRef = useRef<number[]>([])
-  const toastIdRef = useRef(0)
+  // Live-refreshing inline scripts: captured stdout overlays each row's
+  // sublabel at render time (see displayItems), kept outside the reducer so
+  // refreshes never re-rank the list.
+  const { inlineOutputs, refreshInline } = useInlineScripts(inlineScripts)
   const inputRef = useRef<HTMLInputElement>(null)
   const configRef = useRef(config)
   const commandsRef = useRef(commands)
   const providerCommandsRef = useRef(providerCommands)
   const providerRequestRef = useRef(0)
   const providerTimeoutRef = useRef<number | null>(null)
-  const scaleRef = useRef(scale)
   configRef.current = config
   commandsRef.current = commands
   providerCommandsRef.current = providerCommands
-  scaleRef.current = scale
+  // Sizes the window to its content and returns the wrapper/container refs.
+  const { sizeRef, containerRef } = usePaletteWindowSize(scale)
+  // Toasts, the HUD pill, and the confirm dialog (also registered on appEvents).
+  const {
+    toast, toasts, hud, showHud, requestConfirm, resolveConfirm,
+    confirmReq, confirmRemember, setConfirmRemember, confirmFocus, setConfirmFocus,
+  } = usePaletteFeedback(dispatch)
 
-  const toast = useCallback((message: string, kind: ToastKind = 'info') => {
-    const id = ++toastIdRef.current
-    setToasts(prev => [...prev, { id, message, kind }])
-    window.setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id))
-    }, 2000)
-  }, [])
-
-  // Show the HUD, then dismiss the launcher once it's been seen. Replaces the
-  // action body so it reads as a single floating confirmation pill.
-  const showHud = useCallback((message: string, icon?: string) => {
-    setHud({ message, icon })
-    window.setTimeout(async () => {
-      setHud(null)
-      dispatch({ type: 'RESET' })
-      await getCurrentWindow().hide()
-    }, 1000)
-  }, [])
-
-  // Ask for confirmation. A remembered key resolves immediately; otherwise the
-  // returned promise settles when the user answers via ConfirmOverlay.
-  const requestConfirm = useCallback((options: ConfirmOptions): Promise<boolean> => {
-    if (options.key && isConfirmSuppressed(options.key)) return Promise.resolve(true)
-    setConfirmRemember(false)
-    setConfirmFocus('confirm')
-    return new Promise<boolean>(resolve => {
-      const req = { options, resolve }
-      confirmReqRef.current = req
-      setConfirmReq(req)
-    })
-  }, [])
-
-  // Settle the pending confirm; persist "Don't ask again" only on a positive,
-  // remembered answer. Reads latest values from refs to avoid nested setState.
-  const resolveConfirm = useCallback((ok: boolean) => {
-    const req = confirmReqRef.current
-    if (!req) return
-    if (ok && confirmRememberRef.current && req.options.key) suppressConfirm(req.options.key)
-    req.resolve(ok)
-    confirmReqRef.current = null
-    setConfirmReq(null)
-    setConfirmRemember(false)
-  }, [])
-
-  // Expose reset function to App and the toast/HUD/confirm helpers app-wide
+  // Expose the reset function to App (kept here — it needs dispatch directly).
   useEffect(() => {
     resetRef.current = () => dispatch({ type: 'RESET' })
-    appEvents.toast = toast
-    appEvents.showHud = showHud
-    appEvents.confirm = requestConfirm
-    return () => {
-      appEvents.toast = undefined
-      appEvents.showHud = undefined
-      appEvents.confirm = undefined
-    }
-  }, [resetRef, toast, showHud, requestConfirm])
-
-  // Re-run an inline script and update its live sublabel. Used by the polling
-  // timers and by Enter on an inline row (force-refresh). On error the
-  // previous output is kept (first failure shows an ellipsis).
-  const refreshInline = useCallback(async (path: string) => {
-    try {
-      const out = await runScriptCapture(path)
-      setInlineOutputs(prev => (prev[path] === out ? prev : { ...prev, [path]: out }))
-    } catch {
-      setInlineOutputs(prev => (path in prev ? prev : { ...prev, [path]: '…' }))
-    }
-  }, [])
-
-  // Pause polling while the palette is hidden (focus loss auto-hides it) so we
-  // don't keep running user scripts in the background.
-  useEffect(() => {
-    let unlisten: (() => void) | undefined
-    ;(async () => {
-      unlisten = await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-        setWindowFocused(focused)
-      })
-    })()
-    return () => { unlisten?.() }
-  }, [])
-
-  // Seed + poll each inline script on its @vicinae.refreshTime interval. Only
-  // runs while focused; re-seeds on re-focus.
-  useEffect(() => {
-    inlineTimersRef.current.forEach(clearInterval)
-    inlineTimersRef.current = []
-    if (!windowFocused) return
-    for (const s of inlineScripts) {
-      void refreshInline(s.path)
-      const id = window.setInterval(() => { void refreshInline(s.path) }, Math.max(1, s.refreshSeconds) * 1000)
-      inlineTimersRef.current.push(id)
-    }
-    return () => { inlineTimersRef.current.forEach(clearInterval); inlineTimersRef.current = [] }
-  }, [inlineScripts, windowFocused, refreshInline])
+  }, [resetRef])
 
   // Commands can come from the static list (scripts, settings) or
   // from a provider's per-query search results
@@ -339,20 +207,13 @@ export default function Palette({
   const currentStep = state.stepStack[state.stepStack.length - 1] ?? null
   const cacheKey = currentStep?.id ?? '__root__'
 
-  // Parse an @-prefixed root query: '@'/'@fi' → suggestion mode; '@find rest'
-  // (completed token + space) → the corresponding mode with `rest` as query.
-  const atRaw = !currentStep && state.query.startsWith('@') ? state.query : null
-  const atSpaceIdx = atRaw?.indexOf(' ') ?? -1
-  const atToken = atRaw ? (atSpaceIdx >= 0 ? atRaw.slice(0, atSpaceIdx) : atRaw).toLowerCase() : null
-  const atRest = atRaw && atSpaceIdx >= 0 ? atRaw.slice(atSpaceIdx + 1) : ''
-  const atComplete = atToken !== null && atSpaceIdx >= 0 && AT_PREFIXES.some(p => p.token === atToken)
-  const atSuggestMode = atRaw !== null && !atComplete
+  // Root @-mode parsing (@find/@search/@web/@calc/@time) — see paletteModes.
+  const at = parseAtQuery(state.query, !!currentStep)
+  const { atRaw, folderMode, folderQuery, findMode, findQuery, webMode, webQuery, calcMode, calcQuery, timeMode, timeQuery } = at
 
   // "@search" → file search in the active Explorer folder. The file list is
   // fetched once per palette show (walked in parallel on the Rust side) and
   // cached; keystrokes then filter it client-side.
-  const folderMode = atComplete && atToken === '@search'
-  const folderQuery = folderMode ? atRest.trimStart() : ''
   const folderLoad = useRef({ token: 0, loaded: false, loading: false })
 
   useEffect(() => {
@@ -375,23 +236,9 @@ export default function Palette({
       .finally(() => { folderLoad.current.loading = false })
   }, [folderMode])
 
-  // "@find" → global file search. Unlike the folder search this hits the
-  // backend per (debounced) keystroke — the index does the narrowing — and
-  // results arrive pre-ranked by the fzf scorer + relevance multipliers.
-  const findMode = atComplete && atToken === '@find'
-  const findQuery = findMode ? atRest.trimStart() : ''
+  // "@find" → global file search, one debounced backend call per keystroke; the
+  // index does the narrowing and results arrive pre-ranked (fzf + multipliers).
   const findToken = useRef(0)
-
-  // "@web" → a single row that opens the browser search
-  const webMode = atComplete && atToken === '@web'
-  const webQuery = webMode ? atRest.trim() : ''
-
-  // "@calc" / "@time" → evaluate the rest of the query live; Enter copies the
-  // result without closing the palette
-  const calcMode = atComplete && atToken === '@calc'
-  const calcQuery = calcMode ? atRest.trim() : ''
-  const timeMode = atComplete && atToken === '@time'
-  const timeQuery = timeMode ? atRest.trim() : ''
 
   useEffect(() => {
     if (!findMode) return
@@ -509,77 +356,12 @@ export default function Palette({
 
   // Live preview shown on the right side of the search input for calculator /
   // time-zone modes (root prefixes and Tools input steps).
-  const previewResult = (() => {
-    if (currentStep?.livePreview) return currentStep.livePreview(state.query)
-    if (calcMode && calcQuery) {
-      const r = evaluateCalcQuery(calcQuery)
-      return r ? { label: r.display, sublabel: r.sublabel, copy: r.copy } : null
-    }
-    if (timeMode && timeQuery) {
-      const r = tryTimeConversion(timeQuery)
-      return r ? { label: r.label, sublabel: r.sublabel, copy: r.copy } : null
-    }
-    return null
-  })()
+  const previewResult = computePreviewResult({ currentStep, query: state.query, calcMode, calcQuery, timeMode, timeQuery })
 
-  let matchedItems: PaletteItem[]
-  if (isInputStep || isSliderStep || isFormStep) {
-    matchedItems = []
-  } else if (atSuggestMode) {
-    // '@' or a partial token: list the available @ commands; selecting one
-    // inserts it into the query instead of executing
-    matchedItems = AT_PREFIXES
-      .filter(p => p.token.startsWith(atToken ?? '@'))
-      .map(p => ({
-        id: `at:${p.token}`,
-        label: p.token,
-        sublabel: p.description,
-        icon: p.icon,
-        data: p.token,
-        actionLabel: 'Use',
-      }))
-  } else if (webMode) {
-    matchedItems = webQuery
-      ? [{
-          id: `web:${webQuery}`,
-          label: `Search the web for "${webQuery}"`,
-          sublabel: 'Opens your browser',
-          icon: 'search',
-          data: webQuery,
-          actionLabel: 'Search',
-        }]
-      : []
-  } else if (calcMode || timeMode) {
-    // Result is shown inline via previewResult; no list row needed
-    matchedItems = []
-  } else if (findMode) {
-    // Global results are already ranked for this query (fzf + relevance
-    // multipliers in globalFileSearch) — re-filtering would fight the ranker
-    matchedItems = rawItems
-  } else if (currentStep || folderMode) {
-    matchedItems = fuzzyFilter(rawItems, folderMode ? folderQuery : state.query, i =>
-      i.searchText ?? (i.label + ' ' + (i.sublabel ?? ''))
-    )
-  } else if (state.query) {
-    // Root query: scripts and provider search results (which can share ids —
-    // keep the first occurrence) ranked together by fuzzy score + frecency
-    const merged = [
-      ...rawItems,
-      ...providerCommands.map(c => applyOverride(commandToItem(c), overrides[c.id])),
-    ]
-    const seen = new Set<string>()
-    const deduped = merged.filter(i => (seen.has(i.id) ? false : (seen.add(i.id), true)))
-    matchedItems = buildQueryResults(deduped, state.query, overrides)
-    // Nothing matched: surface actionable fallback rows so the palette is
-    // never a dead end (web / files / GitHub).
-    if (matchedItems.length === 0) {
-      matchedItems = buildFallbackItems(state.query)
-    }
-  } else {
-    // Root browse: folders first, then scripts with last-used floating up —
-    // exactly as assembled in the __root__ cache
-    matchedItems = rawItems
-  }
+  const matchedItems = computeMatchedItems({
+    at, currentStep, isInputStep, isSliderStep, isFormStep,
+    rawItems, query: state.query, providerCommands, overrides,
+  })
   const noMatches = matchedItems.length === 0
 
   const visibleItems = matchedItems.slice(0, 50)
@@ -638,270 +420,14 @@ export default function Palette({
   }
 
   // Ctrl+K action panel: secondary actions for the highlighted item, keyed off
-  // its provider source
-  const buildActions = useCallback((item: PaletteItem): ActionItem[] => {
-    const actions: ActionItem[] = []
-    const cmd = resolveCommand(item.id)
-
-    const pushCopy = (label: string, value: string, shortcut?: string) => {
-      actions.push({
-        id: 'copy',
-        label,
-        shortcut,
-        icon: 'copy',
-        handler: async () => {
-          await navigator.clipboard.writeText(value)
-          showHud('Copied to clipboard', 'copy')
-        },
-      })
-    }
-
-    const runPrimary = (id: string, label: string) => {
-      actions.push({
-        id,
-        label,
-        shortcut: '↵',
-        handler: async () => {
-          if (cmd?.action) {
-            await cmd.action(configRef.current)
-            if (!cmd.noClose) await getCurrentWindow().hide()
-          } else if (cmd?.createRootStep) {
-            dispatch({ type: 'PUSH_STEP', step: cmd.createRootStep(configRef.current) })
-          } else {
-            // Step rows aren't commands — fall back to the normal selection
-            // path so the step's onSelect runs
-            await handleSelectRef.current?.(item)
-          }
-        },
-      })
-    }
-
-    switch (item.source) {
-      case 'file': {
-        const filePath = item.data as string
-        // Path parts for the Copy… submenu (POSIX + Windows separators)
-        const base = filePath.replace(/[/\\]+$/, '').split(/[/\\]/).pop() ?? filePath
-        const dir = filePath.slice(0, filePath.length - base.length).replace(/[/\\]+$/, '') || filePath
-        const copyLeaf = (id: string, label: string, value: string): ActionItem => ({
-          id, label, icon: 'copy',
-          handler: async () => {
-            await navigator.clipboard.writeText(value)
-            showHud('Copied to clipboard', 'copy')
-          },
-        })
-        actions.push({
-          id: 'open',
-          label: 'Open file',
-          shortcut: '↵',
-          handler: async () => { await openPath(filePath); await getCurrentWindow().hide() },
-        })
-        actions.push({
-          id: 'reveal',
-          label: IS_MAC ? 'Reveal in Finder' : IS_LINUX ? 'Reveal in File Manager' : 'Reveal in File Explorer',
-          shortcut: 'R',
-          icon: 'folder',
-          handler: async () => { await revealPath(filePath); await getCurrentWindow().hide() },
-        })
-        actions.push({
-          id: 'copy',
-          label: 'Copy…',
-          shortcut: 'C',
-          icon: 'copy',
-          submenu: [
-            copyLeaf('copy-path', 'Copy Full Path', filePath),
-            copyLeaf('copy-name', 'Copy File Name', base),
-            copyLeaf('copy-dir', 'Copy Containing Folder', dir),
-          ],
-        })
-        break
-      }
-      case 'clipboard': {
-        const clip = item.data as ClipboardItem
-        if (clip && typeof clip === 'object' && 'text' in clip) {
-          actions.push({
-            id: 'paste',
-            label: 'Paste to active app',
-            shortcut: '↵',
-            handler: async () => {
-              try {
-                const pasted = await pasteToPrevious(clip.text)
-                if (!pasted) showHud('Copied — press Ctrl+V to paste', 'copy')
-              } catch (err) {
-                toast('Failed to paste', 'error')
-                throw err
-              }
-            },
-          })
-          actions.push({
-            id: 'copy',
-            label: 'Copy to clipboard',
-            shortcut: 'C',
-            icon: 'copy',
-            handler: async () => {
-              await writeClipboardText(clip.text)
-              showHud('Copied to clipboard', 'copy')
-            },
-          })
-        } else {
-          runPrimary('open', 'Open')
-        }
-        break
-      }
-      case 'calculator':
-        pushCopy('Copy result', item.label, 'C')
-        break
-      case 'script':
-        runPrimary('run', 'Run script')
-        break
-      case 'system':
-        runPrimary('run', 'Run command')
-        break
-      case 'quicklink': {
-        const q = item.data as Quicklink
-        runPrimary('open', 'Open link')
-        pushCopy('Copy URL', q.url, 'C')
-        actions.push({
-          id: 'delete',
-          label: 'Delete quick link',
-          shortcut: '⌫',
-          icon: 'trash',
-          handler: async () => {
-            const ok = await requestConfirm({
-              key: 'delete-quicklink',
-              message: `Delete "${q.name}"?`,
-              detail: 'This quick link cannot be recovered.',
-              confirmLabel: 'Delete',
-              danger: true,
-            })
-            if (!ok) return
-            const all = await readQuicklinks()
-            await writeQuicklinks(all.filter(x => x.id !== q.id))
-            appEvents.refreshCommands?.()
-            reloadStepRef.current()
-            toast('Quick link deleted', 'success')
-          },
-        })
-        break
-      }
-      case 'note': {
-        const n = item.data as Note
-        runPrimary('copy', 'Copy note')
-        actions.push({
-          id: 'delete',
-          label: 'Delete note',
-          shortcut: '⌫',
-          icon: 'trash',
-          handler: async () => {
-            const ok = await requestConfirm({
-              key: 'delete-note',
-              message: `Delete "${n.title}"?`,
-              detail: 'This note cannot be recovered.',
-              confirmLabel: 'Delete',
-              danger: true,
-            })
-            if (!ok) return
-            const all = await readNotes()
-            await writeNotes(all.filter(x => x.id !== n.id))
-            appEvents.refreshCommands?.()
-            reloadStepRef.current()
-            toast('Note deleted', 'success')
-          },
-        })
-        break
-      }
-      case 'bookmark': {
-        const b = item.data as Bookmark
-        actions.push({
-          id: 'open',
-          label: 'Open in browser',
-          shortcut: '↵',
-          handler: async () => { await openUrl(b.url); await getCurrentWindow().hide() },
-        })
-        pushCopy('Copy URL', b.url, 'C')
-        break
-      }
-      default:
-        runPrimary('open', 'Open')
-        pushCopy('Copy name', item.label, 'C')
-    }
-
-    // Alias, pin & hotkey actions for persistent root commands (not for
-    // dynamic step/search rows, whose ids never appear in the root list)
-    if (commandsRef.current.some(c => c.id === item.id)) {
-      const ov = overridesRef.current[item.id]
-      actions.push({
-        id: 'pin',
-        label: ov?.pinned ? 'Unpin' : 'Pin',
-        icon: 'bookmark',
-        handler: async () => {
-          const pinned = !ov?.pinned
-          await setOverride(item.id, { pinned })
-          await refreshOverrides()
-          toast(pinned ? 'Pinned — boosts search rank' : 'Unpinned', 'success')
-        },
-      })
-      actions.push({
-        id: 'show-at-root',
-        label: ov?.showAtRoot ? 'Hide from Root' : 'Show in Root',
-        icon: 'pin',
-        handler: async () => {
-          const showAtRoot = !ov?.showAtRoot
-          await setOverride(item.id, { showAtRoot })
-          await refreshOverrides()
-          toast(showAtRoot ? 'Shown on main page' : 'Hidden from main page', 'success')
-        },
-      })
-      actions.push({
-        id: 'alias',
-        label: ov?.alias ? `Change Alias (${ov.alias})` : 'Set Alias…',
-        icon: 'edit',
-        handler: async () => {
-          dispatch({
-            type: 'PUSH_STEP',
-            step: {
-              id: `overrides:alias:${item.id}`,
-              label: `Alias: ${item.label}`,
-              placeholder: 'Type an alias (leave empty to clear)…',
-              isInputStep: true,
-              onSelect: async () => ({ type: 'done' }),
-              onCommitQuery: async (query) => {
-                await setOverride(item.id, { alias: query.trim() || undefined })
-                await refreshOverrides()
-                return { type: 'pop' }
-              },
-            },
-          })
-        },
-      })
-      actions.push({
-        id: 'hotkey',
-        label: ov?.hotkey ? `Change Hotkey (${ov.hotkey})` : 'Set Global Hotkey…',
-        icon: 'keyboard',
-        handler: async () => {
-          dispatch({
-            type: 'PUSH_STEP',
-            step: {
-              id: `overrides:hotkey:${item.id}`,
-              label: `Hotkey: ${item.label}`,
-              placeholder: 'e.g. Ctrl+Alt+L (leave empty to clear)…',
-              isInputStep: true,
-              onSelect: async () => ({ type: 'done' }),
-              onCommitQuery: async (query) => {
-                await setCommandHotkey(item.id, query.trim() || null)
-                // The backend wrote overrides.json directly — drop the cache
-                // so the action label reflects the new hotkey immediately
-                invalidateOverridesCache()
-                await refreshOverrides()
-                return { type: 'pop' }
-              },
-            },
-          })
-        },
-      })
-    }
-
-    return actions
-  }, [resolveCommand, toast, showHud, requestConfirm, refreshOverrides])
+  // its provider source (see paletteActions). The refs/dispatch are stable, so
+  // only the feedback callbacks need to be in the dep list.
+  const buildActions = useCallback((item: PaletteItem): ActionItem[] =>
+    buildItemActions(item, {
+      dispatch, configRef, commandsRef, overridesRef, handleSelectRef, reloadStepRef,
+      resolveCommand, toast, showHud, requestConfirm, refreshOverrides,
+    }),
+  [resolveCommand, toast, showHud, requestConfirm, refreshOverrides])
 
   const actionItems = selectedItem && !isInputStep && !isSliderStep && !isFormStep
     ? buildActions(selectedItem)
@@ -919,16 +445,7 @@ export default function Palette({
     if (!currentStep?.isFormStep || !currentStep.onSubmit) return
     try {
       const result = await currentStep.onSubmit(formValues, configRef.current)
-      if (result.type === 'done') {
-        dispatch({ type: 'RESET' })
-        await getCurrentWindow().hide()
-      } else if (result.type === 'push') {
-        dispatch({ type: 'PUSH_STEP', step: result.step })
-      } else if (result.type === 'replace') {
-        dispatch({ type: 'REPLACE_STEP', step: result.step })
-      } else if (result.type === 'pop') {
-        dispatch({ type: 'POP_STEP' })
-      }
+      await applyStepResult(dispatch, result)
     } catch (err) {
       dispatch({ type: 'SET_ERROR', error: String(err) })
     }
@@ -1167,16 +684,7 @@ export default function Palette({
       if (isInputStep && currentStep?.onCommitQuery) {
         try {
           const result = await currentStep.onCommitQuery(state.query, configRef.current)
-          if (result.type === 'done') {
-            dispatch({ type: 'RESET' })
-            await getCurrentWindow().hide()
-          } else if (result.type === 'push') {
-            dispatch({ type: 'PUSH_STEP', step: result.step })
-          } else if (result.type === 'replace') {
-            dispatch({ type: 'REPLACE_STEP', step: result.step })
-          } else if (result.type === 'pop') {
-            dispatch({ type: 'POP_STEP' })
-          }
+          await applyStepResult(dispatch, result)
         } catch (err) {
           dispatch({ type: 'SET_ERROR', error: String(err) })
         }
@@ -1295,17 +803,10 @@ export default function Palette({
 
     try {
       const result = await currentStep.onSelect(item, configRef.current)
-      if (result.type === 'done') {
-        dispatch({ type: 'RESET' })
-        await getCurrentWindow().hide()
-      } else if (result.type === 'push') {
-        dispatch({ type: 'PUSH_STEP', step: result.step })
-      } else if (result.type === 'replace') {
-        // Same-id replace = the step refreshing itself; keep the user's spot
-        dispatch({ type: 'REPLACE_STEP', step: result.step, preserveSelection: result.step.id === currentStep.id })
-      } else if (result.type === 'pop') {
-        dispatch({ type: 'POP_STEP' })
-      }
+      // Same-id replace = the step refreshing itself; keep the user's spot
+      await applyStepResult(dispatch, result, {
+        preserveSelectionOnReplace: result.type === 'replace' && result.step.id === currentStep.id,
+      })
     } catch (err) {
       dispatch({ type: 'SET_ERROR', error: String(err) })
     }
@@ -1322,94 +823,32 @@ export default function Palette({
     else if (!isFormStep) inputRef.current?.focus()
   })
 
-  // Keep the window sized to its content.
-  //
-  // Windows: a single setSize per height change — the window is positioned
-  // once per show (Rust side, top fixed at ~20% of the monitor), so resizes
-  // only move the bottom edge and typing stays smooth. A small dead-band
-  // skips sub-2px churn; user resizing is prevented by resizable: false in
-  // tauri.conf.json. Re-asserted on focus because a size set while hidden
-  // isn't always honoured.
-  //
-  // Linux/Wayland (cosmic-comp): the palette is a layer-shell surface whose
-  // size comes from the GTK size request, so resizes go through the backend's
-  // resize_palette (in-place, no flicker). Linux/X11 has no layer shell — the
-  // window is a normal toplevel positioned by the backend on show, so it uses
-  // the same setSize path as Windows.
-  // sizeRef is the *unscaled* wrapper we measure; its height already includes
-  // the inner zoom (the zoomed content lays out scaled in the wrapper), so it is
-  // the final logical window height. Width is derived from the scale directly.
-  const sizeRef = useRef<HTMLDivElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const lastHeightRef = useRef(0)
-  const lastWidthRef = useRef(0)
-  const applySize = useCallback(async () => {
-    const el = sizeRef.current
-    if (!el) return
-    const h = Math.ceil(el.getBoundingClientRect().height)
-    if (!h) return
-    const w = Math.round(PALETTE_WIDTH * scaleRef.current)
-    const widthChanged = w !== lastWidthRef.current
-    // Skip only when nothing meaningful changed (small height churn while typing
-    // is absorbed by the dead-band; a width change always goes through).
-    if (!widthChanged && Math.abs(h - lastHeightRef.current) < 2) return
-    lastHeightRef.current = h
-    // Re-center only when the width actually changes (scale), not on the height
-    // churn from typing. Guard against the first apply (no prior width yet).
-    const shouldRecenter = widthChanged && lastWidthRef.current > 0
-    lastWidthRef.current = w
-    if (IS_LINUX && (await envInfo()).wayland) {
-      await resizePalette(h, w)
-      return
-    }
-    await getCurrentWindow().setSize(new LogicalSize(w, h))
-    // setSize keeps the top-left corner fixed, so a width change grows the
-    // window rightward and drifts off-center. Let Rust re-center on the current
-    // monitor (authoritative, reads the live size — no frontend DPI/position
-    // races), matching the show-time centering.
-    if (shouldRecenter) {
-      await recenterPalette()
-    }
-  }, [])
-
-  // Re-apply the window size whenever the scale changes, even if the measured
-  // height happens to land within the dead-band (width still needs updating).
+  // On each re-focus (every palette show), drop the cached @search file list:
+  // each show may target a different Explorer/Finder folder, so invalidate any
+  // in-flight load and clear the cache. (Window resizing on focus is handled by
+  // usePaletteWindowSize.)
   useEffect(() => {
-    lastHeightRef.current = 0
-    void applySize()
-  }, [scale, applySize])
-
-  useEffect(() => {
-    const el = sizeRef.current
-    if (!el) return
-    const observer = new ResizeObserver(() => { void applySize() })
-    observer.observe(el)
     let unlisten: (() => void) | undefined
     getCurrentWindow()
       .onFocusChanged(({ payload: focused }) => {
         if (focused) {
-          // Force a re-apply even if the height didn't change while hidden
-          lastHeightRef.current = 0
-          void applySize()
-          // Drop the cached file list: each show may target a different
-          // Explorer folder (and invalidate any in-flight load)
           folderLoad.current = { token: folderLoad.current.token + 1, loaded: false, loading: false }
           dispatch({ type: 'SET_ITEMS', stepId: '__folder__', items: [] })
         }
       })
       .then(fn => { unlisten = fn })
-    return () => { observer.disconnect(); unlisten?.() }
-  }, [applySize])
+    return () => { unlisten?.() }
+  }, [])
 
   const placeholder = isInputStep
     ? (currentStep?.placeholder ?? 'Enter value...')
     : (currentStep?.placeholder ?? 'Search commands...')
 
   return (
-    // Outer wrapper is unscaled and full-width: we measure its height (which
-    // already reflects the inner zoom) to size the window. The inner container
-    // is a fixed base width scaled by `zoom`, so it renders at PALETTE_WIDTH ×
-    // scale — exactly the window width applySize sets.
+    // Outer wrapper is unscaled and full-width: usePaletteWindowSize measures
+    // its height (which already reflects the inner zoom) to size the window. The
+    // inner container is a fixed base width scaled by `zoom`, so it renders at
+    // PALETTE_WIDTH × scale — exactly the window width the hook sets.
     <div ref={sizeRef} style={{ width: '100%' }}>
     <div
       ref={containerRef}
@@ -1437,44 +876,7 @@ export default function Palette({
     >
       <ToastContainer toasts={toasts} />
 
-      {hud && (
-        // Full-cover confirmation pill; the container is position:relative so
-        // this sits over the (about-to-be-hidden) body and reads as a HUD.
-        <div style={{
-          position: 'absolute',
-          inset: 0,
-          zIndex: 200,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: 'var(--bg)',
-          backdropFilter: 'blur(60px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(60px) saturate(180%)',
-          borderRadius: 'inherit',
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '14px 22px',
-            borderRadius: 12,
-            background: 'var(--bg-elevated, rgba(36,40,59,0.9))',
-            border: '1px solid var(--border)',
-            boxShadow: '0 8px 30px rgba(0,0,0,0.35)',
-            color: 'var(--text)',
-            fontSize: 15,
-            fontFamily: 'var(--font)',
-          }}>
-            {hud.icon && hasIcon(hud.icon) && (
-              <div
-                style={{ width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ece6a' }}
-                dangerouslySetInnerHTML={{ __html: getIconSvg(hud.icon, '#9ece6a', 18) ?? '' }}
-              />
-            )}
-            {hud.message}
-          </div>
-        </div>
-      )}
+      {hud && <HudOverlay message={hud.message} icon={hud.icon} />}
 
       {confirmReq && (
         <ConfirmOverlay
