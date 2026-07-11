@@ -1,8 +1,8 @@
 import { useReducer, useEffect, useRef, useState, useCallback, MutableRefObject } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
-import { fuzzyFilter, fuzzyScoreFieldsBatch } from '../lib/fuzzy'
-import { frecencyBonus, recordUse } from '../lib/frecency'
+import { fuzzyFilter } from '../lib/fuzzy'
+import { recordUse } from '../lib/frecency'
 import { appEvents } from '../lib/appEvents'
 import { getOverrides, invalidateOverridesCache, setOverride } from '../lib/overrides'
 import { SETTINGS_COMMAND_ID } from '../commands/settings'
@@ -11,8 +11,11 @@ import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
 import { evaluateCalcQuery } from '../providers/calculator'
 import { tryTimeConversion } from '../lib/timezones'
-import { IS_LINUX, IS_MAC, envInfo, openPath, openUrl, pasteToPrevious, readQuicklinks, readNotes, recenterPalette, resizePalette, revealPath, runScriptCapture, setCommandHotkey, writeClipboardText, writeQuicklinks, writeNotes, type Bookmark, type ClipboardItem, type CommandOverride, type Note, type Quicklink } from '../lib/tauri'
-import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem, PaletteState } from '../types'
+import { IS_LINUX, IS_MAC, envInfo, openPath, openUrl, pasteToPrevious, readQuicklinks, readNotes, recenterPalette, resizePalette, revealPath, runScriptCapture, setCommandHotkey, writeClipboardText, writeQuicklinks, writeNotes, type Bookmark, type ClipboardItem, type Note, type Quicklink } from '../lib/tauri'
+import type { ActionItem, AppConfig, Command, PaletteItem } from '../types'
+import { commandToItem, commandsToItems, commandsToFlatItems, buildFallbackItems } from '../lib/paletteItems'
+import { applyOverride, buildQueryResults, type Overrides } from '../lib/paletteRanking'
+import { initialState, reducer } from '../lib/paletteReducer'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
 import ResultsGrid from './ResultsGrid'
@@ -27,246 +30,6 @@ import ClaudeUsage from './ClaudeUsage'
 import SystemStatsPanel from './SystemStats'
 import Footer from './Footer'
 import StepBreadcrumb from './StepBreadcrumb'
-// ── Root items (the command list) ────────────────────────────────────────────
-
-// Extra search terms (folder name, keywords, aliases) folded into the
-// fuzzy-match text
-function searchTextFor(cmd: Command, prefix?: string): string | undefined {
-  if (!prefix && !cmd.keywords?.length && !cmd.aliases?.length) return undefined
-  return [prefix, cmd.label, cmd.description, ...(cmd.keywords ?? []), ...(cmd.aliases ?? [])].filter(Boolean).join(' ')
-}
-
-function commandToItem(cmd: Command): PaletteItem {
-  return {
-    id: cmd.id,
-    label: cmd.label,
-    sublabel: cmd.isFolder ? undefined : cmd.description,
-    icon: cmd.icon,
-    iconPath: cmd.iconPath,
-    isFolder: cmd.isFolder,
-    source: cmd.source,
-    actionLabel: cmd.actionLabel,
-    searchText: searchTextFor(cmd),
-    keywords: cmd.keywords,
-    data: cmd.data ?? cmd.id,
-    color: cmd.color,
-    accessories: cmd.accessories,
-    metadata: cmd.metadata,
-    liveOutputKey: cmd.liveOutputKey,
-    running: cmd.running,
-    detailMarkdown: cmd.detailMarkdown,
-  }
-}
-
-// Hierarchical root view: folders first, then root scripts
-function commandsToItems(commands: Command[]): PaletteItem[] {
-  return commands.map(commandToItem)
-}
-
-// Flat view for cross-folder search: all scripts with folder as sublabel + searchText
-function commandsToFlatItems(commands: Command[]): PaletteItem[] {
-  return commands.map(cmd => ({
-    ...commandToItem(cmd),
-    sublabel: cmd.folderName,
-    searchText: searchTextFor(cmd, cmd.folderName),
-  }))
-}
-
-// Fallback commands shown when a root query matches nothing — so the palette
-// is never a dead end. Injected into the results list (keyboard-navigable,
-// unlike a static empty-state message). Web/GitHub open a browser; "files"
-// hands off to the @find mode so the query keeps refining in-place.
-function buildFallbackItems(query: string): PaletteItem[] {
-  const q = query.trim()
-  if (!q) return []
-  const data = (kind: string) => ({ kind, q }) as unknown
-  return [
-    { id: 'fallback:web', label: `Search the web for “${q}”`, icon: 'search', source: 'builtin', data: data('web'), actionLabel: 'Open' },
-    { id: 'fallback:files', label: `Search files for “${q}”`, icon: 'folder', source: 'builtin', data: data('files'), actionLabel: 'Search' },
-    { id: 'fallback:github', label: `Search GitHub for “${q}”`, icon: 'search', source: 'builtin', data: data('github'), actionLabel: 'Open' },
-  ]
-}
-
-// ── Overrides (aliases & pins) ────────────────────────────────────────────────
-
-type Overrides = Record<string, CommandOverride>
-
-// Fold a user alias into the item's search text and display metadata
-function applyOverride(item: PaletteItem, ov?: CommandOverride): PaletteItem {
-  if (!ov?.alias) return item
-  return {
-    ...item,
-    searchText: `${item.searchText ?? item.label} ${ov.alias}`,
-  }
-}
-
-// Alias-prefix matches sort above everything else; shorter aliases win ties.
-function aliasPrefixRank(query: string, ov?: CommandOverride): { tier: number; len: number } | null {
-  if (!ov?.alias) return null
-  const alias = ov.alias.toLowerCase()
-  const q = query.trim().toLowerCase()
-  if (alias === q) return { tier: 0, len: alias.length }
-  if (alias.startsWith(q)) return { tier: 1, len: alias.length }
-  return null
-}
-
-// ── Query ranking ─────────────────────────────────────────────────────────────
-
-// Weighted fields for multi-field fuzzy scoring: label is the strongest signal,
-// sublabel weaker, and the full search text (description, folder, keywords)
-// weakest — enough to surface a match without outranking label hits.
-const RANK_FIELDS = [
-  { text: (item: PaletteItem) => item.label, weight: 1.0 },
-  { text: (item: PaletteItem) => item.sublabel, weight: 0.5 },
-  { text: (item: PaletteItem) => item.searchText, weight: 0.35 },
-]
-
-// Root query results: scripts and provider results ranked together by weighted
-// fuzzy score, hard bonuses for exact/prefix label matches, alias matches,
-// pins, and frecency. Alias-prefix matches are hoisted above everything.
-// Array.sort is stable, so ties preserve input order (no row flicker).
-function buildQueryResults(items: PaletteItem[], query: string, overrides: Overrides): PaletteItem[] {
-  const q = query.trim().toLowerCase()
-  const baseScores = fuzzyScoreFieldsBatch(items, query, RANK_FIELDS)
-  const ranked = items
-    .map(item => {
-      const baseScore = baseScores.get(item)
-      if (baseScore === undefined) return null
-      let score = baseScore
-      const label = item.label.toLowerCase()
-      if (label === q) score += 300
-      else if (label.startsWith(q)) score += 120
-      else if (label.includes(q)) score += 40
-
-      const ov = overrides[item.id]
-      const alias = ov?.alias?.toLowerCase()
-      if (alias) {
-        if (alias === q) score += 200
-        else if (alias.startsWith(q)) score += 80
-        else if (alias.includes(q)) score += 25
-      }
-
-      score += frecencyBonus(item.id)
-      if (ov?.pinned) score += 10
-
-      return {
-        item,
-        score,
-        aliasRank: aliasPrefixRank(query, ov),
-        // Scripts/shortcuts from the commands folder always sort above
-        // provider results (calculator, kill, …)
-        scriptTier: item.source === 'script' ? 0 : 1,
-      }
-    })
-    .filter((r): r is NonNullable<typeof r> => r !== null)
-  ranked.sort((a, b) => {
-    if (a.aliasRank && b.aliasRank) {
-      if (a.aliasRank.tier !== b.aliasRank.tier) return a.aliasRank.tier - b.aliasRank.tier
-      return a.aliasRank.len - b.aliasRank.len
-    }
-    if (a.aliasRank) return -1
-    if (b.aliasRank) return 1
-    if (a.scriptTier !== b.scriptTier) return a.scriptTier - b.scriptTier
-    return b.score - a.score
-  })
-  return ranked.map(r => r.item)
-}
-
-// ── Reducer ───────────────────────────────────────────────────────────────────
-
-function initialState(_config: AppConfig): PaletteState {
-  return {
-    query: '',
-    stepStack: [],
-    selectionStack: [],
-    itemCache: { '__root__': [] },
-    selectedIndex: 0,
-    loading: false,
-    error: null,
-  }
-}
-
-function reducer(state: PaletteState, action: PaletteAction): PaletteState {
-  switch (action.type) {
-    case 'SET_QUERY':
-      return { ...state, query: action.query, selectedIndex: 0, error: null }
-
-    case 'SET_ITEMS':
-      return {
-        ...state,
-        itemCache: { ...state.itemCache, [action.stepId]: action.items },
-        loading: false,
-        selectedIndex: action.preserveSelection ? state.selectedIndex : 0,
-      }
-
-    case 'PUSH_STEP':
-      return {
-        ...state,
-        stepStack: [...state.stepStack, action.step],
-        // Remember where we were so popping back restores this view
-        selectionStack: [
-          ...state.selectionStack,
-          { query: state.query, selectedIndex: state.selectedIndex },
-        ],
-        query: '',
-        selectedIndex: 0,
-        loading: false,
-        error: null,
-      }
-
-    case 'POP_STEP': {
-      const restored = state.selectionStack[state.selectionStack.length - 1]
-      return {
-        ...state,
-        stepStack: state.stepStack.slice(0, -1),
-        selectionStack: state.selectionStack.slice(0, -1),
-        query: restored?.query ?? '',
-        selectedIndex: restored?.selectedIndex ?? 0,
-        loading: false,
-        error: null,
-      }
-    }
-
-    case 'REPLACE_STEP':
-      // preserveSelection: same-id replaces (toggles, theme apply) keep the
-      // query and highlighted row instead of jumping back to the top
-      return {
-        ...state,
-        stepStack: [...state.stepStack.slice(0, -1), action.step],
-        query: action.preserveSelection ? state.query : '',
-        selectedIndex: action.preserveSelection ? state.selectedIndex : 0,
-        loading: false,
-        error: null,
-      }
-
-    case 'MOVE_SELECTION':
-      return {
-        ...state,
-        selectedIndex: Math.max(0, state.selectedIndex + action.delta),
-      }
-
-    case 'SET_LOADING':
-      return { ...state, loading: action.loading, error: null }
-
-    case 'SET_ERROR':
-      return { ...state, error: action.error, loading: false }
-
-    case 'RESET':
-      return {
-        ...state,
-        query: '',
-        stepStack: [],
-        selectionStack: [],
-        selectedIndex: 0,
-        loading: false,
-        error: null,
-      }
-
-    default:
-      return state
-  }
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const LAST_CMD_KEY = 'commandeer:last'
