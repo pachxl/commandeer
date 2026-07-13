@@ -27,6 +27,7 @@ import { ToastContainer } from './Toast'
 import HudOverlay from './HudOverlay'
 import ConfirmOverlay from './ConfirmOverlay'
 import ClaudeUsage from './ClaudeUsage'
+import CodexUsage from './CodexUsage'
 import SystemStatsPanel from './SystemStats'
 import Footer from './Footer'
 import StepBreadcrumb from './StepBreadcrumb'
@@ -57,6 +58,7 @@ interface PaletteProps {
   onToggleGameMode: () => void
   gameModeEnabled: boolean
   claudeUsageVisible: boolean
+  codexUsageVisible: boolean
   systemStatsVisible: boolean
 }
 
@@ -71,6 +73,7 @@ export default function Palette({
   onToggleGameMode,
   gameModeEnabled,
   claudeUsageVisible,
+  codexUsageVisible,
   systemStatsVisible,
 }: PaletteProps) {
   const [state, dispatch] = useReducer(reducer, config, initialState)
@@ -1016,6 +1019,7 @@ export default function Palette({
       )}
 
       {claudeUsageVisible && <ClaudeUsage />}
+      {codexUsageVisible && <CodexUsage />}
       {systemStatsVisible && <SystemStatsPanel />}
       <Footer
         selectedItem={selectedItem}

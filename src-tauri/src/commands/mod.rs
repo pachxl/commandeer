@@ -3,6 +3,7 @@ pub mod audio;
 pub mod bookmarks;
 pub mod claude;
 pub mod clipboard;
+pub mod codex;
 pub mod config;
 pub mod deeplink;
 // Linux-only (not merely non-Windows): pulls in gtk/gio, which macOS lacks.

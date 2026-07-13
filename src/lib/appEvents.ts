@@ -1,13 +1,15 @@
-// Bridge between App-level state (game mode, Claude usage panel, command
+// Bridge between App-level state (game mode, usage panels, command
 // list) and commands defined outside the component tree. App registers its
 // toggles and getters here; commands and settings steps read/call them.
 export const appEvents: {
   toggleGameMode?: () => void
   toggleClaudeUsage?: () => void
+  toggleCodexUsage?: () => void
   toggleWebSearch?: () => void
   toggleSystemStats?: () => void
   isGameMode?: () => boolean
   isClaudeUsageVisible?: () => boolean
+  isCodexUsageVisible?: () => boolean
   isWebSearchVisible?: () => boolean
   isSystemStatsVisible?: () => boolean
   // Palette scale (CSS zoom factor). getScale reads the current factor; setScale

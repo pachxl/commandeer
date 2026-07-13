@@ -19,6 +19,7 @@ import Palette, { type InlineScript } from './components/Palette'
 const EMPTY_CONFIG: AppConfig = { scripts_dir: '' }
 const GAME_MODE_KEY = 'commandeer:gamemode'
 const CLAUDE_USAGE_KEY = 'commandeer:claude-usage-visible'
+const CODEX_USAGE_KEY = 'commandeer:codex-usage-visible'
 const WEB_SEARCH_KEY = 'commandeer:web-search-visible'
 const SYSTEM_STATS_KEY = 'commandeer:system-stats-visible'
 const SCRIPTS_CACHE_KEY = 'commandeer:scripts'
@@ -54,6 +55,9 @@ export default function App() {
   )
   const [claudeUsageVisible, setClaudeUsageVisible] = useState(
     () => localStorage.getItem(CLAUDE_USAGE_KEY) === 'true'
+  )
+  const [codexUsageVisible, setCodexUsageVisible] = useState(
+    () => localStorage.getItem(CODEX_USAGE_KEY) === 'true'
   )
   const [systemStatsVisible, setSystemStatsVisible] = useState(
     () => localStorage.getItem(SYSTEM_STATS_KEY) !== 'false'
@@ -178,6 +182,12 @@ export default function App() {
     localStorage.setItem(CLAUDE_USAGE_KEY, String(next))
   }
 
+  function toggleCodexUsage() {
+    const next = !codexUsageVisible
+    setCodexUsageVisible(next)
+    localStorage.setItem(CODEX_USAGE_KEY, String(next))
+  }
+
   function toggleWebSearch() {
     localStorage.setItem(WEB_SEARCH_KEY, String(!isWebSearchVisible()))
     void refresh()
@@ -192,10 +202,12 @@ export default function App() {
   // Keep the bridge fresh each render so settings commands see current state
   appEvents.toggleGameMode = () => { void toggleGameMode() }
   appEvents.toggleClaudeUsage = toggleClaudeUsage
+  appEvents.toggleCodexUsage = toggleCodexUsage
   appEvents.toggleWebSearch = toggleWebSearch
   appEvents.toggleSystemStats = toggleSystemStats
   appEvents.isGameMode = () => gameModeEnabled
   appEvents.isClaudeUsageVisible = () => claudeUsageVisible
+  appEvents.isCodexUsageVisible = () => codexUsageVisible
   appEvents.isWebSearchVisible = isWebSearchVisible
   appEvents.isSystemStatsVisible = () => systemStatsVisible
   appEvents.getScale = () => paletteScale
@@ -214,6 +226,7 @@ export default function App() {
       onToggleGameMode={toggleGameMode}
       gameModeEnabled={gameModeEnabled}
       claudeUsageVisible={claudeUsageVisible}
+      codexUsageVisible={codexUsageVisible}
       systemStatsVisible={systemStatsVisible}
     />
   )

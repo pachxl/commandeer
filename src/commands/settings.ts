@@ -108,6 +108,14 @@ function settingsStep(config: AppConfig): Step {
         actionLabel: 'Toggle',
       },
       {
+        id: 'settings:toggle-codex-usage',
+        label: 'Codex Usage Panel',
+        sublabel: appEvents.isCodexUsageVisible?.() ? 'On' : 'Off',
+        icon: 'chart',
+        iconColor: '#10A37F',
+        actionLabel: 'Toggle',
+      },
+      {
         id: 'settings:toggle-system-stats',
         label: 'System Stats Panel',
         sublabel: appEvents.isSystemStatsVisible?.() ? `On — CPU, RAM${IS_MAC ? '' : ', GPU'}` : 'Off',
@@ -180,6 +188,10 @@ function settingsStep(config: AppConfig): Step {
       }
       if (item.id === 'settings:toggle-claude-usage') {
         appEvents.toggleClaudeUsage?.()
+        return { type: 'replace', step: settingsStep(config) }
+      }
+      if (item.id === 'settings:toggle-codex-usage') {
+        appEvents.toggleCodexUsage?.()
         return { type: 'replace', step: settingsStep(config) }
       }
       if (item.id === 'settings:toggle-system-stats') {

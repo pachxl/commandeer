@@ -623,6 +623,7 @@ pub fn run() {
             commands::fs::run_script_capture,
             commands::fs::reveal_path,
             commands::claude::claude_usage,
+            commands::codex::codex_usage,
             commands::store::data_dir,
             commands::store::read_quicklinks,
             commands::store::write_quicklinks,

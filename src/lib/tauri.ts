@@ -74,6 +74,39 @@ export interface ClaudeUsageData {
 export const claudeUsage = () =>
   invoke<ClaudeUsageData>('claude_usage')
 
+export interface CodexRateLimitWindow {
+  used_percent: number
+  limit_window_seconds?: number | null
+  reset_at?: number | null
+}
+
+export interface CodexRateLimit {
+  allowed: boolean
+  limit_reached: boolean
+  primary_window?: CodexRateLimitWindow | null
+  secondary_window?: CodexRateLimitWindow | null
+}
+
+export interface CodexAdditionalRateLimit {
+  limit_name: string
+  metered_feature: string
+  rate_limit: CodexRateLimit
+}
+
+export interface CodexUsageData {
+  plan_type?: string | null
+  rate_limit?: CodexRateLimit | null
+  additional_rate_limits: CodexAdditionalRateLimit[]
+  credits?: {
+    has_credits: boolean
+    unlimited: boolean
+    balance?: string | null
+  } | null
+}
+
+export const codexUsage = () =>
+  invoke<CodexUsageData>('codex_usage')
+
 export const openUrl = (url: string) =>
   tauriOpenUrl(url)
 
