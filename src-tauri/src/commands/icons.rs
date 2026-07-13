@@ -4,7 +4,7 @@
 //! Backends:
 //! - Windows: SHGetFileInfoW / IShellItemImageFactory → 32×32 PNG data URL.
 //! - macOS: NSWorkspace.iconForFile: → PNG data URL (via TIFF → bitmap rep).
-//! - Linux: not implemented; returns None.
+//! - Linux: freedesktop theme and `.desktop` resolution lives in desktop.rs.
 
 /// Data-URL icon for a path, or None if the shell has nothing for it.
 /// Uses file extension attributes for fast lookup; best for generic files.
@@ -480,8 +480,22 @@ mod mac {
         }
     }
 
+    /// Process enumeration returns the executable inside an application bundle
+    /// (`Foo.app/Contents/MacOS/Foo`). NSWorkspace needs the owning `.app` path
+    /// to return the application artwork rather than a generic Mach-O icon.
+    fn app_bundle_ancestor(path: &std::path::Path) -> Option<&std::path::Path> {
+        path.ancestors().find(|ancestor| {
+            ancestor
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("app"))
+        })
+    }
+
     pub fn icon_for_path(path: &str) -> Option<String> {
-        let p = std::path::Path::new(path);
+        let requested = std::path::Path::new(path);
+        let p = app_bundle_ancestor(requested).unwrap_or(requested);
+        let lookup_path = p.to_string_lossy();
         let ext = p
             .extension()
             .and_then(|e| e.to_str())
@@ -494,14 +508,14 @@ mod mac {
         // folders and ordinary files share per-kind/per-extension slots.
         let is_path_key = ext == "app" || (ext.is_empty() && !p.is_dir());
         let key = if is_path_key {
-            path.to_string()
+            lookup_path.to_string()
         } else if p.is_dir() {
             "\u{0}folder".to_string()
         } else {
             ext
         };
         // Only path-keyed entries carry a meaningful mtime to invalidate on.
-        let mtime = if is_path_key { path_mtime(path) } else { 0 };
+        let mtime = if is_path_key { path_mtime(&lookup_path) } else { 0 };
 
         if let Ok(c) = cache().lock() {
             if let Some(hit) = c.get(&key) {
@@ -510,7 +524,7 @@ mod mac {
                 }
             }
         }
-        let icon = nsimage_icon_for_path(path);
+        let icon = nsimage_icon_for_path(&lookup_path);
         if let Ok(mut c) = cache().lock() {
             c.insert(key, Entry { mtime, icon: icon.clone() });
         }
@@ -636,6 +650,21 @@ mod mac {
 
     #[cfg(test)]
     mod tests {
+        #[test]
+        fn process_executable_resolves_to_app_bundle() {
+            let executable = std::path::Path::new(
+                "/Applications/Commandeer.app/Contents/MacOS/commandeer",
+            );
+            assert_eq!(
+                super::app_bundle_ancestor(executable),
+                Some(std::path::Path::new("/Applications/Commandeer.app"))
+            );
+            assert_eq!(
+                super::app_bundle_ancestor(std::path::Path::new("/usr/bin/ssh")),
+                None
+            );
+        }
+
         // NSWorkspace icon lookup for a stock app; verifies the Objective-C
         // bridge and TIFF→PNG conversion without relying on a specific icon.
         #[test]
@@ -662,10 +691,13 @@ mod mac {
         // Regression: .app bundles are directories, and the cache once keyed
         // all directories on one shared folder slot — every app rendered as
         // whichever app resolved first (Activity Monitor, in practice). Two
-        // different apps must yield two different icons, and each payload must
-        // be a small rep, not the full 1024×1024 TIFF re-encode.
+        // different apps must occupy two path-keyed cache entries, and each
+        // payload must be a small rep, not the full 1024×1024 TIFF re-encode.
+        // A headless `cargo test` process can receive the same generic AppKit
+        // icon for every bundle, so pixel inequality is a runtime integration
+        // concern; this unit test guards the cache-key bug deterministically.
         #[test]
-        fn distinct_app_icons_and_small_payloads() {
+        fn distinct_app_cache_entries_and_small_payloads() {
             let a = ["/System/Applications/Calculator.app", "/Applications/Calculator.app"]
                 .iter()
                 .find(|p| std::path::Path::new(p).exists())
@@ -682,7 +714,11 @@ mod mac {
             };
             let ia = super::icon_for_path(a).expect("icon for first app");
             let ib = super::icon_for_path(b).expect("icon for second app");
-            assert_ne!(ia, ib, "two different apps returned the same cached icon");
+            let cache = super::cache().lock().expect("icon cache lock");
+            assert_ne!(a, b);
+            assert!(cache.contains_key(a), "missing path-keyed cache entry for {a}");
+            assert!(cache.contains_key(b), "missing path-keyed cache entry for {b}");
+            drop(cache);
             for (path, icon) in [(a, &ia), (b, &ib)] {
                 assert!(
                     icon.len() < 300_000,

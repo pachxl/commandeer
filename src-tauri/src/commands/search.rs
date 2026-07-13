@@ -12,6 +12,23 @@ pub struct FileResult {
     pub icon: Option<String>,
 }
 
+fn is_current_executable(path: &str) -> bool {
+    let Ok(current) = std::env::current_exe() else {
+        return false;
+    };
+    let requested = std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
+    let current = std::fs::canonicalize(&current).unwrap_or(current);
+    requested == current
+}
+
+fn embedded_app_icon() -> String {
+    let png = include_bytes!("../../icons/128x128.png");
+    format!(
+        "data:image/png;base64,{}",
+        crate::commands::fs::base64_encode(png)
+    )
+}
+
 /// Shell icon for a single path, resolved lazily by the frontend (folder
 /// search returns up to 50k entries — inlining a data URL per entry would
 /// balloon the IPC payload, so rows fetch icons on demand and cache them
@@ -19,6 +36,13 @@ pub struct FileResult {
 /// embedded icon, so they resolve per file instead of per extension.
 #[tauri::command]
 pub async fn path_icon(path: String) -> Option<String> {
+    // The running app's own process row must not depend on platform shell
+    // caches or desktop-entry association. All builds embed this PNG generated
+    // from the same logo.svg as the ICNS/ICO/package artwork.
+    if is_current_executable(&path) {
+        return Some(embedded_app_icon());
+    }
+
     #[cfg(target_os = "windows")]
     {
         tokio::task::spawn_blocking(move || {
@@ -50,6 +74,16 @@ pub async fn path_icon(path: String) -> Option<String> {
             .await
             .ok()
             .flatten()
+    }
+}
+
+#[cfg(test)]
+mod app_icon_tests {
+    #[test]
+    fn current_process_uses_embedded_app_icon() {
+        let current = std::env::current_exe().expect("current executable");
+        assert!(super::is_current_executable(&current.to_string_lossy()));
+        assert!(super::embedded_app_icon().starts_with("data:image/png;base64,"));
     }
 }
 

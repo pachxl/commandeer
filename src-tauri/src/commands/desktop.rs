@@ -285,6 +285,93 @@ pub(crate) fn parse_exec(exec: &str) -> Option<Vec<String>> {
     }
 }
 
+/// Standard freedesktop application directories, in user-before-system order.
+fn application_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Ok(home) = std::env::var("HOME") {
+        if !home.is_empty() {
+            let data_home = std::env::var("XDG_DATA_HOME")
+                .ok()
+                .filter(|value| !value.is_empty())
+                .unwrap_or(format!("{home}/.local/share"));
+            dirs.push(PathBuf::from(data_home).join("applications"));
+        }
+    }
+    let data_dirs = std::env::var("XDG_DATA_DIRS")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or("/usr/local/share:/usr/share".to_string());
+    dirs.extend(
+        data_dirs
+            .split(':')
+            .filter(|directory| !directory.is_empty())
+            .map(|directory| PathBuf::from(directory).join("applications")),
+    );
+    // Snap does not always add its desktop export root to XDG_DATA_DIRS.
+    dirs.push(PathBuf::from("/var/lib/snapd/desktop/applications"));
+    dirs
+}
+
+/// Match a live `/proc/<pid>/exe` path to the app's `.desktop` entry. Process
+/// rows otherwise get the generic executable glyph because ELF binaries do not
+/// embed application artwork the way Windows executables do.
+fn desktop_for_executable(path: &Path) -> Option<PathBuf> {
+    use std::collections::HashMap;
+    use std::sync::OnceLock;
+
+    static EXECUTABLES: OnceLock<HashMap<String, PathBuf>> = OnceLock::new();
+    let entries = EXECUTABLES.get_or_init(|| {
+        let mut entries = HashMap::new();
+        for directory in application_dirs() {
+            let walker = walkdir::WalkDir::new(directory)
+                .max_depth(2)
+                .follow_links(false)
+                .into_iter()
+                .filter_map(Result::ok);
+            for entry in walker {
+                let desktop_path = entry.path();
+                if desktop_path.extension().and_then(|extension| extension.to_str())
+                    != Some("desktop")
+                {
+                    continue;
+                }
+                let Ok(content) = fs::read_to_string(desktop_path) else {
+                    continue;
+                };
+                if !is_displayable(&content) {
+                    continue;
+                }
+                let Some(exec) = desktop_entry_value(&content, "Exec") else {
+                    continue;
+                };
+                let Some(arguments) = parse_exec(&exec) else {
+                    continue;
+                };
+                let Some(program) = arguments.first() else {
+                    continue;
+                };
+                let program_path = Path::new(program);
+                let desktop_path = desktop_path.to_path_buf();
+                entries
+                    .entry(program.to_ascii_lowercase())
+                    .or_insert_with(|| desktop_path.clone());
+                if let Some(name) = program_path.file_name().and_then(|name| name.to_str()) {
+                    entries
+                        .entry(name.to_ascii_lowercase())
+                        .or_insert(desktop_path);
+                }
+            }
+        }
+        entries
+    });
+
+    let exact = path.to_string_lossy().to_ascii_lowercase();
+    entries.get(&exact).cloned().or_else(|| {
+        let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
+        entries.get(&name).cloned()
+    })
+}
+
 /// Icon for an arbitrary filesystem path as a data URL: `.desktop` files get
 /// their declared `Icon=`; everything else resolves through the shared-mime
 /// database (via gio's content-type guess, filename-only — no I/O) to a themed
@@ -300,6 +387,14 @@ pub(crate) fn icon_for_path(path: &str) -> Option<String> {
             return icon_file_to_data_url(&hit);
         }
         return None;
+    }
+
+    if p.extension().is_none() {
+        if let Some(desktop) = desktop_for_executable(p) {
+            if let Some(icon) = resolve_desktop_icon(&desktop) {
+                return Some(icon);
+            }
+        }
     }
 
     // Executables without an extension (the common case for /usr/bin) guess as
