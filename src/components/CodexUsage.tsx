@@ -153,10 +153,9 @@ function addWindows(
 
 function displayLimits(data: CodexUsageData): DisplayLimit[] {
   const limits: DisplayLimit[] = []
+  // Only the primary rate limit (session + week windows) is shown. The metered
+  // "spark" feature in `additional_rate_limits` is deliberately omitted.
   if (data.rate_limit) addWindows(limits, data.rate_limit, 'codex')
-  for (const additional of data.additional_rate_limits ?? []) {
-    addWindows(limits, additional.rate_limit, additional.metered_feature, additional.limit_name)
-  }
   return limits
 }
 
