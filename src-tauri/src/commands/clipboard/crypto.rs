@@ -230,18 +230,24 @@ fn key_file_path() -> Result<std::path::PathBuf, String> {
         .filter(|v| !v.is_empty())
         .unwrap_or(format!("{home}/.local/share"));
     Ok(std::path::PathBuf::from(data_home)
-        .join("dev.commandeer.app")
+        .join("dev.commandeer")
         .join("clipboard.key"))
 }
 
 /// Location of the fallback key file, alongside the clipboard db.
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(test)))]
 fn key_file_path() -> Result<std::path::PathBuf, String> {
     let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
     Ok(std::path::PathBuf::from(home)
         .join("Library/Application Support")
-        .join("dev.commandeer.app")
+        .join("dev.commandeer")
         .join("clipboard.key"))
+}
+
+/// Keep tests isolated from a developer's real encrypted clipboard history.
+#[cfg(all(target_os = "macos", test))]
+fn key_file_path() -> Result<std::path::PathBuf, String> {
+    Ok(std::env::temp_dir().join("commandeer-test-clipboard.key"))
 }
 
 /// A raw key file readable only by the user, alongside the clipboard db.

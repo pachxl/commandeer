@@ -58,7 +58,7 @@ pub struct ScriptMetadata {
 
 /// Whether a directory entry should be surfaced as a runnable command.
 ///
-/// Windows: batch/command scripts, shell shortcuts, and VS Code workspaces.
+/// Windows: batch/PowerShell scripts, shell shortcuts, and VS Code workspaces.
 /// macOS/Linux: shell scripts, VS Code workspaces, or any regular file with the
 /// executable bit set. Linux additionally surfaces `.desktop` launchers and
 /// AppImages; macOS additionally surfaces `.command` Terminal scripts.
@@ -69,7 +69,7 @@ fn is_script_file(path: &Path) -> bool {
     {
         matches!(
             ext,
-            Some("bat") | Some("cmd") | Some("lnk") | Some("code-workspace")
+            Some("bat") | Some("cmd") | Some("ps1") | Some("lnk") | Some("code-workspace")
         )
     }
 
@@ -582,8 +582,19 @@ pub async fn run_script(path: String) -> Result<(), String> {
         };
 
         let mut cmd = std::process::Command::new("powershell.exe");
-        cmd.args(["-NonInteractive", "-Command", &ps_cmd])
-           .creation_flags(CREATE_NO_WINDOW);
+        if ext == "ps1" {
+            cmd.args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                &win_path,
+            ]);
+        } else {
+            cmd.args(["-NonInteractive", "-Command", &ps_cmd]);
+        }
+        cmd.creation_flags(CREATE_NO_WINDOW);
 
         if let Some(dir) = working_dir {
             cmd.current_dir(dir);
@@ -655,7 +666,7 @@ pub async fn run_script(path: String) -> Result<(), String> {
 /// Run a script and capture its first line of stdout — used by inline scripts
 /// (`@vicinae.mode inline`) whose output becomes a live-refreshing palette row.
 /// Only direct-exec script types are supported (shell scripts with a shebang,
-/// `.sh`, or Windows `.bat`/`.cmd`); launchers that open in another app
+/// `.sh`, or Windows `.bat`/`.cmd`/`.ps1`); launchers that open in another app
 /// (`.code-workspace`, `.desktop`, `.command`, `.lnk`) can't be captured and
 /// error out. A 10 s timeout guards against hung scripts blocking the palette.
 fn capture_script_output(path: &str) -> Result<String, String> {
@@ -668,11 +679,25 @@ fn capture_script_output(path: &str) -> Result<String, String> {
 
     #[cfg(target_os = "windows")]
     {
-        if ext != "bat" && ext != "cmd" && ext != "sh" {
-            return Err("inline mode only supports .bat/.cmd/.sh scripts on Windows".into());
+        if ext != "bat" && ext != "cmd" && ext != "ps1" && ext != "sh" {
+            return Err("inline mode only supports .bat/.cmd/.ps1/.sh scripts on Windows".into());
         }
-        let mut cmd = std::process::Command::new("cmd");
-        cmd.arg("/c").arg(path);
+        let mut cmd = if ext == "ps1" {
+            let mut command = std::process::Command::new("powershell.exe");
+            command.args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                path,
+            ]);
+            command
+        } else {
+            let mut command = std::process::Command::new("cmd");
+            command.arg("/c").arg(path);
+            command
+        };
         if let Some(dir) = script_path.parent() {
             cmd.current_dir(dir);
         }
@@ -936,6 +961,30 @@ mod tests {
             assert!(!m.needs_confirmation);
             assert!(m.arguments.is_empty());
             assert_eq!(m.keywords, vec!["tutorial", "help", "scripts", "example", "docs"]);
+        }
+    }
+
+    #[test]
+    fn starter_templates_have_platform_parity() {
+        use crate::commands::config::{
+            CURRENT_TIME_PS1, CURRENT_TIME_SH, OPEN_SCRIPTS_FOLDER_PS1,
+            OPEN_SCRIPTS_FOLDER_SH,
+        };
+
+        for src in [CURRENT_TIME_SH, CURRENT_TIME_PS1] {
+            let metadata = parse_metadata_from_text(src).expect("current-time header should parse");
+            assert_eq!(metadata.title.as_deref(), Some("Current Time"));
+            assert_eq!(metadata.mode.as_deref(), Some("inline"));
+            assert_eq!(metadata.refresh_seconds, Some(60));
+            assert!(metadata.arguments.is_empty());
+        }
+
+        for src in [OPEN_SCRIPTS_FOLDER_SH, OPEN_SCRIPTS_FOLDER_PS1] {
+            let metadata =
+                parse_metadata_from_text(src).expect("open-folder header should parse");
+            assert_eq!(metadata.title.as_deref(), Some("Open Scripts Folder"));
+            assert_eq!(metadata.mode.as_deref(), Some("silent"));
+            assert!(metadata.arguments.is_empty());
         }
     }
 

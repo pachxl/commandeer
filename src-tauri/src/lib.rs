@@ -385,9 +385,13 @@ pub fn run() {
             // Pending screenshot capture (frame path + dimensions).
             app.manage(commands::screenshot::ScreenshotState::default());
 
+            // `dev.commandeer.app` ended in the reserved-looking `.app`
+            // suffix. Copy its existing state into the corrected identifier's
+            // directories before any feature opens config, databases, or keys.
+            commands::config::migrate_legacy_identifier(app.app_handle());
+
             // Ensure the scripts directory exists and, on first run only, seed a
-            // tutorial script so new users have a working, self-documenting
-            // example of the script-command format.
+            // portable starter set demonstrating the script-command format.
             commands::config::ensure_scripts_seeded(app.app_handle());
 
             // macOS app icons resolve through NSWorkspace at ~175 ms each cold,

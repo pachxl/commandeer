@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # @raycast.schemaVersion 1
 # @raycast.title Script Tutorial
 # @raycast.description Open this file to learn how to add your own commands

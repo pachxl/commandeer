@@ -3,86 +3,72 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
-/// Tutorial script seeded into an empty scripts folder on first run (Unix). It
-/// is a working `inline` command whose printed line becomes its live subtitle,
-/// and its header documents every supported directive.
-pub(crate) const TUTORIAL_SH: &str = r#"#!/bin/bash
-# @raycast.schemaVersion 1
-# @raycast.title Script Tutorial
-# @raycast.description Open this file to learn how to add your own commands
-# @raycast.icon note
-# @raycast.mode inline
-# @vicinae.refreshTime 1h
-# @vicinae.keywords ["tutorial", "help", "scripts", "example", "docs"]
-#
-# ---------------------------------------------------------------------------
-#  Commandeer script commands
-# ---------------------------------------------------------------------------
-#  Drop any executable script in this folder and it appears in the palette.
-#  The header comments above configure how it shows up. Everything is
-#  optional -- with no directives, the file name becomes the title.
-#
-#  Supported directives. Each is written with an '@' prefix, like the header
-#  above (they're listed without it here so this list isn't parsed as real
-#  directives). All work as either raycast.* or vicinae.*:
-#
-#    raycast.title            Name shown in the palette
-#    raycast.description      Subtitle / detail text
-#    raycast.icon             A named icon: terminal, folder, note, clock, ...
-#    raycast.mode             inline | silent | fullOutput  (badge in the row)
-#    vicinae.refreshTime      For inline mode: re-run every 5s / 2m / 1h and
-#                             show the latest stdout live in the row
-#    vicinae.needsConfirmation true   Ask before running (destructive actions)
-#    vicinae.keywords         JSON array of extra search terms
-#    raycast.argument1        JSON like {"type":"text","placeholder":"name"} --
-#                             up to argument3, prompts for input before running
-#
-#  This script runs in "inline" mode, so the line it echoes below is shown as
-#  its subtitle. Edit it, copy it, or delete it once you are comfortable --
-#  Commandeer re-scans this folder every time the palette opens.
-# ---------------------------------------------------------------------------
+const LEGACY_IDENTIFIER: &str = "dev.commandeer.app";
 
-echo "Edit tutorial.sh in your scripts folder to build your own commands"
-"#;
+// Keep the source-checkout examples and the packaged first-run seeds identical:
+// `include_str!` embeds these files into the binary, while the root `scripts/`
+// directory is discovered directly during development.
+pub(crate) const TUTORIAL_SH: &str = include_str!("../../../scripts/tutorial.sh");
+pub(crate) const TUTORIAL_PS1: &str = include_str!("../../../scripts/tutorial.ps1");
+pub(crate) const CURRENT_TIME_SH: &str = include_str!("../../../scripts/current-time.sh");
+pub(crate) const CURRENT_TIME_PS1: &str = include_str!("../../../scripts/current-time.ps1");
+pub(crate) const OPEN_SCRIPTS_FOLDER_SH: &str =
+    include_str!("../../../scripts/open-scripts-folder.sh");
+pub(crate) const OPEN_SCRIPTS_FOLDER_PS1: &str =
+    include_str!("../../../scripts/open-scripts-folder.ps1");
 
-/// Windows (PowerShell) counterpart of [`TUTORIAL_SH`].
-pub(crate) const TUTORIAL_PS1: &str = r#"# @raycast.schemaVersion 1
-# @raycast.title Script Tutorial
-# @raycast.description Open this file to learn how to add your own commands
-# @raycast.icon note
-# @raycast.mode inline
-# @vicinae.refreshTime 1h
-# @vicinae.keywords ["tutorial", "help", "scripts", "example", "docs"]
-#
-# ---------------------------------------------------------------------------
-#  Commandeer script commands
-# ---------------------------------------------------------------------------
-#  Drop a .ps1 script in this folder and it appears in the palette. The header
-#  comments above configure how it shows up. Everything is optional -- with no
-#  directives, the file name becomes the title.
-#
-#  Supported directives. Each is written with an '@' prefix, like the header
-#  above (they're listed without it here so this list isn't parsed as real
-#  directives). All work as either raycast.* or vicinae.*:
-#
-#    raycast.title            Name shown in the palette
-#    raycast.description      Subtitle / detail text
-#    raycast.icon             A named icon: terminal, folder, note, clock, ...
-#    raycast.mode             inline | silent | fullOutput  (badge in the row)
-#    vicinae.refreshTime      For inline mode: re-run every 5s / 2m / 1h and
-#                             show the latest stdout live in the row
-#    vicinae.needsConfirmation true   Ask before running (destructive actions)
-#    vicinae.keywords         JSON array of extra search terms
-#    raycast.argument1        JSON like {"type":"text","placeholder":"name"} --
-#                             up to argument3, prompts for input before running
-#
-#  This script runs in "inline" mode, so the line it prints below is shown as
-#  its subtitle. Edit it, copy it, or delete it once you are comfortable --
-#  Commandeer re-scans this folder every time the palette opens.
-# ---------------------------------------------------------------------------
+const UNIX_STARTERS: &[(&str, &str)] = &[
+    ("tutorial.sh", TUTORIAL_SH),
+    ("current-time.sh", CURRENT_TIME_SH),
+    ("open-scripts-folder.sh", OPEN_SCRIPTS_FOLDER_SH),
+];
+const WINDOWS_STARTERS: &[(&str, &str)] = &[
+    ("tutorial.ps1", TUTORIAL_PS1),
+    ("current-time.ps1", CURRENT_TIME_PS1),
+    ("open-scripts-folder.ps1", OPEN_SCRIPTS_FOLDER_PS1),
+];
 
-Write-Output "Edit tutorial.ps1 in your scripts folder to build your own commands"
-"#;
+fn copy_dir_missing(source: &std::path::Path, destination: &std::path::Path) {
+    let Ok(entries) = fs::read_dir(source) else {
+        return;
+    };
+    let _ = fs::create_dir_all(destination);
+    for entry in entries.flatten() {
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if source_path.is_dir() {
+            copy_dir_missing(&source_path, &destination_path);
+        } else if !destination_path.exists() {
+            let _ = fs::copy(source_path, destination_path);
+        }
+    }
+}
+
+/// Preserve settings, databases, encryption keys, and icon caches after the
+/// bundle identifier changed from `dev.commandeer.app` to `dev.commandeer`.
+/// Copy-only and non-overwriting: the old directories remain as a rollback,
+/// while anything already written under the new identifier wins.
+pub fn migrate_legacy_identifier(app: &tauri::AppHandle) {
+    let Ok(data_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let marker = data_dir.join(".identifier-migrated-v1");
+    if marker.exists() {
+        return;
+    }
+
+    if let Some(parent) = data_dir.parent() {
+        copy_dir_missing(&parent.join(LEGACY_IDENTIFIER), &data_dir);
+    }
+    if let Ok(cache_dir) = app.path().app_cache_dir() {
+        if let Some(parent) = cache_dir.parent() {
+            copy_dir_missing(&parent.join(LEGACY_IDENTIFIER), &cache_dir);
+        }
+    }
+
+    let _ = fs::create_dir_all(&data_dir);
+    let _ = fs::write(marker, b"migrated from dev.commandeer.app\n");
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -170,9 +156,10 @@ fn default_scripts_dir(app: &tauri::AppHandle) -> String {
 }
 
 /// Ensure the configured scripts directory exists and, exactly once, seed a
-/// tutorial script so a fresh install has a working example that documents the
-/// `@raycast.*` / `@vicinae.*` directive format. A hidden marker file records
-/// that we've seeded, so deleting the tutorial afterwards never brings it back.
+/// small starter set so a fresh install has working examples of inline output,
+/// silent actions, and the `@raycast.*` / `@vicinae.*` directive format. A
+/// hidden marker records that we've seeded, so deleting examples never brings
+/// them back.
 /// Best-effort: any FS error is ignored (the app still runs without scripts).
 pub fn ensure_scripts_seeded(app: &tauri::AppHandle) {
     let dir = PathBuf::from(load_config(app).scripts_dir);
@@ -187,18 +174,20 @@ pub fn ensure_scripts_seeded(app: &tauri::AppHandle) {
         return;
     }
 
-    // Windows scripts are PowerShell; Unix uses a shell script.
-    let (name, body) = if cfg!(target_os = "windows") {
-        ("tutorial.ps1", TUTORIAL_PS1)
+    // Windows scripts are PowerShell; macOS/Linux use portable POSIX shell.
+    let starters = if cfg!(target_os = "windows") {
+        WINDOWS_STARTERS
     } else {
-        ("tutorial.sh", TUTORIAL_SH)
+        UNIX_STARTERS
     };
-    let script = dir.join(name);
-    if !script.exists() && fs::write(&script, body).is_ok() {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&script, fs::Permissions::from_mode(0o755));
+    for (name, body) in starters {
+        let script = dir.join(name);
+        if !script.exists() && fs::write(&script, body).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&script, fs::Permissions::from_mode(0o755));
+            }
         }
     }
     let _ = fs::write(&marker, b"seeded by commandeer\n");

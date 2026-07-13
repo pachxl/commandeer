@@ -271,7 +271,7 @@ the Linux-parity merge landed:
 - [x] **Clipboard history encryption at rest** — was plaintext on macOS while
       Windows (DPAPI) and Linux (ChaCha20 + Secret Service) encrypted. The
       Linux ChaCha20-Poly1305 arm now covers macOS, with the key in a 0600
-      key file (`~/Library/Application Support/dev.commandeer.app/
+      key file (`~/Library/Application Support/dev.commandeer/
       clipboard.key`) and the same one-time plaintext re-encryption migration.
       Round-trip + legacy-passthrough tests added. **Keychain deliberately not
       used**: its ACLs bind to the code signature, and an ad-hoc-signed binary
