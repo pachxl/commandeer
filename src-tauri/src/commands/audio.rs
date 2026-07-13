@@ -328,26 +328,178 @@ mod linux {
     }
 }
 
-/// osascript-backed volume control. AppleScript's `set volume` only addresses
-/// the current default output, so a single pseudo-device is exposed; per-device
-/// control would need CoreAudio proper (follow-up if ever wanted). Each call
-/// shells out (~50 ms), which is fine for slider/toggle interaction rates.
+/// CoreAudio-backed volume control for the current default output. A single
+/// pseudo-device is exposed because Commandeer controls the system-selected
+/// output, matching the macOS menu-bar volume control.
 #[cfg(target_os = "macos")]
 mod mac {
     use super::AudioDevice;
+    use std::ffi::c_void;
 
-    fn osascript(script: &str) -> Result<String, String> {
-        let out = std::process::Command::new("osascript")
-            .args(["-e", script])
-            .output()
-            .map_err(|e| format!("osascript failed to run: {e}"))?;
-        if !out.status.success() {
-            return Err(format!(
-                "osascript failed: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            ));
+    type AudioObjectId = u32;
+    type OsStatus = i32;
+
+    #[repr(C)]
+    struct PropertyAddress {
+        selector: u32,
+        scope: u32,
+        element: u32,
+    }
+
+    const SYSTEM_OBJECT: AudioObjectId = 1;
+    const DEFAULT_OUTPUT: u32 = u32::from_be_bytes(*b"dOut");
+    const VIRTUAL_MAIN_VOLUME: u32 = u32::from_be_bytes(*b"vmvc");
+    const VOLUME_SCALAR: u32 = u32::from_be_bytes(*b"volm");
+    const MUTE: u32 = u32::from_be_bytes(*b"mute");
+    const SCOPE_GLOBAL: u32 = u32::from_be_bytes(*b"glob");
+    const SCOPE_OUTPUT: u32 = u32::from_be_bytes(*b"outp");
+    const ELEMENT_MAIN: u32 = 0;
+
+    #[link(name = "CoreAudio", kind = "framework")]
+    extern "C" {
+        fn AudioObjectGetPropertyData(
+            object: AudioObjectId,
+            address: *const PropertyAddress,
+            qualifier_size: u32,
+            qualifier_data: *const c_void,
+            data_size: *mut u32,
+            data: *mut c_void,
+        ) -> OsStatus;
+        fn AudioObjectSetPropertyData(
+            object: AudioObjectId,
+            address: *const PropertyAddress,
+            qualifier_size: u32,
+            qualifier_data: *const c_void,
+            data_size: u32,
+            data: *const c_void,
+        ) -> OsStatus;
+    }
+
+    fn address(selector: u32, scope: u32, element: u32) -> PropertyAddress {
+        PropertyAddress {
+            selector,
+            scope,
+            element,
         }
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+
+    fn status_error(action: &str, status: OsStatus) -> String {
+        let bytes = (status as u32).to_be_bytes();
+        let printable = bytes.iter().all(|byte| byte.is_ascii_graphic());
+        if printable {
+            format!("CoreAudio {action} failed: '{}' ({status})", String::from_utf8_lossy(&bytes))
+        } else {
+            format!("CoreAudio {action} failed: {status}")
+        }
+    }
+
+    fn get_property<T: Copy + Default>(
+        object: AudioObjectId,
+        address: &PropertyAddress,
+    ) -> Result<T, OsStatus> {
+        let mut value = T::default();
+        let mut size = std::mem::size_of::<T>() as u32;
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                object,
+                address,
+                0,
+                std::ptr::null(),
+                &mut size,
+                (&mut value as *mut T).cast(),
+            )
+        };
+        if status == 0 { Ok(value) } else { Err(status) }
+    }
+
+    fn set_property<T>(
+        object: AudioObjectId,
+        address: &PropertyAddress,
+        value: &T,
+    ) -> Result<(), OsStatus> {
+        let status = unsafe {
+            AudioObjectSetPropertyData(
+                object,
+                address,
+                0,
+                std::ptr::null(),
+                std::mem::size_of::<T>() as u32,
+                (value as *const T).cast(),
+            )
+        };
+        if status == 0 { Ok(()) } else { Err(status) }
+    }
+
+    fn default_output() -> Result<AudioObjectId, String> {
+        let device = get_property(
+            SYSTEM_OBJECT,
+            &address(DEFAULT_OUTPUT, SCOPE_GLOBAL, ELEMENT_MAIN),
+        )
+        .map_err(|status| status_error("default-output lookup", status))?;
+        if device == 0 {
+            Err("CoreAudio has no default output device".to_string())
+        } else {
+            Ok(device)
+        }
+    }
+
+    fn read_volume(device: AudioObjectId) -> Result<f32, String> {
+        for selector in [VIRTUAL_MAIN_VOLUME, VOLUME_SCALAR] {
+            if let Ok(value) = get_property::<f32>(
+                device,
+                &address(selector, SCOPE_OUTPUT, ELEMENT_MAIN),
+            ) {
+                return Ok(value.clamp(0.0, 1.0));
+            }
+        }
+
+        // Some devices expose volume only on the left/right channels.
+        let channels: Vec<f32> = [1, 2]
+            .into_iter()
+            .filter_map(|element| {
+                get_property(device, &address(VOLUME_SCALAR, SCOPE_OUTPUT, element)).ok()
+            })
+            .collect();
+        if channels.is_empty() {
+            Err("CoreAudio output device has no volume control".to_string())
+        } else {
+            Ok((channels.iter().sum::<f32>() / channels.len() as f32).clamp(0.0, 1.0))
+        }
+    }
+
+    fn write_volume(device: AudioObjectId, level: f32) -> Result<(), String> {
+        let level = level.clamp(0.0, 1.0);
+        let mut last_status = None;
+        for selector in [VIRTUAL_MAIN_VOLUME, VOLUME_SCALAR] {
+            match set_property(device, &address(selector, SCOPE_OUTPUT, ELEMENT_MAIN), &level) {
+                Ok(()) => return Ok(()),
+                Err(status) => last_status = Some(status),
+            }
+        }
+
+        let mut wrote_channel = false;
+        for element in [1, 2] {
+            if set_property(device, &address(VOLUME_SCALAR, SCOPE_OUTPUT, element), &level).is_ok() {
+                wrote_channel = true;
+            }
+        }
+        if wrote_channel {
+            Ok(())
+        } else {
+            Err(status_error("volume write", last_status.unwrap_or(-1)))
+        }
+    }
+
+    fn mute_addresses(device: AudioObjectId) -> Vec<(PropertyAddress, u32)> {
+        [ELEMENT_MAIN, 1, 2]
+            .into_iter()
+            .filter_map(|element| {
+                let address = address(MUTE, SCOPE_OUTPUT, element);
+                get_property::<u32>(device, &address)
+                    .ok()
+                    .map(|value| (address, value))
+            })
+            .collect()
     }
 
     pub fn list_devices() -> Result<Vec<AudioDevice>, String> {
@@ -359,31 +511,52 @@ mod mac {
     }
 
     pub fn get_volume() -> Result<f32, String> {
-        let out = osascript("output volume of (get volume settings)")?;
-        let pct: f32 = out
-            .parse()
-            .map_err(|_| format!("unexpected volume reading: {out}"))?;
-        Ok((pct / 100.0).clamp(0.0, 1.0))
+        read_volume(default_output()?)
     }
 
     pub fn set_volume(level: f32) -> Result<(), String> {
-        let pct = (level * 100.0).round() as i32;
-        osascript(&format!("set volume output volume {pct}")).map(|_| ())
+        write_volume(default_output()?, level)
     }
 
     pub fn toggle_mute() -> Result<bool, String> {
-        let muted = osascript("output muted of (get volume settings)")? == "true";
-        osascript(&format!("set volume output muted {}", !muted))?;
-        Ok(!muted)
+        let device = default_output()?;
+        let addresses = mute_addresses(device);
+        if addresses.is_empty() {
+            return Err("CoreAudio output device has no mute control".to_string());
+        }
+        let muted = addresses.iter().all(|(_, value)| *value != 0);
+        let next = u32::from(!muted);
+        let mut wrote = false;
+        let mut last_status = None;
+        for (address, _) in addresses {
+            match set_property(device, &address, &next) {
+                Ok(()) => wrote = true,
+                Err(status) => last_status = Some(status),
+            }
+        }
+        if wrote {
+            Ok(!muted)
+        } else {
+            Err(status_error("mute write", last_status.unwrap_or(-1)))
+        }
     }
 
     #[cfg(test)]
     mod tests {
-        // Mirrors the Windows smoke test: real osascript round-trip; writing
+        // Mirrors the Windows smoke test: real CoreAudio round-trip; writing
         // back the level just read changes nothing audible.
         #[test]
         fn smoke_volume_roundtrip() {
-            let level = super::get_volume().expect("get_volume");
+            let level = match super::get_volume() {
+                Ok(level) => level,
+                Err(error)
+                    if error.contains("no default output device")
+                        || error.contains("has no volume control") =>
+                {
+                    return;
+                }
+                Err(error) => panic!("get_volume: {error}"),
+            };
             assert!((0.0..=1.0).contains(&level), "level {level}");
             super::set_volume(level).expect("set_volume");
         }
