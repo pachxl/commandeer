@@ -1,5 +1,6 @@
 use reqwest::header::HeaderValue;
 use serde::{Deserialize, Serialize};
+use serde::de::Deserializer;
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -120,9 +121,19 @@ pub struct CodexCredits {
 pub struct CodexUsage {
     pub plan_type: Option<String>,
     pub rate_limit: Option<CodexRateLimit>,
-    #[serde(default)]
+    // The endpoint uses both [] and null when there are no extra metered
+    // limits. Keep the frontend contract stable by always serializing a list.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub additional_rate_limits: Vec<CodexAdditionalRateLimit>,
     pub credits: Option<CodexCredits>,
+}
+
+fn null_to_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 /// Fetch Codex plan usage using the OAuth login maintained by Codex
@@ -166,9 +177,11 @@ pub async fn codex_usage() -> Result<CodexUsage, String> {
         return Err(format!("Codex usage endpoint returned {status}"));
     }
 
-    response
-        .json::<CodexUsage>()
+    let body = response
+        .text()
         .await
+        .map_err(|e| format!("read Codex usage response: {e}"))?;
+    serde_json::from_str::<CodexUsage>(&body)
         .map_err(|e| format!("parse Codex usage response: {e}"))
 }
 
@@ -221,5 +234,44 @@ mod tests {
         let serialized = serde_json::to_string(&usage).unwrap();
         assert!(!serialized.contains("private@example.com"));
         assert!(!serialized.contains("private-user"));
+    }
+
+    #[test]
+    fn usage_response_accepts_null_additional_limits() {
+        let usage: CodexUsage = serde_json::from_str(
+            r#"{
+                "plan_type":"plus",
+                "rate_limit":{
+                    "allowed":true,
+                    "limit_reached":false,
+                    "primary_window":{
+                        "used_percent":7,
+                        "limit_window_seconds":18000,
+                        "reset_after_seconds":900,
+                        "reset_at":1783944000
+                    },
+                    "secondary_window":null
+                },
+                "additional_rate_limits":null,
+                "credits":{
+                    "has_credits":false,
+                    "unlimited":false,
+                    "overage_limit_reached":false,
+                    "balance":"0",
+                    "approx_local_messages":[],
+                    "approx_cloud_messages":[]
+                }
+            }"#,
+        )
+        .expect("live endpoint shape should decode");
+
+        assert!(usage.additional_rate_limits.is_empty());
+        assert_eq!(
+            usage
+                .rate_limit
+                .and_then(|limit| limit.primary_window)
+                .map(|window| window.used_percent),
+            Some(7)
+        );
     }
 }
