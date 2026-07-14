@@ -679,6 +679,9 @@ fn capture_script_output(path: &str) -> Result<String, String> {
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
         if ext != "bat" && ext != "cmd" && ext != "ps1" && ext != "sh" {
             return Err("inline mode only supports .bat/.cmd/.ps1/.sh scripts on Windows".into());
         }
@@ -698,6 +701,7 @@ fn capture_script_output(path: &str) -> Result<String, String> {
             command.arg("/c").arg(path);
             command
         };
+        cmd.creation_flags(CREATE_NO_WINDOW);
         if let Some(dir) = script_path.parent() {
             cmd.current_dir(dir);
         }
