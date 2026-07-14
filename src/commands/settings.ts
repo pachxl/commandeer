@@ -1,5 +1,5 @@
 import type { AppConfig, Command, PaletteItem, Step, StepResult } from '../types'
-import { dataDir, getAutostart, openPath, setAutostart, setGlobalHotkey, setScreenshotHotkey, setWindowDrag, setWindowTransparency, writeConfig } from '../lib/tauri'
+import { dataDir, getAutostart, openPath, setAutostart, setGlobalHotkey, setPerMonitorAltTab, setScreenshotHotkey, setWindowDrag, setWindowTransparency, writeConfig } from '../lib/tauri'
 import { appEvents } from '../lib/appEvents'
 import { applyTheme, applyThemeByName, getAllThemes, type Theme } from '../lib/themes'
 
@@ -7,6 +7,7 @@ import { applyTheme, applyThemeByName, getAllThemes, type Theme } from '../lib/t
 // the trigger is a managed COSMIC binding, so we hide the setting there.
 const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
 const IS_MAC = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
+const IS_WINDOWS = !IS_LINUX && !IS_MAC
 const DEFAULT_SCREENSHOT_HOTKEY = IS_MAC ? '' : 'Insert'
 // Mirrors the Rust defaults in shortcuts.rs (kept in sync by hand — these are
 // only display fallbacks for an unset config value).
@@ -90,6 +91,15 @@ function settingsStep(config: AppConfig): Step {
         isFolder: true,
         actionLabel: 'Change',
       } as PaletteItem]),
+      ...(IS_WINDOWS ? [{
+        id: 'settings:per-monitor-alt-tab',
+        label: 'Per-Monitor Alt+Tab',
+        sublabel: config.per_monitor_alt_tab
+          ? 'On — show windows from the focused monitor only'
+          : 'Off — use the standard Windows switcher',
+        icon: 'window',
+        actionLabel: 'Toggle',
+      } as PaletteItem] : []),
       // Alt-drag window management is Windows/macOS only — Wayland forbids a
       // client from moving other apps' windows (COSMIC provides it natively).
       ...(IS_LINUX ? [] : [{
@@ -188,6 +198,18 @@ function settingsStep(config: AppConfig): Step {
       }
       if (item.id === 'settings:toggle-claude-usage') {
         appEvents.toggleClaudeUsage?.()
+        return { type: 'replace', step: settingsStep(config) }
+      }
+      if (item.id === 'settings:per-monitor-alt-tab') {
+        const next = !(config.per_monitor_alt_tab ?? false)
+        try {
+          await setPerMonitorAltTab(next)
+          Object.assign(config, { per_monitor_alt_tab: next })
+          await writeConfig(config)
+          appEvents.toast?.(next ? 'Per-monitor Alt+Tab enabled' : 'Windows Alt+Tab restored', 'success')
+        } catch (err) {
+          appEvents.toast?.(`Couldn't toggle per-monitor Alt+Tab: ${String(err)}`, 'error')
+        }
         return { type: 'replace', step: settingsStep(config) }
       }
       if (item.id === 'settings:toggle-codex-usage') {

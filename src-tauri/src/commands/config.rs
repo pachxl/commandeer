@@ -99,6 +99,10 @@ pub struct AppConfig {
     /// = off. Applied at startup and toggled from Settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_drag: Option<bool>,
+    /// Replace Windows Alt+Tab with a monitor-local switcher. Windows only;
+    /// None/false = off. Applied at startup and toggled from Settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_monitor_alt_tab: Option<bool>,
     /// Palette scale factor (CSS zoom applied to the whole palette). 1.0 =
     /// default size; the Settings slider maps 0–100% onto 0.5×–1.5× (50% = 1.0×).
     /// None = 1.0. Persisted here so it survives across builds.
@@ -229,4 +233,34 @@ pub async fn write_config(app: tauri::AppHandle, config: AppConfig) -> Result<()
     let path = config_path(&app)?;
     let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppConfig;
+
+    #[test]
+    fn per_monitor_alt_tab_defaults_to_none_when_missing() {
+        let config: AppConfig = serde_json::from_str(r#"{"scripts_dir": "x"}"#).unwrap();
+        assert_eq!(config.per_monitor_alt_tab, None);
+    }
+
+    #[test]
+    fn per_monitor_alt_tab_round_trips_true_and_false() {
+        for value in [false, true] {
+            let json = format!(r#"{{"scripts_dir": "x", "per_monitor_alt_tab": {value}}}"#);
+            let config: AppConfig = serde_json::from_str(&json).unwrap();
+            assert_eq!(config.per_monitor_alt_tab, Some(value));
+            let serialized = serde_json::to_string(&config).unwrap();
+            let reparsed: AppConfig = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(reparsed.per_monitor_alt_tab, Some(value));
+        }
+    }
+
+    #[test]
+    fn per_monitor_alt_tab_none_is_omitted_from_the_file() {
+        let config = AppConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(!json.contains("per_monitor_alt_tab"));
+    }
 }

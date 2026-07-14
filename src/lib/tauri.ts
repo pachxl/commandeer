@@ -205,6 +205,12 @@ export const setScreenshotHotkey = (hotkey: string) =>
 export const setWindowDrag = (enabled: boolean) =>
   invoke<void>('set_window_drag', { enabled })
 
+// Windows-only replacement for Alt+Tab that filters candidates to the monitor
+// containing the foreground window. The frontend persists the preference only
+// after this command successfully starts/stops the native hook service.
+export const setPerMonitorAltTab = (enabled: boolean) =>
+  invoke<void>('set_per_monitor_alt_tab', { enabled })
+
 export const setCommandHotkey = (commandId: string, hotkey: string | null) =>
   invoke<void>('set_command_hotkey', { commandId, hotkey })
 

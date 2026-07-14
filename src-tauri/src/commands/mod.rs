@@ -1,3 +1,4 @@
+pub mod alt_tab;
 pub mod appearance;
 pub mod audio;
 pub mod bookmarks;

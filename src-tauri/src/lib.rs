@@ -551,6 +551,7 @@ pub fn run() {
 
                 // Start Alt-drag window management if the user left it enabled.
                 commands::window_drag::apply_from_config(app.app_handle());
+                commands::alt_tab::apply_from_config(app.app_handle());
             }
 
             #[cfg(target_os = "macos")]
@@ -661,6 +662,7 @@ pub fn run() {
             commands::audio::toggle_mute,
             commands::window::set_window_transparency,
             commands::window_drag::set_window_drag,
+            commands::alt_tab::set_per_monitor_alt_tab,
             commands::screenshot::start_screenshot,
             commands::screenshot::show_screenshot_overlay,
             commands::screenshot::reveal_screenshot_overlay,
