@@ -22,6 +22,10 @@ pub struct Capture {
     /// the cursor monitor on macOS (for overlay positioning).
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     pub monitor_origin: (i32, i32),
+    /// The frame decoded on first use by the Alt color picker
+    /// (`pick_frame_color`), so hover sampling doesn't re-decode the PNG per
+    /// mousemove; `finish_screenshot` reuses it instead of decoding again.
+    pub decoded: Option<image::RgbaImage>,
 }
 
 #[derive(Default)]
@@ -42,6 +46,15 @@ pub struct Region {
     pub h: u32,
 }
 
+/// A freehand red marker stroke painted in the overlay's annotate stage, in
+/// frame-image pixels: `points` is the `[x, y]` polyline the mouse traced,
+/// `stroke` the line width.
+#[derive(serde::Deserialize)]
+pub struct StrokeAnnotation {
+    pub points: Vec<[f64; 2]>,
+    pub stroke: f64,
+}
+
 fn frame_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -60,6 +73,7 @@ fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
         frame_path: dest,
         width,
         height,
+        decoded: None,
     })
 }
 
@@ -110,6 +124,7 @@ fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
         width,
         height,
         monitor_origin: (pos.x, pos.y),
+        decoded: None,
     })
 }
 
@@ -280,6 +295,7 @@ fn capture_frame(app: &AppHandle) -> Result<Capture, String> {
             width: w as u32,
             height: h as u32,
             monitor_origin: (vx, vy),
+            decoded: None,
         })
     }
 }
@@ -520,10 +536,40 @@ pub fn hide_screenshot_overlay(app: AppHandle) {
     }
 }
 
-/// Crop the frozen frame to `region` (image pixels), save a timestamped PNG
-/// under Pictures/Screenshots, and put the PNG on the clipboard.
+/// Sample one pixel of the frozen frame (frame-image coordinates) for the
+/// Alt color-pick tooltip, as an uppercase `#RRGGBB` string. Reads the raw
+/// captured frame, so the overlay's veil/annotations never bleed into the
+/// picked color. Async so the one-time decode runs off the main thread.
 #[tauri::command]
-pub async fn finish_screenshot(app: AppHandle, region: Region) -> Result<String, String> {
+pub async fn pick_frame_color(app: AppHandle, x: u32, y: u32) -> Result<String, String> {
+    let state = app.state::<ScreenshotState>();
+    let mut guard = state.0.lock().unwrap();
+    let capture = guard.as_mut().ok_or("no pending capture")?;
+    if capture.decoded.is_none() {
+        let img = image::open(&capture.frame_path)
+            .map_err(|e| e.to_string())?
+            .into_rgba8();
+        capture.decoded = Some(img);
+    }
+    let img = capture.decoded.as_ref().unwrap();
+    let px = img.get_pixel(
+        x.min(img.width().saturating_sub(1)),
+        y.min(img.height().saturating_sub(1)),
+    );
+    Ok(format!("#{:02X}{:02X}{:02X}", px[0], px[1], px[2]))
+}
+
+/// Crop the frozen frame to `region` (image pixels), burn in any marker
+/// strokes, save a timestamped PNG under Pictures/Screenshots, and put the
+/// PNG on the clipboard. When `copy_color` is set (Alt+click color pick),
+/// that hex string is copied instead of the image — the crop is still saved.
+#[tauri::command]
+pub async fn finish_screenshot(
+    app: AppHandle,
+    region: Region,
+    annotations: Option<Vec<StrokeAnnotation>>,
+    copy_color: Option<String>,
+) -> Result<String, String> {
     // Hide first: the snip should feel instant even while we encode/copy.
     if let Some(win) = app.get_webview_window("screenshot") {
         let _ = win.hide();
@@ -537,14 +583,21 @@ pub async fn finish_screenshot(app: AppHandle, region: Region) -> Result<String,
         .take()
         .ok_or("no pending capture")?;
 
-    let frame = image::open(&capture.frame_path)
-        .map_err(|e| e.to_string())?
-        .into_rgba8();
+    // Reuse the frame the Alt color picker already decoded, if any.
+    let frame = match capture.decoded {
+        Some(img) => img,
+        None => image::open(&capture.frame_path)
+            .map_err(|e| e.to_string())?
+            .into_rgba8(),
+    };
     let x = region.x.min(capture.width.saturating_sub(1));
     let y = region.y.min(capture.height.saturating_sub(1));
     let w = region.w.clamp(1, capture.width - x);
     let h = region.h.clamp(1, capture.height - y);
-    let cropped = image::imageops::crop_imm(&frame, x, y, w, h).to_image();
+    let mut cropped = image::imageops::crop_imm(&frame, x, y, w, h).to_image();
+    for s in annotations.unwrap_or_default() {
+        draw_stroke_annotation(&mut cropped, &s, x as f64, y as f64);
+    }
 
     let dir = app
         .path()
@@ -558,10 +611,28 @@ pub async fn finish_screenshot(app: AppHandle, region: Region) -> Result<String,
     let path = dir.join(name);
     cropped.save(&path).map_err(|e| e.to_string())?;
 
-    copy_image_to_clipboard(&path, &cropped)?;
+    match &copy_color {
+        Some(color) => copy_text_to_clipboard(color.clone())?,
+        None => copy_image_to_clipboard(&path, &cropped)?,
+    }
 
     let _ = std::fs::remove_file(&capture.frame_path);
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// Put the picked color's hex string on the clipboard (Alt+click color pick).
+/// Linux needs the detached offer-serving thread from clipboard.rs; Windows
+/// and macOS keep serving clipboard offers after the process moves on.
+fn copy_text_to_clipboard(text: String) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        super::clipboard::set_clipboard_detached(text)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+        cb.set_text(text).map_err(|e| e.to_string())
+    }
 }
 
 /// Linux: hand the PNG to `wl-copy` (Wayland) or `xclip` (X11), which fork
@@ -641,6 +712,133 @@ fn copy_image_to_clipboard(_path: &std::path::Path, img: &image::RgbaImage) -> R
         bytes: std::borrow::Cow::Borrowed(img.as_raw()),
     })
     .map_err(|e| e.to_string())
+}
+
+const ANNOTATION_RED: [u8; 3] = [255, 59, 48];
+
+/// Paint an anti-aliased freehand stroke (round-capped polyline) onto `img`.
+/// `ox`/`oy` is the crop origin (frame px), translating annotation coords into
+/// cropped-image space; anything falling outside the crop is clipped, matching
+/// the overlay's preview. Per-pixel coverage is the max over all segments'
+/// capsule SDFs, accumulated in a buffer and composited once — blending
+/// segment-by-segment instead would double-composite the anti-aliased fringe
+/// where segments overlap and leave dark seams at every joint.
+fn draw_stroke_annotation(img: &mut image::RgbaImage, s: &StrokeAnnotation, ox: f64, oy: f64) {
+    let pts: Vec<(f64, f64)> = s.points.iter().map(|p| (p[0] - ox, p[1] - oy)).collect();
+    if pts.is_empty() {
+        return;
+    }
+    let half = (s.stroke / 2.0).max(0.5);
+
+    // Stroke bounding box, clamped to the image.
+    let (iw, ih) = (img.width() as i64, img.height() as i64);
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for &(x, y) in &pts {
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+    let bx0 = ((min_x - half - 1.0).floor() as i64).clamp(0, iw);
+    let bx1 = ((max_x + half + 1.0).ceil() as i64).clamp(0, iw);
+    let by0 = ((min_y - half - 1.0).floor() as i64).clamp(0, ih);
+    let by1 = ((max_y + half + 1.0).ceil() as i64).clamp(0, ih);
+    let (bw, bh) = ((bx1 - bx0) as usize, (by1 - by0) as usize);
+    if bw == 0 || bh == 0 {
+        return;
+    }
+    let mut cov = vec![0f32; bw * bh];
+
+    // A single point degenerates to a dot: iterate p→p "segments" then.
+    let segs: Vec<((f64, f64), (f64, f64))> = if pts.len() == 1 {
+        vec![(pts[0], pts[0])]
+    } else {
+        pts.windows(2).map(|w| (w[0], w[1])).collect()
+    };
+    for ((ax, ay), (bx, by)) in segs {
+        let sx0 = ((ax.min(bx) - half - 1.0).floor() as i64).clamp(bx0, bx1);
+        let sx1 = ((ax.max(bx) + half + 1.0).ceil() as i64).clamp(bx0, bx1);
+        let sy0 = ((ay.min(by) - half - 1.0).floor() as i64).clamp(by0, by1);
+        let sy1 = ((ay.max(by) + half + 1.0).ceil() as i64).clamp(by0, by1);
+        let (abx, aby) = (bx - ax, by - ay);
+        let len2 = abx * abx + aby * aby;
+        for py in sy0..sy1 {
+            for px in sx0..sx1 {
+                let (qx, qy) = (px as f64 + 0.5, py as f64 + 0.5);
+                // Distance from the pixel center to the segment (capsule SDF).
+                let t = if len2 > 1e-12 {
+                    (((qx - ax) * abx + (qy - ay) * aby) / len2).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                let dist = ((qx - ax - abx * t).powi(2) + (qy - ay - aby * t).powi(2)).sqrt();
+                let a = (half + 0.5 - dist).clamp(0.0, 1.0) as f32;
+                let idx = (py - by0) as usize * bw + (px - bx0) as usize;
+                cov[idx] = cov[idx].max(a);
+            }
+        }
+    }
+
+    for py in by0..by1 {
+        for px in bx0..bx1 {
+            let a = cov[(py - by0) as usize * bw + (px - bx0) as usize] as f64;
+            if a <= 0.0 {
+                continue;
+            }
+            let p = img.get_pixel_mut(px as u32, py as u32);
+            for (dst, src) in p.0.iter_mut().zip(ANNOTATION_RED) {
+                *dst = (src as f64 * a + *dst as f64 * (1.0 - a)).round() as u8;
+            }
+            p.0[3] = 255;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stroke_paints_line_not_surroundings() {
+        let mut img = image::RgbaImage::from_pixel(100, 100, image::Rgba([0, 0, 0, 255]));
+        let s = StrokeAnnotation {
+            points: vec![[20.0, 50.0], [80.0, 50.0]],
+            stroke: 4.0,
+        };
+        draw_stroke_annotation(&mut img, &s, 0.0, 0.0);
+        // On the stroke: solid red along the traced line.
+        assert!(img.get_pixel(50, 50).0[0] > 200);
+        // Round cap extends past the endpoint by ~half the stroke.
+        assert!(img.get_pixel(81, 50).0[0] > 100);
+        // Away from the stroke: untouched.
+        assert_eq!(img.get_pixel(50, 60).0[0], 0);
+        assert_eq!(img.get_pixel(5, 5).0[0], 0);
+    }
+
+    #[test]
+    fn stroke_clips_to_image_bounds() {
+        let mut img = image::RgbaImage::from_pixel(50, 50, image::Rgba([0, 0, 0, 255]));
+        // Stroke wandering outside the (cropped) image; must not panic.
+        let s = StrokeAnnotation {
+            points: vec![[-20.0, 25.0], [70.0, 25.0], [70.0, -30.0]],
+            stroke: 6.0,
+        };
+        draw_stroke_annotation(&mut img, &s, 0.0, 0.0);
+        // The in-bounds part of the stroke still gets painted.
+        assert!(img.get_pixel(25, 25).0[0] > 200);
+    }
+
+    #[test]
+    fn single_point_stroke_paints_a_dot() {
+        let mut img = image::RgbaImage::from_pixel(20, 20, image::Rgba([0, 0, 0, 255]));
+        let s = StrokeAnnotation {
+            points: vec![[10.0, 10.0]],
+            stroke: 4.0,
+        };
+        draw_stroke_annotation(&mut img, &s, 0.0, 0.0);
+        assert!(img.get_pixel(10, 10).0[0] > 200);
+        assert_eq!(img.get_pixel(10, 16).0[0], 0);
+    }
 }
 
 /// Esc / focus-loss: hide the overlay and drop the pending capture.

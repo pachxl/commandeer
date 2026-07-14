@@ -248,6 +248,15 @@ export interface ScreenshotRegion {
   h: number
 }
 
+// A freehand red marker stroke painted in the overlay's annotate stage. All
+// values are frame-image pixels; points is the [x, y] polyline the mouse
+// traced, stroke the line width. Rust burns these into the cropped image on
+// finish.
+export interface StrokeAnnotation {
+  points: [number, number][]
+  stroke: number
+}
+
 export const startScreenshot = (delayMs?: number) =>
   invoke<void>('start_screenshot', { delayMs: delayMs ?? null })
 
@@ -257,8 +266,21 @@ export const showScreenshotOverlay = () =>
 export const revealScreenshotOverlay = () =>
   invoke<void>('reveal_screenshot_overlay')
 
-export const finishScreenshot = (region: ScreenshotRegion) =>
-  invoke<string>('finish_screenshot', { region })
+// copyColor (an '#RRGGBB' string from pickFrameColor) switches the clipboard
+// side of finishing: the color text is copied instead of the image. The
+// cropped PNG is saved to Pictures/Screenshots either way.
+export const finishScreenshot = (
+  region: ScreenshotRegion,
+  annotations: StrokeAnnotation[],
+  copyColor?: string
+) =>
+  invoke<string>('finish_screenshot', { region, annotations, copyColor: copyColor ?? null })
+
+// Sample one pixel of the frozen frame (frame-image px) as '#RRGGBB' — the
+// raw capture, unaffected by the overlay's veil or annotation strokes. Backs
+// the Alt color-pick tooltip in the annotate stage.
+export const pickFrameColor = (x: number, y: number) =>
+  invoke<string>('pick_frame_color', { x, y })
 
 export const cancelScreenshot = () =>
   invoke<void>('cancel_screenshot')

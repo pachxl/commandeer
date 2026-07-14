@@ -666,6 +666,7 @@ pub fn run() {
             commands::screenshot::reveal_screenshot_overlay,
             commands::screenshot::hide_screenshot_overlay,
             commands::screenshot::finish_screenshot,
+            commands::screenshot::pick_frame_color,
             commands::screenshot::cancel_screenshot,
             commands::shortcuts::set_global_hotkey,
             commands::shortcuts::set_screenshot_hotkey,
