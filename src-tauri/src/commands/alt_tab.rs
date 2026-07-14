@@ -923,12 +923,15 @@ mod platform {
             self.hide();
             self.original = GetForegroundWindow();
             self.sticky = sticky;
-            let monitor = if !self.original.0.is_null() {
+            // Always the monitor under the cursor — where the user is looking
+            // and about to interact — not the foreground window's monitor.
+            let mut cursor = POINT::default();
+            let monitor = if GetCursorPos(&mut cursor).is_ok() {
+                MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST)
+            } else if !self.original.0.is_null() {
                 MonitorFromWindow(self.original, MONITOR_DEFAULTTONEAREST)
             } else {
-                let mut cursor = POINT::default();
-                let _ = GetCursorPos(&mut cursor);
-                MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST)
+                return;
             };
             let mut monitor_info = MONITORINFO {
                 cbSize: std::mem::size_of::<MONITORINFO>() as u32,
