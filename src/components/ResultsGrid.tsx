@@ -93,6 +93,7 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
             key={item.id}
             ref={selected ? selectedRef : null}
             data-grid-index={i}
+            data-selected={selected || undefined}
             onClick={() => onSelect(item)}
             style={{
               display: 'flex',
@@ -103,8 +104,8 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
               padding: 'var(--grid-cell-padding)',
               borderRadius: 'var(--grid-cell-radius)',
               cursor: 'pointer',
-              background: selected ? 'var(--accent)' : 'transparent',
-              border: `1px solid ${selected ? 'var(--accent)' : 'transparent'}`,
+              background: selected ? 'var(--grid-cell-selected-bg)' : 'var(--grid-cell-bg)',
+              border: `1px solid ${selected ? 'var(--grid-cell-selected-border)' : 'var(--grid-cell-border)'}`,
               userSelect: 'none',
               minHeight: 72,
             }}
@@ -118,12 +119,12 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
                 justifyContent: 'center',
                 flexShrink: 0,
                 fontSize: 'var(--grid-icon-font-size)',
-                color: selected ? '#ffffff' : 'var(--text)',
+                color: selected ? 'var(--grid-cell-selected-fg)' : 'var(--text)',
               }}>
                 {isDataUrl
                   ? <img src={item.icon} width="100%" height="100%" style={{ objectFit: 'contain' }} />
                   : isNamedIcon
-                    ? <div dangerouslySetInnerHTML={{ __html: getIconSvg(item.icon, selected ? '#ffffff' : 'var(--text)') ?? '' }} style={{ display: 'flex' }} />
+                    ? <div dangerouslySetInnerHTML={{ __html: getIconSvg(item.icon, selected ? 'var(--grid-cell-selected-fg)' : 'var(--text)') ?? '' }} style={{ display: 'flex' }} />
                     : item.icon
                 }
               </div>
@@ -131,7 +132,7 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
             <span style={{
               fontSize: 'var(--grid-label-font-size)',
               fontFamily: item.fontFamily ? `"${item.fontFamily}", var(--font)` : 'var(--font)',
-              color: selected ? '#ffffff' : 'var(--text)',
+              color: selected ? 'var(--grid-cell-selected-fg)' : 'var(--text)',
               fontWeight: 400,
               textAlign: 'center',
               lineHeight: '14px',
@@ -142,7 +143,7 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
               wordBreak: 'break-word',
             }}>
               {labelSegments.map((seg, j) => seg.matched
-                ? <span key={j} style={{ fontWeight: 600, color: selected ? '#ffffff' : 'var(--accent)' }}>{seg.text}</span>
+                ? <span key={j} style={{ fontWeight: 600, color: selected ? 'var(--grid-cell-selected-fg)' : 'var(--accent)' }}>{seg.text}</span>
                 : <span key={j}>{seg.text}</span>
               )}
             </span>

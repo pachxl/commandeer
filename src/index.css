@@ -84,9 +84,59 @@
 /* Onix (Raycast/Vicinae) skin: inset rounded rows and hover feedback. */
 [data-style="onix"] [data-list-index] {
   margin: 0 var(--row-inset);
+  transition: var(--row-transition);
 }
 [data-style="onix"] [data-list-index]:not([data-selected]):hover {
   background: var(--row-hover-bg) !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.018) !important;
+}
+[data-style="onix"] [data-palette-root] {
+  border: 1px solid var(--palette-border);
+  box-shadow: var(--palette-shadow);
+}
+[data-style="onix"] [data-action-panel] {
+  top: auto !important;
+  right: 10px !important;
+  bottom: 44px !important;
+  height: auto;
+  max-height: min(360px, calc(100% - 56px));
+  border: 1px solid var(--border-strong) !important;
+  border-radius: var(--action-panel-radius);
+  box-shadow: var(--action-panel-shadow);
+}
+[data-style="onix"] [data-grid-index]:not([data-selected]):hover {
+  background: var(--bg-hover) !important;
+  border-color: var(--border) !important;
+}
+[data-style="onix"] input::placeholder {
+  color: #77777e;
+  opacity: 1;
+}
+[data-style="onix"] ::selection {
+  color: #0f1014;
+  background: #b8944e;
+}
+[data-style="onix"] button,
+[data-style="onix"] input,
+[data-style="onix"] select {
+  transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease;
+}
+[data-style="onix"] ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+[data-style="onix"] ::-webkit-scrollbar-track {
+  background: transparent;
+}
+[data-style="onix"] ::-webkit-scrollbar-thumb {
+  background: rgba(122, 122, 128, 0.46);
+  border-radius: 999px;
+}
+[data-style="onix"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(150, 150, 158, 0.58);
+}
+[data-style="onix"] ::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 html, body, #root {

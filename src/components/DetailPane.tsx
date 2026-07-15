@@ -113,7 +113,8 @@ export default function DetailPane({ item }: DetailPaneProps) {
       style={{
         width: 'var(--detail-width)',
         flexShrink: 0,
-        borderLeft: '1px solid var(--border)',
+        borderLeft: '1px solid var(--divider)',
+        background: 'var(--detail-bg)',
         padding: 'var(--detail-padding)',
         overflowY: 'auto',
         display: 'flex',

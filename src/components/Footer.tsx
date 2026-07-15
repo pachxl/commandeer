@@ -29,9 +29,10 @@ export default function Footer({
       alignItems: 'center',
       justifyContent: 'space-between',
       padding: 'var(--footer-padding)',
-      borderTop: '1px solid var(--border)',
+      borderTop: '1px solid var(--divider)',
+      background: 'var(--footer-bg)',
       fontSize: 'var(--footer-font-size)',
-      fontFamily: 'var(--font-ui)',
+      fontFamily: 'var(--footer-font)',
       color: 'var(--text-dim)',
       userSelect: 'none',
       minHeight: 'var(--footer-height)',
@@ -56,20 +57,46 @@ export default function Footer({
           </div>
         )}
         {primaryAction && (
-          <>
+          <div style={{
+            display: 'var(--footer-primary-left-display)',
+            alignItems: 'center',
+            gap: 6,
+            minWidth: 0,
+          }}>
             <span style={{
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
+              color: 'var(--footer-primary-fg)',
             }}>
               {primaryAction}
             </span>
             <kbd style={kbdStyle}>↵</kbd>
-          </>
+          </div>
         )}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        {primaryAction && (
+          <div style={{
+            display: 'var(--footer-primary-right-display)',
+            alignItems: 'center',
+            gap: 6,
+            color: 'var(--footer-primary-fg)',
+            whiteSpace: 'nowrap',
+          }}>
+            <span>{primaryAction}</span>
+            <kbd style={kbdStyle}>↵</kbd>
+          </div>
+        )}
+        {primaryAction && (onToggleGameMode || settingsVisible) && (
+          <span style={{
+            display: 'var(--footer-primary-right-display)',
+            width: 1,
+            height: 14,
+            background: 'var(--divider)',
+          }} />
+        )}
         {onToggleGameMode && (
           <button
             type="button"
@@ -84,7 +111,7 @@ export default function Footer({
               border: 'none',
               background: 'transparent',
               color: gameModeEnabled ? 'var(--accent)' : 'var(--text-dim)',
-              fontFamily: 'var(--font-ui)',
+              fontFamily: 'var(--footer-font)',
               fontSize: 'var(--footer-font-size)',
               cursor: 'pointer',
               flexShrink: 0,
@@ -93,7 +120,7 @@ export default function Footer({
               WebkitAppearance: 'none',
             }}
             onMouseEnter={e => {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+              e.currentTarget.style.background = 'var(--footer-hover-bg)'
               e.currentTarget.style.color = gameModeEnabled ? 'var(--accent)' : 'var(--text)'
             }}
             onMouseLeave={e => {
@@ -122,7 +149,7 @@ export default function Footer({
               border: 'none',
               background: 'transparent',
               color: 'var(--text-dim)',
-              fontFamily: 'var(--font-ui)',
+              fontFamily: 'var(--footer-font)',
               fontSize: 'var(--footer-font-size)',
               cursor: 'pointer',
               flexShrink: 0,
@@ -131,7 +158,7 @@ export default function Footer({
               WebkitAppearance: 'none',
             }}
             onMouseEnter={e => {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+              e.currentTarget.style.background = 'var(--footer-hover-bg)'
               e.currentTarget.style.color = 'var(--text)'
             }}
             onMouseLeave={e => {
@@ -156,7 +183,8 @@ const kbdStyle: React.CSSProperties = {
   fontSize: 'var(--kbd-font-size)',
   padding: 'var(--kbd-padding)',
   borderRadius: 'var(--kbd-radius)',
-  background: 'rgba(255,255,255,0.06)',
-  border: '1px solid var(--border)',
-  color: 'var(--text-dim)',
+  background: 'var(--kbd-bg)',
+  border: '1px solid var(--kbd-border)',
+  color: 'var(--kbd-fg)',
+  boxShadow: 'var(--kbd-shadow)',
 }

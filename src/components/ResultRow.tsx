@@ -92,6 +92,8 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
           borderRadius: 'var(--row-radius)',
           cursor: 'pointer',
           background: bg,
+          boxShadow: selected ? 'var(--row-selected-shadow)' : 'none',
+          transition: 'var(--row-transition)',
           userSelect: 'none',
         }}
       >
@@ -131,31 +133,43 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
           />
         )}
 
-        <span style={{
+        <div style={{
           flex: 1,
-          fontSize: 'var(--label-font-size)',
-          fontFamily: 'var(--font)',
-          color: fg,
-          fontWeight: 400,
-          whiteSpace: 'nowrap',
+          minWidth: 0,
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 6,
           overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          lineHeight: '1.3',
         }}>
-          {item.label}
-        </span>
-
-        {item.sublabel && (
           <span style={{
-            fontSize: 'var(--sublabel-font-size)',
-            fontFamily: 'var(--font-ui)',
-            color: subFg,
+            minWidth: 0,
+            fontSize: 'var(--label-font-size)',
+            fontFamily: 'var(--font)',
+            color: fg,
+            fontWeight: 400,
             whiteSpace: 'nowrap',
-            flexShrink: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            lineHeight: '1.3',
           }}>
-            {item.sublabel}
+            {item.label}
           </span>
-        )}
+          {item.sublabel && (
+            <span style={{
+              marginLeft: 'var(--sublabel-margin-left)',
+              minWidth: 0,
+              fontSize: 'var(--sublabel-font-size)',
+              fontFamily: 'var(--sublabel-font)',
+              color: subFg,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              flexShrink: 'var(--sublabel-flex-shrink)',
+            }}>
+              {item.sublabel}
+            </span>
+          )}
+        </div>
 
         {item.accessories && item.accessories.length > 0 && (
           <div style={{
@@ -172,9 +186,10 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
                   alignItems: 'center',
                   gap: 4,
                   fontSize: 'var(--accessory-font-size)',
-                  fontFamily: 'var(--font-ui)',
+                  fontFamily: 'var(--accessory-font)',
                   color: acc.color ?? subFg,
-                  background: 'rgba(255,255,255,0.06)',
+                  background: 'var(--accessory-bg)',
+                  border: 'var(--accessory-border-width) solid var(--accessory-border)',
                   padding: 'var(--accessory-padding)',
                   borderRadius: 'var(--accessory-radius)',
                   whiteSpace: 'nowrap',

@@ -855,6 +855,7 @@ export default function Palette({
     <div ref={sizeRef} style={{ width: '100%' }}>
     <div
       ref={containerRef}
+      data-palette-root
       tabIndex={-1}
       style={{
         outline: 'none',

@@ -9,8 +9,10 @@ export default function StepBreadcrumb({ steps }: StepBreadcrumbProps) {
     <div style={{
       display: 'flex',
       alignItems: 'center',
-      padding: '2px 14px 4px',
+      padding: 'var(--breadcrumb-padding)',
       gap: 4,
+      borderBottom: 'var(--breadcrumb-border)',
+      background: 'var(--surface-muted)',
     }}>
       {steps.map((step, i) => (
         <span key={step.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>

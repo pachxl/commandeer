@@ -45,6 +45,7 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover, t
   return (
     <div
       ref={listRef}
+      data-action-panel
       onMouseMove={handleMouseMove}
       onMouseLeave={() => { lastMousePos.current = null }}
       style={{
@@ -54,12 +55,13 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover, t
         bottom: 0,
         width: 'var(--action-panel-width)',
         background: 'var(--bg-elevated)',
-        borderLeft: '1px solid var(--border)',
+        borderLeft: '1px solid var(--divider)',
         display: 'flex',
         flexDirection: 'column',
         padding: 'var(--action-panel-padding)',
         overflowY: 'auto',
         zIndex: 10,
+        boxShadow: 'var(--action-panel-shadow)',
       }}
     >
       <div
@@ -121,8 +123,9 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover, t
                 fontSize: 'var(--kbd-font-size)',
                 padding: 'var(--kbd-padding)',
                 borderRadius: 'var(--kbd-radius)',
-                background: selected ? 'rgba(255,255,255,0.18)' : 'var(--action-kbd-bg)',
-                border: '1px solid var(--border)',
+                background: selected ? 'var(--action-kbd-selected-bg)' : 'var(--action-kbd-bg)',
+                border: '1px solid var(--kbd-border)',
+                boxShadow: 'var(--kbd-shadow)',
                 color: selected ? 'var(--action-row-selected-fg)' : 'var(--text-dim)',
                 flexShrink: 0,
               }}>

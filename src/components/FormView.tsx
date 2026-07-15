@@ -76,7 +76,7 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
                 onChange={e => onChange(field.id, e.target.value)}
                 onFocus={() => setFocusedIndex(i)}
                 style={{
-                  background: 'var(--bg-elevated)',
+                  background: 'var(--form-field-bg)',
                   border: `1px solid ${focused ? 'var(--accent)' : 'var(--border)'}`,
                   borderRadius: 'var(--form-field-radius)',
                   padding: '6px 10px',
@@ -96,7 +96,7 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
                 onChange={e => onChange(field.id, e.target.value)}
                 onFocus={() => setFocusedIndex(i)}
                 style={{
-                  background: 'var(--bg-elevated)',
+                  background: 'var(--form-field-bg)',
                   border: `1px solid ${focused ? 'var(--accent)' : 'var(--border)'}`,
                   borderRadius: 'var(--form-field-radius)',
                   padding: '6px 10px',
@@ -144,8 +144,8 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
           padding: '8px 12px',
           borderRadius: 'var(--form-field-radius)',
           border: `1px solid ${focusedIndex === fields.length ? 'var(--accent)' : 'var(--border)'}`,
-          background: focusedIndex === fields.length ? 'var(--accent)' : 'var(--bg-elevated)',
-          color: focusedIndex === fields.length ? '#ffffff' : 'var(--text)',
+          background: focusedIndex === fields.length ? 'var(--accent)' : 'var(--form-field-bg)',
+          color: focusedIndex === fields.length ? 'var(--bg)' : 'var(--text)',
           fontSize: 13,
           fontFamily: 'var(--font-ui)',
           fontWeight: 500,

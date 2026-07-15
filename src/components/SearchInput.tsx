@@ -25,10 +25,10 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 10,
+        gap: 'var(--search-gap)',
         padding: 'var(--search-padding)',
         height: 'var(--search-height)',
-        borderBottom: '1px solid var(--border)',
+        borderBottom: '1px solid var(--divider)',
       }}>
         {loading ? (
           <svg viewBox="0 0 14 14" fill="none" style={{ width: 'var(--search-icon-size)', height: 'var(--search-icon-size)', flexShrink: 0, color: 'var(--text-dim)' }}>
@@ -119,10 +119,10 @@ export const SliderInput = ({ value, min, max, step, icon = 'eye', onChange }: S
     <div style={{
       display: 'flex',
       alignItems: 'center',
-      gap: 10,
+      gap: 'var(--search-gap)',
       padding: 'var(--search-padding)',
       height: 'var(--search-height)',
-      borderBottom: '1px solid var(--border)',
+      borderBottom: '1px solid var(--divider)',
     }}>
       <Icon name={icon} width="var(--search-icon-size)" height="var(--search-icon-size)" color="var(--text-dim)" />
       <div style={{ flex: 1, height: 4, position: 'relative' }}>
