@@ -82,9 +82,6 @@ enum SessionEvent {
 /// The hook's view of the outside world; implemented over Win32 in `platform`
 /// and by a recorder in the unit tests.
 trait HookHost {
-    /// True when the foreground window is (borderless-)fullscreen — the
-    /// shortcut then passes through to the native switcher.
-    fn fullscreen_foreground(&mut self) -> bool;
     /// Deliver an event to the overlay thread. `false` means delivery failed
     /// and the keystroke must fall through to Windows.
     fn post(&mut self, event: SessionEvent) -> bool;
@@ -198,9 +195,6 @@ impl HookState {
                     return true;
                 }
                 if self.alt() || alt_flag {
-                    if host.fullscreen_foreground() {
-                        return false;
-                    }
                     let sticky = self.ctrl();
                     if !host.post(SessionEvent::Start {
                         direction: self.direction(),
@@ -393,8 +387,8 @@ fn grid_layout(count: usize, work_w: i32, work_h: i32, dpi: u32) -> GridLayout {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::{
-        cycled_index, grid_layout, initial_selection, selection_after_prune, AltTabTheme, Direction,
-        GridLayout, GridMove, HookHost, HookKey, HookState, SessionEvent,
+        cycled_index, grid_layout, initial_selection, scaled, selection_after_prune, AltTabTheme,
+        Direction, GridLayout, GridMove, HookHost, HookKey, HookState, SessionEvent,
     };
     use std::cell::RefCell;
     use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
@@ -436,18 +430,17 @@ mod platform {
         CallNextHookEx, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyWindow,
         DispatchMessageW, DrawIconEx, EnumWindows, FlashWindowEx, GetAncestor, GetClassLongPtrW,
         GetCursorPos, GetDesktopWindow, GetForegroundWindow, GetLastActivePopup, GetMessageW,
-        GetShellWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
-        IsWindow, IsWindowVisible, IsZoomed, KillTimer, LoadCursorW, PostMessageW,
+        GetShellWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
+        IsWindowVisible, KillTimer, LoadCursorW, PostMessageW,
         PostThreadMessageW, RegisterClassW, SendMessageTimeoutW, SetTimer, SetWindowPos,
         SetWindowsHookExW, ShowWindow, TranslateMessage, UnhookWindowsHookEx, CS_HREDRAW,
         CS_VREDRAW, DI_NORMAL, FLASHWINFO, FLASHW_TRAY, GA_ROOTOWNER, GCLP_HICON, GCLP_HICONSM,
-        GWL_EXSTYLE, GWL_STYLE, HHOOK, HICON, HWND_TOPMOST, ICON_BIG, ICON_SMALL, ICON_SMALL2,
+        GWL_EXSTYLE, HHOOK, HICON, HWND_TOPMOST, ICON_BIG, ICON_SMALL, ICON_SMALL2,
         IDC_ARROW, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN, LLKHF_INJECTED, LLKHF_UP, MSG, SC_CLOSE,
         SMTO_ABORTIFHUNG, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE,
         WH_KEYBOARD_LL, WM_APP, WM_DESTROY, WM_DISPLAYCHANGE, WM_GETICON, WM_LBUTTONUP,
-        WM_MOUSEMOVE, WM_PAINT, WM_QUIT, WM_SYSCOMMAND, WM_TIMER, WNDCLASSW, WS_CAPTION,
-        WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
-        WS_THICKFRAME,
+        WM_MOUSEMOVE, WM_PAINT, WM_QUIT, WM_SYSCOMMAND, WM_TIMER, WNDCLASSW, WS_EX_APPWINDOW,
+        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
     };
 
     const MSG_START: u32 = WM_APP + 1;
@@ -691,10 +684,6 @@ mod platform {
     struct Win32Host;
 
     impl HookHost for Win32Host {
-        fn fullscreen_foreground(&mut self) -> bool {
-            unsafe { native_fullscreen_fallback() }
-        }
-
         fn post(&mut self, event: SessionEvent) -> bool {
             let hwnd = HWND(OVERLAY.load(Ordering::Acquire) as *mut _);
             if hwnd.0.is_null() {
@@ -777,40 +766,6 @@ mod platform {
             }
         }
         CallNextHookEx(HHOOK::default(), code, wparam, lparam)
-    }
-
-    unsafe fn native_fullscreen_fallback() -> bool {
-        let hwnd = GetForegroundWindow();
-        if hwnd.0.is_null() || IsZoomed(hwnd).as_bool() {
-            return false;
-        }
-        // Tauri's transparent, undecorated palette can occasionally be
-        // reported with monitor-sized extended bounds while it is visible.
-        // It is our UI, never a game that should opt into native Alt+Tab.
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(hwnd, Some(&mut pid));
-        if pid == GetCurrentProcessId() {
-            return false;
-        }
-        let mut rect = RECT::default();
-        if GetWindowRect(hwnd, &mut rect).is_err() {
-            return false;
-        }
-        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-        let mut info = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
-            return false;
-        }
-        let m = info.rcMonitor;
-        let covers = rect.left <= m.left + 2
-            && rect.top <= m.top + 2
-            && rect.right >= m.right - 2
-            && rect.bottom >= m.bottom - 2;
-        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-        covers && style & WS_CAPTION.0 != WS_CAPTION.0 && style & WS_THICKFRAME.0 == 0
     }
 
     unsafe extern "system" fn overlay_proc(
@@ -1271,8 +1226,9 @@ mod platform {
                 .encode_utf16()
                 .chain(std::iter::once(0))
                 .collect();
+            let dpi = GetDpiForWindow(self.hwnd).max(96);
             let font = CreateFontW(
-                -((14 * GetDpiForWindow(self.hwnd).max(96) as i32) / 96),
+                -scaled(14, dpi),
                 0,
                 0,
                 0,
@@ -1318,7 +1274,12 @@ mod platform {
                 let _ = DeleteObject(brush);
                 let _ = DeleteObject(pen);
 
-                let icon_size = (self.layout.title_h - 14).clamp(16, 28);
+                // Match the palette's compact icon treatment and scale with
+                // monitor DPI. The lookup below prefers a large HICON, so
+                // this normally downsizes instead of enlarging a 16 px bitmap.
+                let icon_size = scaled(20, dpi)
+                    .min(self.layout.title_h - scaled(14, dpi))
+                    .max(scaled(16, dpi));
                 if !candidate.icon.is_invalid() {
                     let _ = DrawIconEx(
                         dc,
@@ -1529,7 +1490,9 @@ mod platform {
     }
 
     unsafe fn window_icon(hwnd: HWND) -> (HICON, bool) {
-        for kind in [ICON_SMALL2, ICON_SMALL, ICON_BIG] {
+        // Prefer the large window icon: asking for ICON_SMALL first returned a
+        // 16 px bitmap that DrawIconEx then enlarged in the title strip.
+        for kind in [ICON_BIG, ICON_SMALL2, ICON_SMALL] {
             let mut result = 0usize;
             let _ = SendMessageTimeoutW(
                 hwnd,
@@ -1544,11 +1507,11 @@ mod platform {
                 return (HICON(result as *mut _), false);
             }
         }
-        let small = GetClassLongPtrW(hwnd, GCLP_HICONSM);
-        let class_icon = if small != 0 {
-            small
+        let large = GetClassLongPtrW(hwnd, GCLP_HICON);
+        let class_icon = if large != 0 {
+            large
         } else {
-            GetClassLongPtrW(hwnd, GCLP_HICON)
+            GetClassLongPtrW(hwnd, GCLP_HICONSM)
         };
         if class_icon != 0 {
             return (HICON(class_icon as *mut _), false);
@@ -1579,7 +1542,9 @@ mod platform {
             return None;
         }
         let mut icon = HICON::default();
-        let extracted = ExtractIconExW(PCWSTR(path.as_ptr()), 0, None, Some(&mut icon), 1);
+        // Extract the large executable icon and downscale it cleanly at draw
+        // time instead of requesting the small slot and scaling it upward.
+        let extracted = ExtractIconExW(PCWSTR(path.as_ptr()), 0, Some(&mut icon), None, 1);
         (extracted >= 1 && !icon.is_invalid()).then_some(icon)
     }
 }
@@ -1604,7 +1569,6 @@ mod tests {
     use super::*;
 
     struct Recorder {
-        fullscreen: bool,
         post_ok: bool,
         events: Vec<SessionEvent>,
     }
@@ -1612,7 +1576,6 @@ mod tests {
     impl Recorder {
         fn new() -> Self {
             Self {
-                fullscreen: false,
                 post_ok: true,
                 events: Vec::new(),
             }
@@ -1620,9 +1583,6 @@ mod tests {
     }
 
     impl HookHost for Recorder {
-        fn fullscreen_foreground(&mut self) -> bool {
-            self.fullscreen
-        }
         fn post(&mut self, event: SessionEvent) -> bool {
             if self.post_ok {
                 self.events.push(event);
@@ -1790,17 +1750,6 @@ mod tests {
         key(&mut state, &mut host, HookKey::LeftAlt, false);
         assert!(key(&mut state, &mut host, HookKey::Escape, true));
         assert_eq!(host.events.last(), Some(&SessionEvent::Cancel));
-        assert!(!state.session);
-    }
-
-    #[test]
-    fn fullscreen_foreground_passes_through() {
-        let mut state = HookState::default();
-        let mut host = Recorder::new();
-        host.fullscreen = true;
-        key(&mut state, &mut host, HookKey::LeftAlt, true);
-        assert!(!key(&mut state, &mut host, HookKey::Tab, true));
-        assert!(host.events.is_empty());
         assert!(!state.session);
     }
 
