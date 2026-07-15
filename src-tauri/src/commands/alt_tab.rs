@@ -1,10 +1,10 @@
 //! Windows-only per-monitor Alt+Tab replacement.
 //!
-//! A `WH_KEYBOARD_LL` hook intercepts only an active Alt+Tab session and posts
-//! tiny messages to a dedicated native overlay thread. Window enumeration,
-//! DWM thumbnail registration, painting, and foreground activation never run
-//! inside the hook callback: a slow low-level hook can stall input and Windows
-//! may silently remove it.
+//! A `WH_KEYBOARD_LL` hook on its own message-pump thread intercepts only an
+//! active Alt+Tab session and posts tiny messages to a separate native overlay
+//! thread. Window enumeration, DWM thumbnail registration, painting, and
+//! foreground activation can therefore never delay the hook pump: Windows
+//! silently removes low-level hooks that stop responding promptly.
 //!
 //! The keyboard/session logic lives in [`HookState`], platform-independent and
 //! unit-tested; the platform module only maps Win32 events in and out of it.
@@ -432,15 +432,16 @@ mod platform {
         GetCursorPos, GetDesktopWindow, GetForegroundWindow, GetLastActivePopup, GetMessageW,
         GetShellWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
         IsWindowVisible, KillTimer, LoadCursorW, PostMessageW,
-        PostThreadMessageW, RegisterClassW, SendMessageTimeoutW, SetForegroundWindow, SetTimer,
-        SetWindowPos, SetWindowsHookExW, ShowWindow, TranslateMessage, UnhookWindowsHookEx,
-        CS_HREDRAW, CS_VREDRAW, DI_NORMAL, FLASHWINFO, FLASHW_TRAY, GA_ROOTOWNER, GCLP_HICON,
-        GCLP_HICONSM, GWL_EXSTYLE, HHOOK, HICON, HWND_TOPMOST, ICON_BIG, ICON_SMALL, ICON_SMALL2,
-        IDC_ARROW, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN, LLKHF_INJECTED, LLKHF_UP, MSG, SC_CLOSE,
-        SMTO_ABORTIFHUNG, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE,
-        WH_KEYBOARD_LL, WM_APP, WM_DESTROY, WM_DISPLAYCHANGE, WM_GETICON, WM_LBUTTONUP,
-        WM_MOUSEMOVE, WM_PAINT, WM_QUIT, WM_SYSCOMMAND, WM_TIMER, WNDCLASSW, WS_EX_APPWINDOW,
-        WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+        PeekMessageW, PostThreadMessageW, RegisterClassW, SendMessageTimeoutW, SetForegroundWindow,
+        SetTimer, SetWindowPos, SetWindowsHookExW, ShowWindow, TranslateMessage,
+        UnhookWindowsHookEx, CS_HREDRAW, CS_VREDRAW, DI_NORMAL, FLASHWINFO, FLASHW_TRAY,
+        GA_ROOTOWNER, GCLP_HICON, GCLP_HICONSM, GWL_EXSTYLE, HHOOK, HICON, HWND_TOPMOST,
+        ICON_BIG, ICON_SMALL, ICON_SMALL2, IDC_ARROW, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN,
+        LLKHF_INJECTED, LLKHF_UP, MSG, PM_NOREMOVE, SC_CLOSE, SMTO_ABORTIFHUNG, SWP_NOACTIVATE,
+        SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, WH_KEYBOARD_LL, WM_APP, WM_DESTROY,
+        WM_DISPLAYCHANGE, WM_GETICON, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_QUIT,
+        WM_SYSCOMMAND, WM_TIMER, WNDCLASSW, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+        WS_POPUP,
     };
 
     const MSG_START: u32 = WM_APP + 1;
@@ -449,6 +450,7 @@ mod platform {
     const MSG_COMMIT: u32 = WM_APP + 4;
     const MSG_CANCEL: u32 = WM_APP + 5;
     const MSG_STICKY: u32 = WM_APP + 6;
+    const MSG_HOOK_RESET: u32 = WM_APP + 7;
     const PRUNE_TIMER: usize = 1;
 
     static READY: AtomicBool = AtomicBool::new(false);
@@ -456,7 +458,8 @@ mod platform {
     /// interception even if focus transfer makes the logical key session lag.
     static OVERLAY_ACTIVE: AtomicBool = AtomicBool::new(false);
     static OVERLAY: AtomicIsize = AtomicIsize::new(0);
-    static THREAD_ID: AtomicU32 = AtomicU32::new(0);
+    static OVERLAY_THREAD_ID: AtomicU32 = AtomicU32::new(0);
+    static HOOK_THREAD_ID: AtomicU32 = AtomicU32::new(0);
     // Tokyo Night defaults are available before the webview sends the saved
     // theme during startup. COLORREF stores bytes as 0x00BBGGRR.
     static THEME_BACKGROUND: AtomicU32 = AtomicU32::new(colorref(26, 27, 38));
@@ -468,7 +471,8 @@ mod platform {
     static THEME_DARK: AtomicBool = AtomicBool::new(true);
 
     struct Service {
-        thread: JoinHandle<()>,
+        overlay_thread: JoinHandle<()>,
+        hook_thread: JoinHandle<()>,
     }
 
     fn service() -> &'static Mutex<Option<Service>> {
@@ -487,32 +491,59 @@ mod platform {
             return Ok(());
         }
 
-        let (tx, rx) = mpsc::sync_channel(1);
-        let thread = thread::Builder::new()
-            .name("per-monitor-alt-tab".into())
-            .spawn(move || service_thread(tx))
+        let (overlay_tx, overlay_rx) = mpsc::sync_channel(1);
+        let overlay_thread = thread::Builder::new()
+            .name("alt-tab-overlay".into())
+            .spawn(move || overlay_thread(overlay_tx))
             .map_err(|e| e.to_string())?;
-
-        match rx.recv_timeout(Duration::from_secs(2)) {
-            Ok(Ok(())) => {
-                *guard = Some(Service { thread });
-                Ok(())
-            }
+        match overlay_rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(Ok(())) => {}
             Ok(Err(e)) => {
-                let _ = thread.join();
-                Err(e)
+                let _ = overlay_thread.join();
+                return Err(e);
             }
             Err(_) => {
-                let tid = THREAD_ID.load(Ordering::Acquire);
-                if tid != 0 {
-                    unsafe {
-                        let _ = PostThreadMessageW(tid, WM_QUIT, WPARAM(0), LPARAM(0));
-                    }
-                }
-                let _ = thread.join();
-                Err("Alt+Tab service timed out during startup".into())
+                stop_thread(OVERLAY_THREAD_ID.load(Ordering::Acquire));
+                let _ = overlay_thread.join();
+                return Err("Alt+Tab overlay timed out during startup".into());
             }
         }
+
+        let (hook_tx, hook_rx) = mpsc::sync_channel(1);
+        let hook_thread = match thread::Builder::new()
+            .name("alt-tab-keyboard-hook".into())
+            .spawn(move || hook_thread(hook_tx))
+        {
+            Ok(thread) => thread,
+            Err(e) => {
+                stop_thread(OVERLAY_THREAD_ID.load(Ordering::Acquire));
+                let _ = overlay_thread.join();
+                return Err(e.to_string());
+            }
+        };
+        match hook_rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                stop_thread(OVERLAY_THREAD_ID.load(Ordering::Acquire));
+                let _ = hook_thread.join();
+                let _ = overlay_thread.join();
+                return Err(e);
+            }
+            Err(_) => {
+                stop_thread(HOOK_THREAD_ID.load(Ordering::Acquire));
+                stop_thread(OVERLAY_THREAD_ID.load(Ordering::Acquire));
+                let _ = hook_thread.join();
+                let _ = overlay_thread.join();
+                return Err("Alt+Tab keyboard hook timed out during startup".into());
+            }
+        }
+
+        READY.store(true, Ordering::Release);
+        *guard = Some(Service {
+            overlay_thread,
+            hook_thread,
+        });
+        Ok(())
     }
 
     pub fn set_theme(theme: AltTabTheme) {
@@ -545,25 +576,38 @@ mod platform {
         let Some(service) = item else {
             return Ok(());
         };
-        let tid = THREAD_ID.load(Ordering::Acquire);
-        if tid != 0 {
-            unsafe {
-                let _ = PostThreadMessageW(tid, WM_QUIT, WPARAM(0), LPARAM(0));
-            }
-        }
-        service
-            .thread
-            .join()
+        stop_thread(HOOK_THREAD_ID.load(Ordering::Acquire));
+        stop_thread(OVERLAY_THREAD_ID.load(Ordering::Acquire));
+        let hook_result = service.hook_thread.join();
+        let overlay_result = service.overlay_thread.join();
+        hook_result
+            .and(overlay_result)
             .map_err(|_| "Alt+Tab service thread panicked".to_string())
     }
 
-    fn service_thread(started: mpsc::SyncSender<Result<(), String>>) {
-        THREAD_ID.store(unsafe { GetCurrentThreadId() }, Ordering::Release);
-        let result = unsafe { initialize_service() };
+    fn stop_thread(thread_id: u32) {
+        if thread_id != 0 {
+            unsafe {
+                let _ = PostThreadMessageW(thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+            }
+        }
+    }
+
+    fn reset_hook_session() {
+        let thread_id = HOOK_THREAD_ID.load(Ordering::Acquire);
+        if thread_id != 0 {
+            unsafe {
+                let _ = PostThreadMessageW(thread_id, MSG_HOOK_RESET, WPARAM(0), LPARAM(0));
+            }
+        }
+    }
+
+    fn overlay_thread(started: mpsc::SyncSender<Result<(), String>>) {
+        OVERLAY_THREAD_ID.store(unsafe { GetCurrentThreadId() }, Ordering::Release);
+        let result = unsafe { initialize_overlay() };
         match result {
-            Ok((hwnd, hook)) => {
+            Ok(hwnd) => {
                 OVERLAY.store(hwnd.0 as isize, Ordering::Release);
-                READY.store(true, Ordering::Release);
                 let _ = started.send(Ok(()));
 
                 unsafe {
@@ -578,7 +622,6 @@ mod platform {
                             switcher.hide();
                         }
                     });
-                    let _ = UnhookWindowsHookEx(hook);
                     let _ = KillTimer(hwnd, PRUNE_TIMER);
                     let _ = DestroyWindow(hwnd);
                 }
@@ -587,12 +630,45 @@ mod platform {
                 let _ = started.send(Err(e));
             }
         }
-        READY.store(false, Ordering::Release);
+        OVERLAY_ACTIVE.store(false, Ordering::Release);
         OVERLAY.store(0, Ordering::Release);
-        THREAD_ID.store(0, Ordering::Release);
+        OVERLAY_THREAD_ID.store(0, Ordering::Release);
     }
 
-    unsafe fn initialize_service() -> Result<(HWND, HHOOK), String> {
+    fn hook_thread(started: mpsc::SyncSender<Result<(), String>>) {
+        HOOK_THREAD_ID.store(unsafe { GetCurrentThreadId() }, Ordering::Release);
+        unsafe {
+            // Force creation of this thread's message queue before announcing
+            // readiness, so reset/quit thread messages can never race startup.
+            let mut queued = MSG::default();
+            let _ = PeekMessageW(&mut queued, None, 0, 0, PM_NOREMOVE);
+        }
+        let result = unsafe { install_keyboard_hook() };
+        match result {
+            Ok(hook) => {
+                let _ = started.send(Ok(()));
+                unsafe {
+                    let mut msg = MSG::default();
+                    while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
+                        if msg.message == MSG_HOOK_RESET {
+                            KEYS.with(|keys| keys.borrow_mut().reset_session());
+                            continue;
+                        }
+                        let _ = TranslateMessage(&msg);
+                        DispatchMessageW(&msg);
+                    }
+                    let _ = UnhookWindowsHookEx(hook);
+                }
+            }
+            Err(e) => {
+                let _ = started.send(Err(e));
+            }
+        }
+        READY.store(false, Ordering::Release);
+        HOOK_THREAD_ID.store(0, Ordering::Release);
+    }
+
+    unsafe fn initialize_overlay() -> Result<HWND, String> {
         let module = GetModuleHandleW(None).map_err(|e| e.to_string())?;
         let instance = HINSTANCE(module.0);
         let class = w!("CommandeerPerMonitorAltTab");
@@ -624,15 +700,18 @@ mod platform {
         apply_dwm_style(hwnd);
         SWITCHER.with(|slot| *slot.borrow_mut() = Some(Switcher::new(hwnd)));
         SetTimer(hwnd, PRUNE_TIMER, 150, None);
+        Ok(hwnd)
+    }
 
-        let hook = SetWindowsHookExW(
+    unsafe fn install_keyboard_hook() -> Result<HHOOK, String> {
+        let module = GetModuleHandleW(None).map_err(|e| e.to_string())?;
+        SetWindowsHookExW(
             WH_KEYBOARD_LL,
             Some(keyboard_proc),
             HINSTANCE(module.0),
             0,
         )
-        .map_err(|e| format!("could not install Alt+Tab keyboard hook: {e}"))?;
-        Ok((hwnd, hook))
+        .map_err(|e| format!("could not install Alt+Tab keyboard hook: {e}"))
     }
 
     unsafe fn apply_dwm_style(hwnd: HWND) {
@@ -879,6 +958,7 @@ mod platform {
                         switcher.cancel();
                     }
                 });
+                reset_hook_session();
                 LRESULT(0)
             }
             WM_PAINT => {
@@ -1153,7 +1233,7 @@ mod platform {
                 );
             } else {
                 self.commit();
-                KEYS.with(|keys| keys.borrow_mut().reset_session());
+                reset_hook_session();
             }
         }
 
@@ -1215,7 +1295,7 @@ mod platform {
             }
             let Some(selected) = selection_after_prune(self.selected, &alive) else {
                 self.cancel();
-                KEYS.with(|keys| keys.borrow_mut().reset_session());
+                reset_hook_session();
                 return;
             };
             self.unregister_thumbnails();
