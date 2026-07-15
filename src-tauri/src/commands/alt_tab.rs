@@ -332,16 +332,18 @@ struct GridLayout {
     panel_h: i32,
 }
 
+const MAX_GRID_COLUMNS: usize = 6;
+
 fn scaled(value: i32, dpi: u32) -> i32 {
     ((value as i64 * dpi.max(96) as i64) / 96) as i32
 }
 
 fn grid_layout(count: usize, work_w: i32, work_h: i32, dpi: u32) -> GridLayout {
-    let gap = scaled(12, dpi);
-    let padding = scaled(24, dpi);
-    let title_h = scaled(38, dpi);
-    let desired_w = scaled(260, dpi);
-    let desired_h = scaled(180, dpi);
+    let gap = scaled(13, dpi);
+    let padding = scaled(25, dpi);
+    let title_h = scaled(41, dpi);
+    let desired_w = scaled(268, dpi);
+    let desired_h = scaled(190, dpi);
     let min_w = scaled(160, dpi);
     let min_h = scaled(120, dpi);
     let max_w = ((work_w as f32) * 0.9) as i32;
@@ -349,13 +351,14 @@ fn grid_layout(count: usize, work_w: i32, work_h: i32, dpi: u32) -> GridLayout {
 
     let usable_w = (max_w - padding * 2).max(min_w);
     let usable_h = (max_h - padding * 2).max(min_h);
-    let desired_cols = ((usable_w + gap) / (desired_w + gap)).max(1) as usize;
+    let desired_cols =
+        (((usable_w + gap) / (desired_w + gap)).max(1) as usize).min(MAX_GRID_COLUMNS);
     let desired_rows = ((usable_h + gap) / (desired_h + gap)).max(1) as usize;
     let mut cols = count.max(1).min(desired_cols.max(1));
     let mut rows = count.max(1).div_ceil(cols).min(desired_rows.max(1));
 
     if cols * rows < count {
-        let max_cols = ((usable_w + gap) / (min_w + gap)).max(1) as usize;
+        let max_cols = (((usable_w + gap) / (min_w + gap)).max(1) as usize).min(MAX_GRID_COLUMNS);
         let max_rows = ((usable_h + gap) / (min_h + gap)).max(1) as usize;
         cols = count.max(1).min(max_cols.max(1));
         rows = count.max(1).div_ceil(cols).min(max_rows.max(1));
@@ -390,11 +393,24 @@ fn grid_layout(count: usize, work_w: i32, work_h: i32, dpi: u32) -> GridLayout {
     }
 }
 
+/// Horizontal position for a card within its page. Full rows begin at the
+/// panel padding; partial rows are centered as a group, including a final row
+/// containing only one card.
+fn grid_card_left(layout: GridLayout, local: usize, visible: usize) -> i32 {
+    let cols = layout.cols.max(1);
+    let row_start = (local / cols) * cols;
+    let row_items = visible.saturating_sub(row_start).min(cols).max(1);
+    let row_width =
+        layout.card_w * row_items as i32 + layout.gap * row_items.saturating_sub(1) as i32;
+    let row_left = (layout.panel_w - row_width) / 2;
+    row_left + (local % cols) as i32 * (layout.card_w + layout.gap)
+}
+
 #[cfg(target_os = "windows")]
 mod platform {
     use super::{
-        cycled_index, grid_layout, initial_selection, selection_after_prune, AltTabTheme, Direction,
-        GridLayout, GridMove, HookHost, HookKey, HookState, SessionEvent,
+        cycled_index, grid_card_left, grid_layout, initial_selection, selection_after_prune,
+        AltTabTheme, Direction, GridLayout, GridMove, HookHost, HookKey, HookState, SessionEvent,
     };
     use std::cell::RefCell;
     use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
@@ -1089,14 +1105,12 @@ mod platform {
 
             let first = self.page * self.layout.capacity;
             let last = (first + self.layout.capacity).min(self.candidates.len());
+            let visible = last - first;
             for absolute in first..last {
                 let local = absolute - first;
                 let row = local / self.layout.cols;
-                let col = local % self.layout.cols;
-                let left = self.layout.padding
-                    + col as i32 * (self.layout.card_w + self.layout.gap);
-                let top = self.layout.padding
-                    + row as i32 * (self.layout.card_h + self.layout.gap);
+                let left = grid_card_left(self.layout, local, visible);
+                let top = self.layout.padding + row as i32 * (self.layout.card_h + self.layout.gap);
                 let card = RECT {
                     left,
                     top,
@@ -1272,7 +1286,7 @@ mod platform {
                 .chain(std::iter::once(0))
                 .collect();
             let font = CreateFontW(
-                -((14 * GetDpiForWindow(self.hwnd).max(96) as i32) / 96),
+                -((15 * GetDpiForWindow(self.hwnd).max(96) as i32) / 96),
                 0,
                 0,
                 0,
@@ -1310,8 +1324,8 @@ mod platform {
                     candidate.card.top,
                     candidate.card.right,
                     candidate.card.bottom,
-                    10,
-                    10,
+                    11,
+                    11,
                 );
                 SelectObject(dc, old_brush);
                 SelectObject(dc, old_pen);
@@ -1952,6 +1966,26 @@ mod tests {
         assert_eq!(layout.rows, 1);
         assert_eq!(layout.panel_w, layout.padding * 2 + layout.card_w);
         assert_eq!(layout.panel_h, layout.padding * 2 + layout.card_h);
+        assert!(layout.card_w > 260);
+        assert!(layout.card_h > 180);
+        assert!(layout.title_h > 38);
+    }
+
+    #[test]
+    fn layout_caps_wide_monitors_at_six_columns() {
+        let layout = grid_layout(40, 7680, 4320, 96);
+        assert_eq!(layout.cols, MAX_GRID_COLUMNS);
+    }
+
+    #[test]
+    fn partial_rows_are_centered() {
+        let layout = grid_layout(7, 1920, 1080, 96);
+        assert_eq!(layout.cols, 6);
+        assert_eq!(grid_card_left(layout, 0, 7), layout.padding);
+
+        let last_left = grid_card_left(layout, 6, 7);
+        assert_eq!(last_left, (layout.panel_w - layout.card_w) / 2);
+        assert!(last_left > layout.padding);
     }
 
     #[test]
