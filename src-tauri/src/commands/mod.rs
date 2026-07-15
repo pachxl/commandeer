@@ -26,5 +26,6 @@ pub mod shortcuts;
 pub mod stats;
 pub mod store;
 pub mod system;
+pub mod updater;
 pub mod window;
 pub mod window_drag;

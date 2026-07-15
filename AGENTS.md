@@ -21,10 +21,10 @@ unsupported) where it doesn't.
 
 Checks: `npm run build` runs `tsc` (strict) and is the frontend type-check; `npm test` runs the Vitest frontend regression suite; `npm run lint` runs ESLint (react-hooks rules only); `cargo test` in `src-tauri/`
 runs the Rust unit tests; `cargo clippy --all-targets -- -D warnings` must stay
-clean. There is deliberately **no CI** — it was added and removed twice; don't
-re-add it. Clippy lints are platform-gated, so a clean local run only proves the
-current OS: treat cross-OS clippy as unverified until the code is pulled on the
-other machines.
+clean. The release workflow builds signed packages after every push to `main`;
+see `RELEASING.md`. Clippy lints are platform-gated, so a clean local run only
+proves the current OS: treat cross-OS clippy as unverified until the code is
+pulled on the other machines.
 
 ## Development commands
 
@@ -45,6 +45,10 @@ npm run release                      # cross-platform release build + copy artif
 npm run format                       # prettier --write . + cargo fmt (whole repo)
 npm run format:check                 # prettier --check . + cargo fmt --check (CI-equivalent)
 ```
+
+Release builds use Tauri's signed updater. The private signing key lives only in
+the `TAURI_SIGNING_PRIVATE_KEY` GitHub Actions secret; never commit or rotate it
+without an explicit migration plan because installed copies embed its public key.
 
 Linux dev/test notes:
 

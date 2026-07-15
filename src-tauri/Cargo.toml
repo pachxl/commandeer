@@ -1,6 +1,6 @@
 [package]
 name = "commandeer"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 
 [lib]
@@ -33,6 +33,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 arboard = "3"
 # Screenshot tool: crop the frozen frame + PNG encode/decode
 image = { version = "0.25", default-features = false, features = ["png"] }
+tauri-plugin-updater = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

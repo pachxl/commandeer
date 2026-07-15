@@ -330,6 +330,7 @@ pub fn run() {
             toggle_palette(app);
         }))
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -389,6 +390,11 @@ pub fn run() {
             // suffix. Copy its existing state into the corrected identifier's
             // directories before any feature opens config, databases, or keys.
             commands::config::migrate_legacy_identifier(app.app_handle());
+
+            // Release builds quietly check the signed GitHub Release feed at
+            // startup and every six hours, then install and restart when a
+            // newer semantic version is available.
+            commands::updater::start(app.app_handle().clone());
 
             // macOS app icons resolve through NSWorkspace at ~175 ms each cold,
             // so back the icon cache with a file in the app cache dir (survives

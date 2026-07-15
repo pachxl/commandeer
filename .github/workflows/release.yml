@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # Every run advances the patch number. Change this when beginning a new
+  # major/minor release line; the first run of this workflow is 1.0.0.
+  RELEASE_SERIES: '1.0'
+
+jobs:
+  release-version:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Choose release version
+        id: version
+        shell: bash
+        run: |
+          patch=$((GITHUB_RUN_NUMBER - 1))
+          version="${RELEASE_SERIES}.${patch}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Building Commandeer ${version}"
+
+  publish:
+    needs: release-version
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libgtk-layer-shell-dev patchelf
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Set build version
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.release-version.outputs.version }}
+        run: |
+          printf '{"version":"%s"}\n' "$RELEASE_VERSION" > src-tauri/tauri.release.conf.json
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+          # linuxdeploy's bundled strip is older than some modern ELF
+          # formats. Skipping that optional size pass keeps AppImage builds
+          # portable across runner/toolchain updates.
+          NO_STRIP: '1'
+        with:
+          tauriScript: bun tauri
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config src-tauri/tauri.release.conf.json
+          tagName: ${{ needs.release-version.outputs.version }}
+          releaseName: Commandeer ${{ needs.release-version.outputs.version }}
+          generateReleaseNotes: true
+          releaseDraft: false
+          prerelease: false
+          retryAttempts: 2
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
+          updaterJsonPreferNsis: true
+          releaseAssetNamePattern: commandeer-[version]-[platform]-[arch][setup][ext]
