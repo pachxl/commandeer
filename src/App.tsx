@@ -124,6 +124,7 @@ export default function App() {
     let disposed = false
     let unlisten: (() => void) | undefined
     let unlistenHotkey: (() => void) | undefined
+    let removeDismissListeners: (() => void) | undefined
 
     ;(async () => {
       try {
@@ -153,6 +154,28 @@ export default function App() {
       unlistenHotkey = await onCommandHotkey(id => commandHotkeyRef.current?.(id))
 
       const win = getCurrentWindow()
+      // Dismiss from every palette state. Nested steps, action menus, and
+      // confirmation dialogs have their own Escape behavior, so capture the
+      // key before React handlers can consume it. DOM blur is a fallback for
+      // platforms/webviews where the Tauri focus event arrives late or is
+      // missed; hide is idempotent with the Rust focus-loss handler.
+      const dismiss = () => {
+        resetRef.current?.()
+        void win.hide()
+      }
+      const onEscape = (event: KeyboardEvent) => {
+        if (event.key !== 'Escape') return
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        dismiss()
+      }
+      window.addEventListener('keydown', onEscape, true)
+      window.addEventListener('blur', dismiss)
+      removeDismissListeners = () => {
+        window.removeEventListener('keydown', onEscape, true)
+        window.removeEventListener('blur', dismiss)
+      }
+
       unlisten = await win.onFocusChanged(({ payload: focused }) => {
         if (focused) {
           refresh()
@@ -165,13 +188,18 @@ export default function App() {
             setWindowTransparency(transparency).catch(console.error)
           }
         } else {
-          resetRef.current?.()
+          dismiss()
         }
       })
-      if (disposed) { unlisten?.(); unlistenHotkey?.() }
+      if (disposed) { unlisten?.(); unlistenHotkey?.(); removeDismissListeners?.() }
     })()
 
-    return () => { disposed = true; unlisten?.(); unlistenHotkey?.() }
+    return () => {
+      disposed = true
+      unlisten?.()
+      unlistenHotkey?.()
+      removeDismissListeners?.()
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function toggleGameMode() {
