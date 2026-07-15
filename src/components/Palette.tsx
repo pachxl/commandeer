@@ -15,7 +15,7 @@ import { buildItemActions } from '../lib/paletteActions'
 import { useInlineScripts, type InlineScript } from '../hooks/useInlineScripts'
 import { usePaletteWindowSize, PALETTE_WIDTH } from '../hooks/usePaletteWindowSize'
 import { usePaletteFeedback } from '../hooks/usePaletteFeedback'
-import { initialState, reducer } from '../lib/paletteReducer'
+import { clampSelectionIndex, initialState, reducer } from '../lib/paletteReducer'
 import { applyStepResult } from '../lib/paletteNavigation'
 import SearchInput, { SliderInput } from './SearchInput'
 import ResultsList from './ResultsList'
@@ -42,6 +42,9 @@ const FIND_DEBOUNCE_MS = 120
 // calculator, apps, …)
 const PROVIDER_DEBOUNCE_MS = 150
 
+const invalidateSequence = (sequence: MutableRefObject<number>) => {
+  sequence.current++
+}
 
 export type { InlineScript }
 
@@ -104,12 +107,21 @@ export default function Palette({
   const {
     toast, toasts, hud, showHud, requestConfirm, resolveConfirm,
     confirmReq, confirmRemember, setConfirmRemember, confirmFocus, setConfirmFocus,
+    resetFeedback,
   } = usePaletteFeedback(dispatch)
 
-  // Expose the reset function to App (kept here — it needs dispatch directly).
+  // Expose a whole-session reset to App. Focus loss must settle confirmations
+  // and cancel HUD timers as well as clearing reducer/navigation state.
   useEffect(() => {
-    resetRef.current = () => dispatch({ type: 'RESET' })
-  }, [resetRef])
+    resetRef.current = () => {
+      resetFeedback()
+      setActionPanelOpen(false)
+      setActionPanelIndex(0)
+      setActionMenuStack([])
+      dispatch({ type: 'RESET' })
+    }
+    return () => { resetRef.current = null }
+  }, [resetRef, resetFeedback])
 
   // Commands can come from the static list (scripts, settings) or
   // from a provider's per-query search results
@@ -224,7 +236,7 @@ export default function Palette({
     const fl = folderLoad.current
     if (fl.loaded || fl.loading) return
     fl.loading = true
-    const token = fl.token
+    const token = ++fl.token
     dispatch({ type: 'SET_LOADING', loading: true })
     loadActiveFolderItems()
       .then(items => {
@@ -236,7 +248,15 @@ export default function Palette({
         if (folderLoad.current.token !== token) return
         dispatch({ type: 'SET_ERROR', error: String(err) })
       })
-      .finally(() => { folderLoad.current.loading = false })
+      .finally(() => {
+        if (folderLoad.current.token === token) folderLoad.current.loading = false
+      })
+    return () => {
+      if (folderLoad.current.token !== token) return
+      folderLoad.current.token++
+      folderLoad.current.loading = false
+      dispatch({ type: 'SET_LOADING', loading: false })
+    }
   }, [folderMode])
 
   // "@find" → global file search, one debounced backend call per keystroke; the
@@ -262,7 +282,11 @@ export default function Palette({
           dispatch({ type: 'SET_ERROR', error: String(err) })
         })
     }, FIND_DEBOUNCE_MS)
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      invalidateSequence(findToken)
+      dispatch({ type: 'SET_LOADING', loading: false })
+    }
   }, [findMode, findQuery])
 
   // Debounced provider search: dynamic per-query results (kill <name>,
@@ -308,16 +332,31 @@ export default function Palette({
     setFormValues(defaults)
   }, [currentStep])
 
+  const stepLoadSeq = useRef(0)
+  const currentStepRef = useRef(currentStep)
+  currentStepRef.current = currentStep
+
   // Load items when a new step is pushed or replaced. Keyed on the step object
   // (not its id) so a REPLACE_STEP with the same id still reloads.
   useEffect(() => {
-    if (!currentStep?.load) return
+    const seq = ++stepLoadSeq.current
+    const step = currentStep
+    if (!step?.load) return
     dispatch({ type: 'SET_LOADING', loading: true })
-    currentStep.load(configRef.current)
+    step.load(configRef.current)
       // preserveSelection: PUSH/POP already reset the index to 0; same-id
       // REPLACEs deliberately keep the highlighted row across the reload
-      .then(items => dispatch({ type: 'SET_ITEMS', stepId: currentStep.id, items, preserveSelection: true }))
-      .catch(err => dispatch({ type: 'SET_ERROR', error: String(err) }))
+      .then(items => {
+        if (stepLoadSeq.current !== seq || currentStepRef.current !== step) return
+        dispatch({ type: 'SET_ITEMS', stepId: step.id, items, preserveSelection: true })
+      })
+      .catch(err => {
+        if (stepLoadSeq.current !== seq || currentStepRef.current !== step) return
+        dispatch({ type: 'SET_ERROR', error: String(err) })
+      })
+    return () => {
+      invalidateSequence(stepLoadSeq)
+    }
   }, [currentStep])
 
   // Notify the step when it leaves the top of the stack (pop, replace,
@@ -381,8 +420,17 @@ export default function Palette({
         if (out === undefined) return i
         return { ...i, sublabel: out }
       })
-  const clampedIndex = Math.min(state.selectedIndex, Math.max(0, visibleItems.length - 1))
+  const clampedIndex = clampSelectionIndex(state.selectedIndex, visibleItems.length)
   const selectedItem = displayItems[clampedIndex] ?? null
+
+  // Preserve-selection reloads can shrink a list beneath the old index. Keep
+  // reducer state aligned with the highlight that is actually rendered so the
+  // next pointer/keyboard action cannot target a different row.
+  useEffect(() => {
+    if (state.selectedIndex !== clampedIndex) {
+      dispatch({ type: 'SET_SELECTION', index: clampedIndex })
+    }
+  }, [state.selectedIndex, clampedIndex])
 
   // Settings is reachable from a fixed footer button instead of the results list
   const settingsCmd = !currentStep && !isInputStep && atRaw === null
@@ -417,9 +465,17 @@ export default function Palette({
   reloadStepRef.current = () => {
     const step = currentStep
     if (!step?.load) return
+    const seq = ++stepLoadSeq.current
+    dispatch({ type: 'SET_LOADING', loading: true })
     step.load(configRef.current)
-      .then(items => dispatch({ type: 'SET_ITEMS', stepId: step.id, items, preserveSelection: true }))
-      .catch(err => dispatch({ type: 'SET_ERROR', error: String(err) }))
+      .then(items => {
+        if (stepLoadSeq.current !== seq || currentStepRef.current !== step) return
+        dispatch({ type: 'SET_ITEMS', stepId: step.id, items, preserveSelection: true })
+      })
+      .catch(err => {
+        if (stepLoadSeq.current !== seq || currentStepRef.current !== step) return
+        dispatch({ type: 'SET_ERROR', error: String(err) })
+      })
   }
 
   // Ctrl+K action panel: secondary actions for the highlighted item, keyed off
@@ -663,14 +719,14 @@ export default function Palette({
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       const next = Math.min(clampedIndex + 1, Math.max(0, visibleItems.length - 1))
-      dispatch({ type: 'MOVE_SELECTION', delta: next - state.selectedIndex })
+      dispatch({ type: 'SET_SELECTION', index: next })
       return
     }
 
     if (e.key === 'ArrowUp') {
       e.preventDefault()
       const next = Math.max(0, clampedIndex - 1)
-      dispatch({ type: 'MOVE_SELECTION', delta: next - state.selectedIndex })
+      dispatch({ type: 'SET_SELECTION', index: next })
       return
     }
 
@@ -831,16 +887,15 @@ export default function Palette({
   // in-flight load and clear the cache. (Window resizing on focus is handled by
   // usePaletteWindowSize.)
   useEffect(() => {
-    let unlisten: (() => void) | undefined
-    getCurrentWindow()
+    const unlistenPromise = getCurrentWindow()
       .onFocusChanged(({ payload: focused }) => {
         if (focused) {
           folderLoad.current = { token: folderLoad.current.token + 1, loaded: false, loading: false }
           dispatch({ type: 'SET_ITEMS', stepId: '__folder__', items: [] })
+          dispatch({ type: 'SET_LOADING', loading: false })
         }
       })
-      .then(fn => { unlisten = fn })
-    return () => { unlisten?.() }
+    return () => { void unlistenPromise.then(unlisten => unlisten()) }
   }, [])
 
   const placeholder = isInputStep
@@ -970,14 +1025,14 @@ export default function Palette({
                 query={state.query}
                 columns={currentStep?.gridColumns}
                 onSelect={handleSelect}
-                onHover={i => dispatch({ type: 'MOVE_SELECTION', delta: i - clampedIndex })}
+                onHover={i => dispatch({ type: 'SET_SELECTION', index: i })}
               />
             ) : (
               <ResultsList
                 items={displayItems}
                 selectedIndex={clampedIndex}
                 onSelect={handleSelect}
-                onHover={i => dispatch({ type: 'MOVE_SELECTION', delta: i - clampedIndex })}
+                onHover={i => dispatch({ type: 'SET_SELECTION', index: i })}
               />
             )}
           </div>

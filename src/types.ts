@@ -237,7 +237,7 @@ export type PaletteAction =
   | { type: 'PUSH_STEP'; step: Step }
   | { type: 'POP_STEP' }
   | { type: 'REPLACE_STEP'; step: Step; preserveSelection?: boolean }
-  | { type: 'MOVE_SELECTION'; delta: number }
+  | { type: 'SET_SELECTION'; index: number }
   | { type: 'SET_LOADING'; loading: boolean }
   | { type: 'SET_ERROR'; error: string | null }
   | { type: 'RESET' }

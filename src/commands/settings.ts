@@ -19,6 +19,92 @@ const DEFAULT_GAME_HOTKEY = 'Alt+Space'
 // 1.0× (the default size). These convert between the two representations.
 const scaleToPercent = (factor: number) => Math.round((factor - 0.5) * 100)
 const percentToScale = (percent: number) => 0.5 + percent / 100
+const CONFIG_WRITE_DEBOUNCE_MS = 300
+
+// Slider movement is intentionally live, but persistence must be trailing and
+// serialized: dozens of independent whole-file writes can otherwise finish out
+// of order and leave an older value on disk.
+function createConfigPersister(config: AppConfig) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let pending: AppConfig | null = null
+  let inFlight = Promise.resolve()
+
+  const writePending = () => {
+    if (!pending) return inFlight
+    const snapshot = pending
+    pending = null
+    inFlight = inFlight
+      .then(() => writeConfig(snapshot))
+      .catch(error => {
+        console.error('Failed to persist slider setting:', error)
+        appEvents.toast?.('Failed to save setting', 'error')
+      })
+    return inFlight
+  }
+
+  return {
+    schedule(next: AppConfig) {
+      // Keep the shared config current immediately so any concurrently-created
+      // settings step starts from the visible value, not the last disk write.
+      Object.assign(config, next)
+      pending = { ...config }
+      if (timer !== undefined) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = undefined
+        void writePending()
+      }, CONFIG_WRITE_DEBOUNCE_MS)
+    },
+    flush() {
+      if (timer !== undefined) {
+        clearTimeout(timer)
+        timer = undefined
+      }
+      return writePending()
+    },
+  }
+}
+
+const configPersisters = new WeakMap<AppConfig, ReturnType<typeof createConfigPersister>>()
+
+function configPersister(config: AppConfig) {
+  const existing = configPersisters.get(config)
+  if (existing) return existing
+  const created = createConfigPersister(config)
+  configPersisters.set(config, created)
+  return created
+}
+
+function createLatestApplier<T>(apply: (value: T) => Promise<void>) {
+  let pending: T | undefined
+  let running: Promise<void> | null = null
+
+  const drain = async () => {
+    while (pending !== undefined) {
+      const value = pending
+      pending = undefined
+      try {
+        await apply(value)
+      } catch (error) {
+        console.error('Failed to apply live slider setting:', error)
+      }
+    }
+  }
+
+  const start = (): Promise<void> => {
+    if (!running) {
+      running = drain().finally(() => {
+        running = null
+        if (pending !== undefined) void start()
+      })
+    }
+    return running
+  }
+
+  return (value: T) => {
+    pending = value
+    return start()
+  }
+}
 
 function settingsStep(config: AppConfig): Step {
   const transparencyPercent = Math.round((config.transparency ?? 0) * 100)
@@ -326,6 +412,8 @@ function chooseThemeStep(config: AppConfig): Step {
 
 function transparencyStep(config: AppConfig): Step {
   const currentPercent = Math.round((config.transparency ?? 0) * 100)
+  const persister = configPersister(config)
+  const applyTransparency = createLatestApplier(setWindowTransparency)
 
   return {
     id: 'settings:transparency',
@@ -345,17 +433,12 @@ function transparencyStep(config: AppConfig): Step {
       // making the slider less sensitive at lower values
       const transparency = Math.pow(percent / 100, 3)
 
-      // Apply immediately for real-time feedback
-      try {
-        await setWindowTransparency(transparency)
-      } catch (error) {
-        console.error('Failed to set window transparency:', error)
-      }
-
-      const next: AppConfig = { ...config, transparency }
-      await writeConfig(next)
-      Object.assign(config, next)
+      // Record the event-order value synchronously, then coalesce backend
+      // invokes so an older transparency call cannot finish after the latest.
+      persister.schedule({ ...config, transparency })
+      await applyTransparency(transparency)
     },
+    onExit: () => { void persister.flush() },
     load: async () => [],
     onSelect: async () => ({ type: 'pop' }),
   }
@@ -367,6 +450,7 @@ function transparencyStep(config: AppConfig): Step {
 // and persisted to config.palette_scale.
 function scaleStep(config: AppConfig): Step {
   const currentPercent = scaleToPercent(config.palette_scale ?? 1)
+  const persister = configPersister(config)
 
   return {
     id: 'settings:scale',
@@ -382,10 +466,9 @@ function scaleStep(config: AppConfig): Step {
       const scale = percentToScale(Math.round(value))
       // Apply immediately for real-time feedback (drives the App-level zoom).
       appEvents.setScale?.(scale)
-      const next: AppConfig = { ...config, palette_scale: scale }
-      await writeConfig(next)
-      Object.assign(config, next)
+      persister.schedule({ ...config, palette_scale: scale })
     },
+    onExit: () => { void persister.flush() },
     load: async () => [],
     onSelect: async () => ({ type: 'pop' }),
   }

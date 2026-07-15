@@ -32,6 +32,8 @@ export interface PaletteFeedback {
   setConfirmRemember: Dispatch<SetStateAction<boolean>>
   confirmFocus: 'confirm' | 'cancel'
   setConfirmFocus: Dispatch<SetStateAction<'confirm' | 'cancel'>>
+  // Cancel all feedback that can outlive the current palette session.
+  resetFeedback: () => void
 }
 
 export function usePaletteFeedback(dispatch: Dispatch<PaletteAction>): PaletteFeedback {
@@ -52,6 +54,7 @@ export function usePaletteFeedback(dispatch: Dispatch<PaletteAction>): PaletteFe
   const confirmRememberRef = useRef(false)
   confirmRememberRef.current = confirmRemember
   const toastIdRef = useRef(0)
+  const hudTimerRef = useRef<number | null>(null)
 
   const toast = useCallback((message: string, kind: ToastKind = 'info') => {
     const id = ++toastIdRef.current
@@ -64,8 +67,10 @@ export function usePaletteFeedback(dispatch: Dispatch<PaletteAction>): PaletteFe
   // Show the HUD, then dismiss the launcher once it's been seen. Replaces the
   // action body so it reads as a single floating confirmation pill.
   const showHud = useCallback((message: string, icon?: string) => {
+    if (hudTimerRef.current !== null) window.clearTimeout(hudTimerRef.current)
     setHud({ message, icon })
-    window.setTimeout(async () => {
+    hudTimerRef.current = window.setTimeout(async () => {
+      hudTimerRef.current = null
       setHud(null)
       dispatch({ type: 'RESET' })
       await getCurrentWindow().hide()
@@ -79,6 +84,9 @@ export function usePaletteFeedback(dispatch: Dispatch<PaletteAction>): PaletteFe
     setConfirmRemember(false)
     setConfirmFocus('confirm')
     return new Promise<boolean>(resolve => {
+      // Only one confirmation can own the palette. Superseding a request must
+      // settle the old action instead of leaving it suspended forever.
+      confirmReqRef.current?.resolve(false)
       const req = { options, resolve }
       confirmReqRef.current = req
       setConfirmReq(req)
@@ -97,6 +105,20 @@ export function usePaletteFeedback(dispatch: Dispatch<PaletteAction>): PaletteFe
     setConfirmRemember(false)
   }, [])
 
+  const resetFeedback = useCallback(() => {
+    if (hudTimerRef.current !== null) {
+      window.clearTimeout(hudTimerRef.current)
+      hudTimerRef.current = null
+    }
+    setHud(null)
+    const req = confirmReqRef.current
+    confirmReqRef.current = null
+    if (req) req.resolve(false)
+    setConfirmReq(null)
+    setConfirmRemember(false)
+    setConfirmFocus('confirm')
+  }, [])
+
   // Expose the toast/HUD/confirm helpers app-wide (the reset helper is
   // registered separately in Palette — it needs dispatch directly).
   useEffect(() => {
@@ -110,10 +132,13 @@ export function usePaletteFeedback(dispatch: Dispatch<PaletteAction>): PaletteFe
     }
   }, [toast, showHud, requestConfirm])
 
+  useEffect(() => resetFeedback, [resetFeedback])
+
   return {
     toast, toasts,
     hud, showHud,
     requestConfirm, resolveConfirm,
     confirmReq, confirmRemember, setConfirmRemember, confirmFocus, setConfirmFocus,
+    resetFeedback,
   }
 }

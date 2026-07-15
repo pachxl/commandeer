@@ -40,8 +40,20 @@ export interface ScriptInfo {
 export const readConfig = () =>
   invoke<AppConfig>('read_config')
 
-export const writeConfig = (config: AppConfig) =>
-  invoke<void>('write_config', { config })
+// All callers rewrite the same config file. Keep one process-wide queue so a
+// slower earlier invoke can never land after a newer settings change.
+let configWriteTail: Promise<void> = Promise.resolve()
+export const writeConfig = (config: AppConfig) => {
+  const snapshot: AppConfig = {
+    ...config,
+    search_paths: config.search_paths ? [...config.search_paths] : undefined,
+  }
+  const write = configWriteTail.then(() => invoke<void>('write_config', { config: snapshot }))
+  // A rejected write is still returned to its caller, but must not poison the
+  // queue and prevent later settings from being persisted.
+  configWriteTail = write.catch(() => {})
+  return write
+}
 
 export const listScripts = (scriptsDir: string) =>
   invoke<ScriptInfo[]>('list_scripts', { scriptsDir })

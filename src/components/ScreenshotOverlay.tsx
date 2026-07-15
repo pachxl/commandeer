@@ -98,6 +98,8 @@ const afterClearPaint = () =>
 
 export default function ScreenshotOverlay() {
   const [frame, setFrame] = useState<Frame | null>(null)
+  const [finishError, setFinishError] = useState<string | null>(null)
+  const [retryCopyColor, setRetryCopyColor] = useState<string | null>(null)
   // Live selection drag (only before `sel` commits).
   const [drag, setDrag] = useState<Drag | null>(null)
   // Committed selection — non-null means the annotate stage.
@@ -117,6 +119,8 @@ export default function ScreenshotOverlay() {
   const sampling = useRef(false)
   // Guards against a double mouse-up racing two finish invokes.
   const finishing = useRef(false)
+  // Invalidates a delayed finish/cancel when a newer capture arrives.
+  const captureGeneration = useRef(0)
 
   const reset = () => {
     setDrag(null)
@@ -126,10 +130,13 @@ export default function ScreenshotOverlay() {
     setAltHeld(false)
     setCursor(null)
     setPickColor(null)
+    setFinishError(null)
+    setRetryCopyColor(null)
   }
 
   useEffect(() => {
     const unlisten = onScreenshotFrame(f => {
+      captureGeneration.current++
       finishing.current = false
       reset()
       // The frame path is reused every capture, so bust the webview's cache.
@@ -163,6 +170,7 @@ export default function ScreenshotOverlay() {
   // the image; the annotated crop is saved to disk either way.
   const finish = useCallback((copyColor?: string) => {
     if (!sel || !frame || finishing.current) return
+    const generation = captureGeneration.current
     // CSS px → frame-image px. The overlay covers exactly the captured
     // area, so a uniform scale is correct regardless of display scaling.
     const scaleX = frame.width / window.innerWidth
@@ -181,8 +189,31 @@ export default function ScreenshotOverlay() {
     reset()
     setFrame(null)
     void afterClearPaint()
-      .then(() => finishScreenshot(region, annotations, copyColor))
-      .catch(err => console.error('finish_screenshot failed:', err))
+      .then(async () => {
+        if (captureGeneration.current !== generation) return
+        await finishScreenshot(region, annotations, copyColor)
+      })
+      .catch(async err => {
+        if (captureGeneration.current !== generation) return
+        console.error('finish_screenshot failed:', err)
+        // The backend retains the pending capture on failure. Restore the
+        // annotate state so the user sees the error and can retry or cancel.
+        finishing.current = false
+        setFrame(frame)
+        setSel(sel)
+        setPaths(paths)
+        setFinishError(`Screenshot failed: ${String(err)}`)
+        setRetryCopyColor(copyColor ?? null)
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+        try {
+          await showScreenshotOverlay()
+          window.setTimeout(() => {
+            void revealScreenshotOverlay().catch(console.error)
+          }, 500)
+        } catch (showError) {
+          console.error('show_screenshot_overlay failed:', showError)
+        }
+      })
   }, [sel, paths, frame])
 
   // Sample the raw frame pixel under a CSS-px cursor position for the Alt
@@ -235,11 +266,22 @@ export default function ScreenshotOverlay() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (!frame || finishing.current) return
+        const generation = captureGeneration.current
+        finishing.current = true
         reset()
         setFrame(null)
-        void afterClearPaint().then(() => cancelScreenshot())
+        void afterClearPaint()
+          .then(() => {
+            if (captureGeneration.current !== generation) return
+            return cancelScreenshot()
+          })
+          .catch(err => console.error('cancel_screenshot failed:', err))
+          .finally(() => {
+            if (captureGeneration.current === generation) finishing.current = false
+          })
       } else if (e.key === 'Enter') {
-        finish()
+        finish(retryCopyColor ?? undefined)
       } else if ((e.key === 'z' && (e.ctrlKey || e.metaKey)) || e.key === 'Backspace') {
         setLivePath(null)
         setPaths(p => p.slice(0, -1))
@@ -247,13 +289,14 @@ export default function ScreenshotOverlay() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [finish])
+  }, [finish, frame, retryCopyColor])
 
   useEffect(() => {
     // Linux re-trigger: Rust asks the still-visible overlay to clear before it
     // captures a fresh frame; we hide ourselves once the clear has painted
     // (Rust force-hides after its pre-capture delay as a fallback).
     const unlisten = onScreenshotClear(() => {
+      captureGeneration.current++
       finishing.current = false
       reset()
       setFrame(null)
@@ -384,6 +427,27 @@ export default function ScreenshotOverlay() {
             display: 'block',
           }}
         />
+      )}
+      {finishError && frame && (
+        <div
+          style={{
+            position: 'absolute',
+            left: '50%',
+            top: 24,
+            transform: 'translateX(-50%)',
+            zIndex: 10,
+            maxWidth: 'min(640px, calc(100vw - 48px))',
+            padding: '8px 14px',
+            borderRadius: 6,
+            background: 'rgba(160, 24, 24, 0.94)',
+            color: '#fff',
+            font: '13px/1.4 system-ui, sans-serif',
+            boxShadow: '0 4px 18px rgba(0, 0, 0, 0.35)',
+            pointerEvents: 'none',
+          }}
+        >
+          {finishError} — press Enter to retry or Esc to cancel.
+        </div>
       )}
       {box ? (
         <div
