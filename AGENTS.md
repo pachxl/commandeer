@@ -1,18 +1,38 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file is the **single source of truth** for AI coding assistants (Claude
+Code, Codex) and human contributors working in this repository. `CLAUDE.md`
+redirects here; do not duplicate content between them (a pre-commit check
+enforces it). Keep this file updated as the app evolves.
 
 ## Project
 
-Commandeer is a Raycast-style command palette built with Tauri 2 (React/TypeScript frontend, Rust backend). It is **cross-platform: Windows, Linux (Wayland/COSMIC), and macOS** — originally Windows-only, then ported to Linux, then to macOS. It is **still in active development** with new features being added regularly; keep this file updated as the app evolves.
+Commandeer is a Raycast-style command palette built with Tauri 2 (React/TypeScript
+frontend, Rust backend). It is **cross-platform: Windows, Linux (Wayland/COSMIC),
+and macOS** — originally Windows-only, then ported to Linux, then to macOS. It is
+**still in active development** with new features added regularly.
 
-Checks: `npm run build` runs `tsc` (strict) and is the frontend type-check; `npm run lint` runs ESLint (react-hooks rules only); `cargo test` in `src-tauri/` runs the Rust unit tests; `cargo clippy --all-targets -- -D warnings` must stay clean. There is deliberately **no CI** — it was added and removed twice; don't re-add it. Clippy lints are platform-gated, so a clean local run only proves the current OS: treat cross-OS clippy as unverified until the code is pulled on the other machines.
+**Scope:** a desktop launcher / command palette + screen capture + window
+management utility. Desktop only — there is no mobile target, and the `android/`
+and `ios/` entries under `src-tauri/icons/` are leftover `tauri icon` output, not
+built. Platform parity is the organizing principle: every feature lands on all
+three OSes where the platform allows, and is explicitly gated (and documented as
+unsupported) where it doesn't.
 
-## Commands
+Checks: `npm run build` runs `tsc` (strict) and is the frontend type-check;
+`npm run lint` runs ESLint (react-hooks rules only); `cargo test` in `src-tauri/`
+runs the Rust unit tests; `cargo clippy --all-targets -- -D warnings` must stay
+clean. There is deliberately **no CI** — it was added and removed twice; don't
+re-add it. Clippy lints are platform-gated, so a clean local run only proves the
+current OS: treat cross-OS clippy as unverified until the code is pulled on the
+other machines.
+
+## Development commands
 
 ```bash
 bun install                          # install JS deps — bun.lock is the source of truth
-                                     # (run this after pulling or tsc fails)
+                                     # (run this after pulling or tsc fails; also
+                                     # installs the git hooks via the prepare script)
 npm run tauri dev                    # run the app in dev mode (vite + cargo)
 npm run tauri build -- --no-bundle   # release build (on Linux: source ~/.cargo/env first)
                                      # NEVER `cargo build --release` directly: without the tauri
@@ -22,9 +42,12 @@ npm run release                      # cross-platform release build + copy artif
                                      #   Windows: commandeer.exe
                                      #   Linux:   commandeer binary
                                      #   macOS:   commandeer.app bundle
+npm run format                       # prettier --write . + cargo fmt (whole repo)
+npm run format:check                 # prettier --check . + cargo fmt --check (CI-equivalent)
 ```
 
 Linux dev/test notes:
+
 - Kill a running instance with `pkill -x commandeer` — **not** `pkill -f`, which matches and kills the invoking shell.
 - Re-launching the binary toggles the palette (single-instance plugin) — this is the reliable trigger under Wayland, where global shortcuts (X11 grabs) don't work. The app also manages a COSMIC custom shortcut (Ctrl+Space; Alt+Space in game mode).
 - `COMMANDEER_NO_AUTOHIDE=1` disables the focus-loss auto-hide (useful when inspecting the window).
@@ -32,27 +55,121 @@ Linux dev/test notes:
 - Icons in `src-tauri/icons/*.png` must be RGBA — RGB fails the `generate_context!` macro on Linux.
 
 macOS dev/test notes:
+
 - The app is an Accessory (no Dock icon / Cmd-Tab entry). Use the tray icon or the global hotkey to surface it.
 - Default toggle hotkey is `Cmd+Shift+Space` (Spotlight owns `Cmd+Space`, input-source switching owns `Ctrl+Space`).
 - Screenshot capture and paste-to-previous require permission grants: **Screen Recording** for screenshots, **Accessibility** for paste. Until granted the commands fail with instructions rather than silently no-oping.
 - Shutdown/Restart/Logout/Empty Trash trigger a one-time **Automation** prompt on first use (System Events / Finder). `@search` over the focused Finder folder uses the same Finder Automation channel (and only queries Finder when the palette opened over it; otherwise it falls back to the home folder like Linux).
 - Clipboard history is encrypted at rest on all three platforms: DPAPI on Windows; ChaCha20-Poly1305 on Linux (key in the Secret Service, 0600 key-file fallback) and macOS (0600 key file next to the db). **Do not move the macOS key to the Keychain** while the app ships ad-hoc-signed: Keychain ACLs bind to the code signature, so every rebuild re-prompts — and the prompt fires during setup and blocks launch (verified on-device).
-- Codex usage (`commands/Codex.rs`) needs Codex's OAuth token. On **macOS** that token lives in the login **Keychain** (generic password, service `Codex-credentials`), not `~/.Codex/.credentials.json` (which only exists on Linux/Windows) — so macOS reads it from the Keychain via the `security` CLI, with the file as a fallback. **Read external Keychain items via `/usr/bin/security`, not an in-process crate** (`keyring`/`security-framework`): the ACL is keyed on the *calling* binary, so a stable Apple binary earns a one-time "Always Allow", whereas the ad-hoc-signed app would re-prompt every rebuild — the same signature/ACL gotcha as the clipboard key above, but the reason it's fine to read here.
+- AI-assistant usage panels (`commands/codex.rs` for Codex, `commands/claude.rs` for Claude) read each assistant's OAuth token to show rate-limit usage. On **macOS** those tokens live in the login **Keychain** (generic passwords, services `Codex-credentials` / `Claude Code-credentials`), not the `~/.codex/.credentials.json` / `~/.claude/.credentials.json` files (which only exist on Linux/Windows) — so macOS reads them from the Keychain via the `security` CLI, with the file as a fallback. **Read external Keychain items via `/usr/bin/security`, not an in-process crate** (`keyring`/`security-framework`): the ACL is keyed on the _calling_ binary, so a stable Apple binary earns a one-time "Always Allow", whereas the ad-hoc-signed app would re-prompt every rebuild — the same signature/ACL gotcha as the clipboard key above, but the reason it's fine to read here.
 - The palette window joins all Spaces (`canJoinAllSpaces | fullScreenAuxiliary`), so toggling it never switches Spaces and it appears over fullscreen apps.
 - App icons: `.app` bundles are directories, so both icon caches (Rust `icons.rs`, frontend `ResultRow`) key them **per path**, never on the shared folder/extension slot — regressing this makes every app render as the first-resolved app's icon. Icons are downscaled to ≤128px before base64 (a raw `iconForFile:` TIFF is a 1024×1024, ~2 MB payload). `iconForFile:` costs ~175 ms/icon **cold**, so the macOS icon cache is **persisted to disk** (`<app-cache>/icon-cache-v1.json`, keyed by path + mtime; a background flusher thread writes it every 3 s when dirty) and a **gentle sequential background warm** at startup (`lib.rs` setup → `icons::warm_app_icons`) resolves every installed app once. After the first run every icon loads from disk, so the Apps folder paints real icons immediately. **Do not** eagerly resolve the whole app list from the frontend per-launch — that re-pays the cold cost every time and queues the visible rows behind the entire install list (the reason the disk cache exists).
 - `npm run release` produces a signed/unsigned `bin/commandeer.app` bundle; right-click → Open the first time if unsigned.
 
+## Code style & formatting
+
+Consistency is enforced by tooling, not by hand. The repo is kept
+prettier-clean and `cargo fmt`-clean; a pre-commit hook formats staged files so
+every contributor's output is identical regardless of OS or editor.
+
+**Frontend (TS/TSX/JS/JSON/CSS/Markdown)** — Prettier, configured in
+`.prettierrc.json`: single quotes, no semicolons, trailing commas, `printWidth`
+120, `arrowParens: avoid`, `endOfLine: lf`. (120 matches the codebase's existing
+long-line style; JSX inline-style objects and SVG path strings are left wide on
+purpose.) Run `npm run format:frontend` to format, `npm run format:check` to
+verify.
+
+**Rust** — `rustfmt` with stable options (`src-tauri/rustfmt.toml`: `edition =
+"2021"`, `max_width = 100`). `cargo fmt` and the per-file `rustfmt --edition 2021`
+used by the hook produce identical output. `cargo clippy --all-targets
+-- -D warnings` must stay clean (platform-gated — see Checks above).
+
+**Pre-commit hook** — Husky + lint-staged (`.husky/pre-commit`). On install,
+the `prepare` script runs `husky`, which points `core.hooksPath` at `.husky/`.
+The hook runs lint-staged (Prettier on staged TS/JSON/CSS/MD, `rustfmt` on staged
+`.rs`) and then `.agents/hooks/check-agent-sync.mjs`. It only **formats** — it
+does not run `tsc`/`clippy`/`cargo test` (those stay manual; the ship-change
+rebuild catches build errors). If you skip hooks with `--no-verify`, run
+`npm run format:check` before pushing.
+
+**Line endings** — `.gitattributes` forces LF (`* text=auto eol=lf`); binary
+assets (`*.png *.ico *.icns`) are marked binary. The stored blobs are already LF;
+editors and Prettier/rustfmt all write LF, so line endings never show up as diffs.
+
+**TypeScript** is strict (`tsconfig.json`: `strict`, `noUnusedLocals`,
+`noUnusedParameters`, `noFallthroughCasesInSwitch`). Don't add `any` where a
+type is knowable. Frontend platform branches use `IS_LINUX` / `IS_MAC` (user-agent
+flags), never bare negations.
+
+**Rust** platform code is behind `#[cfg(target_os = "windows")]` /
+`#[cfg(target_os = "linux")]` / `#[cfg(target_os = "macos")]`. Never use a bare
+`#[cfg(not(windows))]` branch for Linux/macOS-specific code — gate each OS
+explicitly (or `unix` only when the code is genuinely identical, like
+`PermissionsExt`).
+
+## Editor setup
+
+Shared editor configs are committed so format-on-save matches the hook exactly.
+Install the recommended extensions and no further setup is needed.
+
+- **VS Code** — `.vscode/extensions.json` recommends Prettier, rust-analyzer,
+  the Tauri extension, and ESLint. `.vscode/settings.json` enables
+  format-on-save, sets Prettier as the default formatter (rust-analyzer for
+  Rust), `files.eol` to `\n`, and tab size 2 (4 for Rust/TOML).
+- **Zed** — `.zed/settings.json` enables format-on-save, LF, 2-space indent
+  (4 for Rust/TOML), Rust formatting via rust-analyzer, and Prettier for
+  TS/TSX/JS (install the Prettier extension when prompted).
+- **Other editors** — `.editorconfig` provides the same baseline (LF, UTF-8,
+  final newline, no trailing whitespace, 2-space — 4 for `*.rs`/`*.toml`).
+
 ## Shipping changes
 
-After **every** completed task, bug fix, or feature — once the work is done and verified — ship it: **(1) commit and push, (2) rebuild the release binary, (3) restart the running process** on the new binary. The running app should always reflect committed code. Use the `ship-change` skill (`.Codex/skills/ship-change/SKILL.md`), which encodes the exact per-OS steps (Windows/macOS/Linux):
+After **every** completed task, bug fix, or feature — once the work is done and
+verified — ship it: **(1) commit and push, (2) rebuild the release binary,
+(3) restart the running process** on the new binary. The running app should
+always reflect committed code. Use the `ship-change` skill
+(`.agents/skills/ship-change/SKILL.md`), which encodes the exact per-OS steps
+(Windows/macOS/Linux):
 
 - Commit with the repo's footer lines and `git push` (this repo ships from `main`).
 - Rebuild with `npm run tauri build -- --no-bundle` (Linux/macOS: `source ~/.cargo/env` first; Windows: `npm run release`) — only a release build is representative.
 - Restart: kill the old process, then relaunch — `pkill -x commandeer` + `./src-tauri/target/release/commandeer` on Linux/macOS, `Stop-Process -Name commandeer` + the built exe on Windows. Kill before launching, since launching alone just toggles the palette (single-instance plugin).
 
-This is also enforced by a **Stop hook** (`.Codex/hooks/ship-reminder.mjs`, wired in `.Codex/settings.json`): when a turn ends with uncommitted changes it blocks once and asks the model to decide whether the work is a complete feature/fix and ship it — it never auto-commits, and it stays silent on a clean tree. The hook is Node (shell-neutral) so it runs identically on all three OSes. If any step fails (build error, rejected push), stop and surface it rather than reporting the change as shipped.
+This is also enforced by a **Stop hook** (`.agents/hooks/ship-reminder.mjs`,
+wired in both `.claude/settings.json` and `.codex/hooks.json`): when a turn ends
+with uncommitted changes it blocks once and asks the model to decide whether the
+work is a complete feature/fix and ship it — it never auto-commits, and it stays
+silent on a clean tree. The hook is Node (shell-neutral) so it runs identically on
+all three OSes. If any step fails (build error, rejected push), stop and surface it
+rather than reporting the change as shipped.
 
-Everything under `.Codex/` (this skill, the hook, project settings) is committed and shared across systems; only `.Codex/settings.local.json` is gitignored for personal overrides.
+## Agent integration (skills + hooks)
+
+Agent config is **normalized to work across both Claude Code and Codex** from a
+single canonical home — there are no divergent per-tool copies.
+
+```
+.agents/                          # canonical, shared across tools
+  skills/ship-change/SKILL.md     # the ship-change skill (tool-neutral)
+  hooks/ship-reminder.mjs         # the Stop hook (tool-neutral)
+  hooks/check-agent-sync.mjs      # pre-commit integrity check
+.claude/
+  settings.json                   # Claude Code: Stop hook -> .agents/hooks/ship-reminder.mjs
+  skills/ship-change/SKILL.md     # mirror of the canonical skill, for Claude Code discovery
+.codex/
+  hooks.json                      # Codex: Stop hook -> .agents/hooks/ship-reminder.mjs
+```
+
+- `.agents/` is the source of truth. **Edit skills/hooks there.**
+- Claude Code discovers skills from `.claude/skills/`, so the ship-change
+  `SKILL.md` is mirrored there byte-for-byte. The pre-commit `check-agent-sync`
+  script fails the commit if the mirror drifts from the canonical copy, if
+  `CLAUDE.md` stops redirecting to `AGENTS.md`, or if either tool's config stops
+  pointing at the shared hook.
+- `.codex/hooks.json` uses a **relative** path (never an absolute machine path).
+- Only `.claude/settings.local.json` and `.codex/settings.local.json` are
+  gitignored (personal overrides); everything else under `.agents/`,
+  `.claude/`, and `.codex/` is committed and shared.
 
 ## Architecture
 
@@ -60,7 +177,7 @@ Two always-running Tauri windows that hide/show rather than launching per use: t
 
 ### Screenshot tool
 
-Lightshot-style region capture: trigger → Rust freezes the screen to `<app-cache>/frame.png` (on Linux a four-CLI fallback chain — `cosmic-screenshot` → `gnome-screenshot` → `spectacle` → `grim`, first one present wins; on Windows a GDI BitBlt of the full virtual screen — all monitors — with the overlay spanning the same bounds; on macOS `screencapture -R` of the cursor monitor) → the `screenshot` window (same JS bundle; `main.tsx` branches on window label to `ScreenshotOverlay.tsx`) shows the frame under a dim veil → drag a region → an **annotate stage** (Lightshot-style toolbar): further drags paint freehand red marker strokes to circle things, Ctrl+Z/Backspace undoes a stroke, Enter or the ✓ button finishes → Rust crops, burns in the annotations (anti-aliased round-capped polylines via a max-coverage capsule-SDF buffer in `draw_stroke_annotation` — max, not per-segment blending, so overlapping joints don't seam), saves to `~/Pictures/Screenshots`, and copies PNG to the clipboard (`wl-copy` on Linux, arboard on Windows/macOS). Esc cancels. Backend in `commands/screenshot.rs`. Triggers: `commandeer://screenshot` deep link (bound to PrtScn via a second managed COSMIC shortcut line on Linux), a configurable global shortcut on Windows/macOS (`screenshot_hotkey` config, **default `Insert` on Windows**, editable via Settings → Screenshot Hotkey), and a Tools → Take Screenshot palette command. **Do not default the Windows shortcut to PrintScreen**: `RegisterHotKey(VK_SNAPSHOT)` returns success but never fires `WM_HOTKEY` because PrtScn emits no `WM_KEYDOWN` — so it silently does nothing. Any ordinary key (Insert, Fn keys, letters+modifiers) works. macOS has no default screenshot hotkey because Mac keyboards lack PrintScreen and the common system shortcuts are `Cmd+Shift+3/4/5`. The frame is encoded as fast/unfiltered PNG (transient file, reloaded once then deleted) — ~50 ms capture on a 2560×1440 release build; the unoptimized dev build is ~15× slower, so judge screenshot latency only from a release build. On Windows the overlay appears via a cloak-then-reveal handshake: at capture time the window is positioned/sized and shown **DWM-cloaked** (composited but not displayed — WebView2 only renders while visible), the frame `<img>` loads and rasterizes off-screen, and `reveal_screenshot_overlay` uncloaks only when the webview reports the image was actually **presented**, via an **Element Timing** observer (`elementtiming="shot-frame"`). onLoad/double-rAF are NOT sufficient signals — they race the GPU raster of the multi-monitor-sized texture and flashed black. Fallbacks: a 500 ms frontend timer post-onload and a 1500 ms Rust-side force-show+uncloak; all commands are idempotent. On Linux the overlay is a 4-edge-anchored, exclusive-keyboard layer-shell surface; the frontend's `show_screenshot_overlay` call on img onload is the show path there (and on macOS) and the cloak machinery is Windows-only. Linux has its own stale-frame defense (there is no DWM cloak, and GTK3 toplevel opacity is a no-op on Wayland): WebKitGTK replays its **last composite** as the first frame when a hidden window is re-mapped, so the overlay window is **transparent on Linux** (`tauri.linux.conf.json` — platform configs replace the whole `app.windows` array, keep it in sync with `tauri.conf.json`) and the frontend always paints a cleared, fully transparent state (no frame, no veil) and waits a double-rAF (`afterClearPaint`) **before** any hide — finish, Esc-cancel, and the re-trigger path (Rust emits `screenshot-clear`; the webview clears then calls `hide_screenshot_overlay`; Rust force-hides after its pre-capture delay as fallback). The replayed composite is then invisible, the live desktop underneath is pixel-identical to the frozen frame, and the overlay's appearance reads as a single smooth veil dim. On Windows, both windows set `additionalBrowserArgs` with `CalculateNativeWinOcclusion` disabled (WebView2 browser args are process-wide — keep the two windows' args identical): without it, Chromium suspends rendering of hidden windows, the new frame never paints before `show()`, and the window flashes its stale surface (the previous capture) for a frame.
+Lightshot-style region capture: trigger → Rust freezes the screen to `<app-cache>/frame.png` (on Linux a four-CLI fallback chain — `cosmic-screenshot` → `gnome-screenshot` → `spectacle` → `grim`, first one present wins; on Windows a GDI BitBlt of the full virtual screen — all monitors — with the overlay spanning the same bounds; on macOS `screencapture -R` of the cursor monitor) → the `screenshot` window (same JS bundle; `main.tsx` branches on window label to `ScreenshotOverlay.tsx`) shows the frame under a dim veil → drag a region → an **annotate stage** (Lightshot-style toolbar): further drags paint freehand red marker strokes to circle things, Ctrl+Z/Backspace undoes a stroke, holding **Alt** shows a color-pick tooltip (hex of the raw frame pixel under the cursor, sampled via the `pick_frame_color` command, which lazily decodes and caches the frame in `ScreenshotState` — the veil/strokes never bleed in) and **Alt+click** copies that hex to the clipboard instead of the image and finishes (the annotated crop is still saved to disk), Enter or the ✓ button finishes → Rust crops, burns in the annotations (anti-aliased round-capped polylines via a max-coverage capsule-SDF buffer in `draw_stroke_annotation` — max, not per-segment blending, so overlapping joints don't seam), saves to `~/Pictures/Screenshots`, and copies PNG to the clipboard (`wl-copy` on Linux, arboard on Windows/macOS). Esc cancels. Backend in `commands/screenshot.rs`. Triggers: `commandeer://screenshot` deep link (bound to PrtScn via a second managed COSMIC shortcut line on Linux), a configurable global shortcut on Windows/macOS (`screenshot_hotkey` config, **default `Insert` on Windows**, editable via Settings → Screenshot Hotkey), and a Tools → Take Screenshot palette command. **Do not default the Windows shortcut to PrintScreen**: `RegisterHotKey(VK_SNAPSHOT)` returns success but never fires `WM_HOTKEY` because PrtScn emits no `WM_KEYDOWN` — so it silently does nothing. Any ordinary key (Insert, Fn keys, letters+modifiers) works. macOS has no default screenshot hotkey because Mac keyboards lack PrintScreen and the common system shortcuts are `Cmd+Shift+3/4/5`. The frame is encoded as fast/unfiltered PNG (transient file, reloaded once then deleted) — ~50 ms capture on a 2560×1440 release build; the unoptimized dev build is ~15× slower, so judge screenshot latency only from a release build. On Windows the overlay appears via a cloak-then-reveal handshake: at capture time the window is positioned/sized and shown **DWM-cloaked** (composited but not displayed — WebView2 only renders while visible), the frame `<img>` loads and rasterizes off-screen, and `reveal_screenshot_overlay` uncloaks only when the webview reports the image was actually **presented**, via an **Element Timing** observer (`elementtiming="shot-frame"`). onLoad/double-rAF are NOT sufficient signals — they race the GPU raster of the multi-monitor-sized texture and flashed black. Fallbacks: a 500 ms frontend timer post-onload and a 1500 ms Rust-side force-show+uncloak; all commands are idempotent. On Linux the overlay is a 4-edge-anchored, exclusive-keyboard layer-shell surface; the frontend's `show_screenshot_overlay` call on img onload is the show path there (and on macOS) and the cloak machinery is Windows-only. Linux has its own stale-frame defense (there is no DWM cloak, and GTK3 toplevel opacity is a no-op on Wayland): WebKitGTK replays its **last composite** as the first frame when a hidden window is re-mapped, so the overlay window is **transparent on Linux** (`tauri.linux.conf.json` — platform configs replace the whole `app.windows` array, keep it in sync with `tauri.conf.json`) and the frontend always paints a cleared, fully transparent state (no frame, no veil) and waits a double-rAF (`afterClearPaint`) **before** any hide — finish, Esc-cancel, and the re-trigger path (Rust emits `screenshot-clear`; the webview clears then calls `hide_screenshot_overlay`; Rust force-hides after its pre-capture delay as fallback). The replayed composite is then invisible, the live desktop underneath is pixel-identical to the frozen frame, and the overlay's appearance reads as a single smooth veil dim. On Windows, both windows set `additionalBrowserArgs` with `CalculateNativeWinOcclusion` disabled (WebView2 browser args are process-wide — keep the two windows' args identical): without it, Chromium suspends rendering of hidden windows, the new frame never paints before `show()`, and the window flashes its stale surface (the previous capture) for a frame.
 
 ### Window management (Alt-drag, `window_drag`)
 

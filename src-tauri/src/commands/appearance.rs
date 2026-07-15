@@ -106,7 +106,11 @@ fn macos_set_dark_mode(enabled: bool) -> Result<(), String> {
 
 #[cfg(target_os = "linux")]
 fn linux_set_dark_mode(enabled: bool) -> Result<(), String> {
-    let scheme = if enabled { "prefer-dark" } else { "prefer-light" };
+    let scheme = if enabled {
+        "prefer-dark"
+    } else {
+        "prefer-light"
+    };
     let out = std::process::Command::new("gsettings")
         .args(["set", "org.gnome.desktop.interface", "color-scheme", scheme])
         .output()

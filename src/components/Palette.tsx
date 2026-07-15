@@ -42,7 +42,6 @@ const FIND_DEBOUNCE_MS = 120
 // calculator, apps, …)
 const PROVIDER_DEBOUNCE_MS = 150
 
-
 export type { InlineScript }
 
 interface PaletteProps {
@@ -100,15 +99,22 @@ export default function Palette({
   providerCommandsRef.current = providerCommands
   // Onix follows Vicinae's launcher width; Default retains Commandeer's
   // established compact width. Both remain subject to the user's scale.
-  const paletteWidth = config.ui_style?.toLowerCase() === 'onix'
-    ? ONIX_PALETTE_WIDTH
-    : DEFAULT_PALETTE_WIDTH
+  const paletteWidth = config.ui_style?.toLowerCase() === 'onix' ? ONIX_PALETTE_WIDTH : DEFAULT_PALETTE_WIDTH
   // Sizes the window to its content and returns the wrapper/container refs.
   const { sizeRef, containerRef } = usePaletteWindowSize(scale, paletteWidth)
   // Toasts, the HUD pill, and the confirm dialog (also registered on appEvents).
   const {
-    toast, toasts, hud, showHud, requestConfirm, resolveConfirm,
-    confirmReq, confirmRemember, setConfirmRemember, confirmFocus, setConfirmFocus,
+    toast,
+    toasts,
+    hud,
+    showHud,
+    requestConfirm,
+    resolveConfirm,
+    confirmReq,
+    confirmRemember,
+    setConfirmRemember,
+    confirmFocus,
+    setConfirmFocus,
   } = usePaletteFeedback(dispatch)
 
   // Expose the reset function to App (kept here — it needs dispatch directly).
@@ -119,8 +125,7 @@ export default function Palette({
   // Commands can come from the static list (scripts, settings) or
   // from a provider's per-query search results
   const resolveCommand = useCallback((id: string): Command | undefined => {
-    return commandsRef.current.find(c => c.id === id)
-      ?? providerCommandsRef.current.find(c => c.id === id)
+    return commandsRef.current.find(c => c.id === id) ?? providerCommandsRef.current.find(c => c.id === id)
   }, [])
 
   // Per-command user overrides (alias, pin, hotkey) from overrides.json
@@ -138,39 +143,44 @@ export default function Palette({
 
   // Global per-command shortcut (or deep link) fired: show the palette and run
   // the command's action or push its root step
-  const handleCommandHotkey = useCallback(async (commandId: string) => {
-    const win = getCurrentWindow()
-    await win.show()
-    await win.setFocus()
+  const handleCommandHotkey = useCallback(
+    async (commandId: string) => {
+      const win = getCurrentWindow()
+      await win.show()
+      await win.setFocus()
 
-    const cmd = resolveCommand(commandId)
-    if (!cmd) return
+      const cmd = resolveCommand(commandId)
+      if (!cmd) return
 
-    if (cmd.action) {
-      try {
-        await cmd.action(configRef.current)
-        recordUse(cmd.id)
-        if (!cmd.noClose) {
-          dispatch({ type: 'RESET' })
-          await win.hide()
+      if (cmd.action) {
+        try {
+          await cmd.action(configRef.current)
+          recordUse(cmd.id)
+          if (!cmd.noClose) {
+            dispatch({ type: 'RESET' })
+            await win.hide()
+          }
+        } catch (err) {
+          dispatch({ type: 'SET_ERROR', error: String(err) })
         }
-      } catch (err) {
-        dispatch({ type: 'SET_ERROR', error: String(err) })
+        return
       }
-      return
-    }
 
-    if (cmd.createRootStep) {
-      recordUse(cmd.id)
-      dispatch({ type: 'RESET' })
-      dispatch({ type: 'PUSH_STEP', step: cmd.createRootStep(configRef.current) })
-    }
-  }, [resolveCommand])
+      if (cmd.createRootStep) {
+        recordUse(cmd.id)
+        dispatch({ type: 'RESET' })
+        dispatch({ type: 'PUSH_STEP', step: cmd.createRootStep(configRef.current) })
+      }
+    },
+    [resolveCommand],
+  )
 
   useEffect(() => {
     if (!commandHotkeyRef) return
     commandHotkeyRef.current = handleCommandHotkey
-    return () => { commandHotkeyRef.current = null }
+    return () => {
+      commandHotkeyRef.current = null
+    }
   }, [commandHotkeyRef, handleCommandHotkey])
 
   // Reinitialise root items when the commands list or overrides change. The
@@ -178,19 +188,16 @@ export default function Palette({
   // always-last row below.
   useEffect(() => {
     const lastId = localStorage.getItem(LAST_CMD_KEY)
-    const withOverrides = (items: PaletteItem[]) =>
-      items.map(i => applyOverride(i, overrides[i.id]))
+    const withOverrides = (items: PaletteItem[]) => items.map(i => applyOverride(i, overrides[i.id]))
 
     // Hierarchical view: everything from the user's commands folder first
     // (script folders, then loose scripts with last-used floating up), then
     // built-in virtual folders (Apps, System, Tools) and any other builtins.
     // searchOnly commands are excluded here but stay in the flat search list.
     const isScript = (c: Command) => c.source === 'script'
-    const rootLoose = commands.filter(c =>
-      !c.isFolder &&
-      !c.searchOnly &&
-      c.id !== SETTINGS_COMMAND_ID &&
-      (!c.folderName || overrides[c.id]?.showAtRoot)
+    const rootLoose = commands.filter(
+      c =>
+        !c.isFolder && !c.searchOnly && c.id !== SETTINGS_COMMAND_ID && (!c.folderName || overrides[c.id]?.showAtRoot),
     )
     const scriptFolders = commands.filter(c => c.isFolder && isScript(c))
     const builtinFolders = commands.filter(c => c.isFolder && !isScript(c))
@@ -208,7 +215,12 @@ export default function Palette({
 
     // Flat view: all scripts (no folder nav items) for cross-folder search
     const allScripts = commands.filter(c => !c.isFolder && c.id !== SETTINGS_COMMAND_ID)
-    dispatch({ type: 'SET_ITEMS', stepId: '__root_flat__', items: withOverrides(commandsToFlatItems(allScripts)), preserveSelection: true })
+    dispatch({
+      type: 'SET_ITEMS',
+      stepId: '__root_flat__',
+      items: withOverrides(commandsToFlatItems(allScripts)),
+      preserveSelection: true,
+    })
   }, [commands, overrides])
 
   // Current step key
@@ -217,7 +229,19 @@ export default function Palette({
 
   // Root @-mode parsing (@find/@search/@web/@calc/@time) — see paletteModes.
   const at = parseAtQuery(state.query, !!currentStep)
-  const { atRaw, folderMode, folderQuery, findMode, findQuery, webMode, webQuery, calcMode, calcQuery, timeMode, timeQuery } = at
+  const {
+    atRaw,
+    folderMode,
+    folderQuery,
+    findMode,
+    findQuery,
+    webMode,
+    webQuery,
+    calcMode,
+    calcQuery,
+    timeMode,
+    timeQuery,
+  } = at
 
   // "@search" → file search in the active Explorer folder. The file list is
   // fetched once per palette show (walked in parallel on the Rust side) and
@@ -241,7 +265,9 @@ export default function Palette({
         if (folderLoad.current.token !== token) return
         dispatch({ type: 'SET_ERROR', error: String(err) })
       })
-      .finally(() => { folderLoad.current.loading = false })
+      .finally(() => {
+        folderLoad.current.loading = false
+      })
   }, [folderMode])
 
   // "@find" → global file search, one debounced backend call per keystroke; the
@@ -318,7 +344,8 @@ export default function Palette({
   useEffect(() => {
     if (!currentStep?.load) return
     dispatch({ type: 'SET_LOADING', loading: true })
-    currentStep.load(configRef.current)
+    currentStep
+      .load(configRef.current)
       // preserveSelection: PUSH/POP already reset the index to 0; same-id
       // REPLACEs deliberately keep the highlighted row across the reload
       .then(items => dispatch({ type: 'SET_ITEMS', stepId: currentStep.id, items, preserveSelection: true }))
@@ -328,7 +355,9 @@ export default function Palette({
   // Notify the step when it leaves the top of the stack (pop, replace,
   // reset/hide) so uncommitted previews can be undone
   useEffect(() => {
-    return () => { currentStep?.onExit?.() }
+    return () => {
+      currentStep?.onExit?.()
+    }
   }, [currentStep])
 
   // Initialize slider position when a slider step is pushed: seed from the
@@ -339,10 +368,15 @@ export default function Palette({
     setSliderValue(currentStep.minValue ?? 0)
     if (!currentStep.loadSliderValue) return
     let cancelled = false
-    currentStep.loadSliderValue()
-      .then(value => { if (!cancelled) setSliderValue(value) })
+    currentStep
+      .loadSliderValue()
+      .then(value => {
+        if (!cancelled) setSliderValue(value)
+      })
       .catch(err => console.error('loadSliderValue failed:', err))
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [currentStep])
 
   // Derived filtered items
@@ -364,11 +398,25 @@ export default function Palette({
 
   // Live preview shown on the right side of the search input for calculator /
   // time-zone modes (root prefixes and Tools input steps).
-  const previewResult = computePreviewResult({ currentStep, query: state.query, calcMode, calcQuery, timeMode, timeQuery })
+  const previewResult = computePreviewResult({
+    currentStep,
+    query: state.query,
+    calcMode,
+    calcQuery,
+    timeMode,
+    timeQuery,
+  })
 
   const matchedItems = computeMatchedItems({
-    at, currentStep, isInputStep, isSliderStep, isFormStep,
-    rawItems, query: state.query, providerCommands, overrides,
+    at,
+    currentStep,
+    isInputStep,
+    isSliderStep,
+    isFormStep,
+    rawItems,
+    query: state.query,
+    providerCommands,
+    overrides,
   })
   const noMatches = matchedItems.length === 0
 
@@ -377,22 +425,22 @@ export default function Palette({
   // item's sublabel becomes the script's captured stdout (or "…" until the
   // first refresh resolves). Done at render time, outside the ranked search
   // text, so a changing output never re-ranks the list mid-tick.
-  const displayItems = Object.keys(inlineOutputs).length === 0
-    ? visibleItems
-    : visibleItems.map(i => {
-        const key = i.liveOutputKey
-        if (!key) return i
-        const out = inlineOutputs[key]
-        if (out === undefined) return i
-        return { ...i, sublabel: out }
-      })
+  const displayItems =
+    Object.keys(inlineOutputs).length === 0
+      ? visibleItems
+      : visibleItems.map(i => {
+          const key = i.liveOutputKey
+          if (!key) return i
+          const out = inlineOutputs[key]
+          if (out === undefined) return i
+          return { ...i, sublabel: out }
+        })
   const clampedIndex = Math.min(state.selectedIndex, Math.max(0, visibleItems.length - 1))
   const selectedItem = displayItems[clampedIndex] ?? null
 
   // Settings is reachable from a fixed footer button instead of the results list
-  const settingsCmd = !currentStep && !isInputStep && atRaw === null
-    ? commands.find(c => c.id === SETTINGS_COMMAND_ID)
-    : undefined
+  const settingsCmd =
+    !currentStep && !isInputStep && atRaw === null ? commands.find(c => c.id === SETTINGS_COMMAND_ID) : undefined
   const handleOpenSettings = useCallback(() => {
     if (!settingsCmd?.createRootStep) return
     dispatch({ type: 'PUSH_STEP', step: settingsCmd.createRootStep(configRef.current) })
@@ -400,10 +448,8 @@ export default function Palette({
   const primaryAction = previewResult
     ? 'Copy'
     : selectedItem
-      ? (selectedItem.actionLabel
-        ?? (selectedItem.isFolder
-          ? 'Open Folder'
-          : selectedItem.id.startsWith('script:') ? 'Run Script' : 'Select'))
+      ? (selectedItem.actionLabel ??
+        (selectedItem.isFolder ? 'Open Folder' : selectedItem.id.startsWith('script:') ? 'Run Script' : 'Select'))
       : null
 
   // Preview pane: shown when the selected item has something to preview
@@ -422,7 +468,8 @@ export default function Palette({
   reloadStepRef.current = () => {
     const step = currentStep
     if (!step?.load) return
-    step.load(configRef.current)
+    step
+      .load(configRef.current)
       .then(items => dispatch({ type: 'SET_ITEMS', stepId: step.id, items, preserveSelection: true }))
       .catch(err => dispatch({ type: 'SET_ERROR', error: String(err) }))
   }
@@ -430,23 +477,29 @@ export default function Palette({
   // Ctrl+K action panel: secondary actions for the highlighted item, keyed off
   // its provider source (see paletteActions). The refs/dispatch are stable, so
   // only the feedback callbacks need to be in the dep list.
-  const buildActions = useCallback((item: PaletteItem): ActionItem[] =>
-    buildItemActions(item, {
-      dispatch, configRef, commandsRef, overridesRef, handleSelectRef, reloadStepRef,
-      resolveCommand, toast, showHud, requestConfirm, refreshOverrides,
-    }),
-  [resolveCommand, toast, showHud, requestConfirm, refreshOverrides])
+  const buildActions = useCallback(
+    (item: PaletteItem): ActionItem[] =>
+      buildItemActions(item, {
+        dispatch,
+        configRef,
+        commandsRef,
+        overridesRef,
+        handleSelectRef,
+        reloadStepRef,
+        resolveCommand,
+        toast,
+        showHud,
+        requestConfirm,
+        refreshOverrides,
+      }),
+    [resolveCommand, toast, showHud, requestConfirm, refreshOverrides],
+  )
 
-  const actionItems = selectedItem && !isInputStep && !isSliderStep && !isFormStep
-    ? buildActions(selectedItem)
-    : []
+  const actionItems = selectedItem && !isInputStep && !isSliderStep && !isFormStep ? buildActions(selectedItem) : []
   // The menu currently shown: a drilled-into submenu, or the root action list.
-  const currentActionMenu = actionMenuStack.length > 0
-    ? (actionMenuStack[actionMenuStack.length - 1].submenu ?? [])
-    : actionItems
-  const actionMenuTitle = actionMenuStack.length > 0
-    ? actionMenuStack[actionMenuStack.length - 1].label
-    : undefined
+  const currentActionMenu =
+    actionMenuStack.length > 0 ? (actionMenuStack[actionMenuStack.length - 1].submenu ?? []) : actionItems
+  const actionMenuTitle = actionMenuStack.length > 0 ? actionMenuStack[actionMenuStack.length - 1].label : undefined
   const actionPanelClampedIndex = Math.min(actionPanelIndex, Math.max(0, currentActionMenu.length - 1))
 
   const handleFormSubmit = useCallback(async () => {
@@ -463,7 +516,9 @@ export default function Palette({
   // highlight after a step mounts/reloads is skipped — it's the default
   // selection, not the user moving.
   const highlightReady = useRef(false)
-  useEffect(() => { highlightReady.current = false }, [currentStep])
+  useEffect(() => {
+    highlightReady.current = false
+  }, [currentStep])
   useEffect(() => {
     if (!currentStep?.onHighlight || !selectedItem) return
     if (!highlightReady.current) {
@@ -474,353 +529,390 @@ export default function Palette({
   }, [selectedItem]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard handler
-  const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
-    // Confirm dialog owns the keyboard while pending (above the action panel).
-    if (confirmReq) {
-      e.preventDefault()
-      if (e.key === 'Escape') { resolveConfirm(false); return }
-      if (e.key === 'Enter') { resolveConfirm(confirmFocus === 'confirm'); return }
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Tab') {
-        setConfirmFocus(f => (f === 'confirm' ? 'cancel' : 'confirm'))
-        return
-      }
-      // R or Space toggles "Don't ask again" (only meaningful for keyed prompts)
-      if ((e.key.toLowerCase() === 'r' || e.key === ' ') && confirmReq.options.key) {
-        setConfirmRemember(v => !v)
-        return
-      }
-      return
-    }
-
-    // Action panel mode: it owns the keyboard until closed
-    if (actionPanelOpen) {
-      const closePanel = () => {
-        setActionPanelOpen(false)
-        setActionPanelIndex(0)
-        setActionMenuStack([])
-      }
-      const popMenu = () => {
-        setActionMenuStack(s => s.slice(0, -1))
-        setActionPanelIndex(0)
-      }
-      if (e.key === 'Escape') {
+  const handleKeyDown = useCallback(
+    async (e: React.KeyboardEvent) => {
+      // Confirm dialog owns the keyboard while pending (above the action panel).
+      if (confirmReq) {
         e.preventDefault()
-        // Esc backs out one submenu level at a time, then closes the panel.
-        if (actionMenuStack.length > 0) popMenu()
-        else closePanel()
-        return
-      }
-      if (e.key === 'ArrowLeft' && actionMenuStack.length > 0) {
-        e.preventDefault()
-        popMenu()
-        return
-      }
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setActionPanelIndex(i => Math.min(i + 1, Math.max(0, currentActionMenu.length - 1)))
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setActionPanelIndex(i => Math.max(0, i - 1))
+        if (e.key === 'Escape') {
+          resolveConfirm(false)
+          return
+        }
+        if (e.key === 'Enter') {
+          resolveConfirm(confirmFocus === 'confirm')
+          return
+        }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Tab') {
+          setConfirmFocus(f => (f === 'confirm' ? 'cancel' : 'confirm'))
+          return
+        }
+        // R or Space toggles "Don't ask again" (only meaningful for keyed prompts)
+        if ((e.key.toLowerCase() === 'r' || e.key === ' ') && confirmReq.options.key) {
+          setConfirmRemember(v => !v)
+          return
+        }
         return
       }
 
-      // Selecting a row: drill into a submenu, or run the leaf handler.
-      const activate = async (action: ActionItem) => {
-        if (action.submenu) {
-          setActionMenuStack(s => [...s, action])
+      // Action panel mode: it owns the keyboard until closed
+      if (actionPanelOpen) {
+        const closePanel = () => {
+          setActionPanelOpen(false)
           setActionPanelIndex(0)
-          return
+          setActionMenuStack([])
         }
-        if (selectedItem) recordUse(selectedItem.id)
-        try { await action.handler?.() } catch (err) { dispatch({ type: 'SET_ERROR', error: String(err) }) }
-        closePanel()
-      }
-
-      if (e.key === 'Enter' || e.key === 'ArrowRight') {
-        e.preventDefault()
-        const action = currentActionMenu[actionPanelClampedIndex]
-        if (action) await activate(action)
-        else if (e.key === 'Enter') closePanel()
-        return
-      }
-      // Number shortcuts 1-9
-      const digit = parseInt(e.key, 10)
-      if (!Number.isNaN(digit) && digit >= 1 && digit <= currentActionMenu.length) {
-        e.preventDefault()
-        await activate(currentActionMenu[digit - 1])
-        return
-      }
-      // Letter shortcut matching action.shortcut
-      if (/^[a-z]$/i.test(e.key)) {
-        const action = currentActionMenu.find(a => a.shortcut?.toLowerCase() === e.key.toLowerCase())
-        if (action) {
+        const popMenu = () => {
+          setActionMenuStack(s => s.slice(0, -1))
+          setActionPanelIndex(0)
+        }
+        if (e.key === 'Escape') {
           e.preventDefault()
-          await activate(action)
+          // Esc backs out one submenu level at a time, then closes the panel.
+          if (actionMenuStack.length > 0) popMenu()
+          else closePanel()
           return
         }
-      }
-      return
-    }
-
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      // Esc walks back through menus one level at a time (sliders apply
-      // live, so the adjusted value is kept); it only hides the launcher
-      // from the root screen.
-      if (state.stepStack.length > 0) {
-        dispatch({ type: 'POP_STEP' })
-        return
-      }
-      dispatch({ type: 'RESET' })
-      await getCurrentWindow().hide()
-      return
-    }
-
-    // Let native form inputs handle their own keystrokes (Enter to move/submit,
-    // arrows to navigate fields). The main search input is exempt: nav keys
-    // must drive the results list from here.
-    const target = e.target as HTMLElement
-    const isSearchInput =
-      target instanceof HTMLInputElement && target.dataset.paletteSearch !== undefined
-    if (
-      !isSearchInput &&
-      (target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement)
-    ) {
-      return
-    }
-
-    if (e.key.toLowerCase() === 'g' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault()
-      onToggleGameMode()
-      return
-    }
-
-    if (e.key.toLowerCase() === 'k' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault()
-      if (selectedItem && actionItems.length > 0) {
-        setActionPanelOpen(true)
-        setActionPanelIndex(0)
-        setActionMenuStack([])
-      }
-      return
-    }
-
-    if (e.key === ',' && (e.ctrlKey || e.metaKey) && settingsCmd?.createRootStep) {
-      e.preventDefault()
-      handleOpenSettings()
-      return
-    }
-
-    if (e.key === 'Backspace' && !state.query) {
-      e.preventDefault()
-      if (state.stepStack.length > 0) {
-        dispatch({ type: 'POP_STEP' })
-      } else {
-        dispatch({ type: 'RESET' })
-        await getCurrentWindow().hide()
-      }
-      return
-    }
-
-    // Slider steps: arrows nudge the value by stepValue (applies live)
-    if (isSliderStep && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-      e.preventDefault()
-      const min = currentStep?.minValue ?? 0
-      const max = currentStep?.maxValue ?? 100
-      const stepBy = currentStep?.stepValue ?? 1
-      const delta = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? stepBy : -stepBy
-      const next = Math.min(max, Math.max(min, sliderValue + delta))
-      if (next !== sliderValue) {
-        setSliderValue(next)
-        currentStep?.onSliderChange?.(next, configRef.current).catch(err => {
-          dispatch({ type: 'SET_ERROR', error: String(err) })
-        })
-      }
-      return
-    }
-
-    // Left/Right walk menus when the query is empty (with text they keep
-    // moving the caret): Left goes back a level, Right enters the selected
-    // item's submenu. Right never *runs* anything — only items that open a
-    // step (folders, device lists, settings pages) respond, so arrowing
-    // around can't fire an action.
-    if (e.key === 'ArrowLeft' && !state.query && !isGridStep) {
-      e.preventDefault()
-      if (state.stepStack.length > 0) dispatch({ type: 'POP_STEP' })
-      return
-    }
-    if (e.key === 'ArrowRight' && !state.query && !isGridStep) {
-      const selected = visibleItems[clampedIndex]
-      const opensSubmenu = selected
-        ? (currentStep ? selected.isFolder === true : !!resolveCommand(selected.id)?.createRootStep)
-        : false
-      if (selected && opensSubmenu) {
-        e.preventDefault()
-        await handleSelect(selected)
-      }
-      return
-    }
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      const next = Math.min(clampedIndex + 1, Math.max(0, visibleItems.length - 1))
-      dispatch({ type: 'MOVE_SELECTION', delta: next - state.selectedIndex })
-      return
-    }
-
-    if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      const next = Math.max(0, clampedIndex - 1)
-      dispatch({ type: 'MOVE_SELECTION', delta: next - state.selectedIndex })
-      return
-    }
-
-    if (e.key === 'Enter') {
-      e.preventDefault()
-
-      // Slider step: the value is already applied; Enter confirms and goes back
-      if (isSliderStep) {
-        dispatch({ type: 'POP_STEP' })
-        return
-      }
-
-      // Input step: commit raw query
-      if (isInputStep && currentStep?.onCommitQuery) {
-        try {
-          const result = await currentStep.onCommitQuery(state.query, configRef.current)
-          await applyStepResult(dispatch, result)
-        } catch (err) {
-          dispatch({ type: 'SET_ERROR', error: String(err) })
+        if (e.key === 'ArrowLeft' && actionMenuStack.length > 0) {
+          e.preventDefault()
+          popMenu()
+          return
         }
-        return
-      }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          setActionPanelIndex(i => Math.min(i + 1, Math.max(0, currentActionMenu.length - 1)))
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          setActionPanelIndex(i => Math.max(0, i - 1))
+          return
+        }
 
-      // @calc / @time: copy the inline preview and stay open
-      if ((calcMode || timeMode) && previewResult) {
-        try {
-          await navigator.clipboard.writeText(previewResult.copy)
-          toast('Copied to clipboard', 'success')
-        } catch (err) {
-          dispatch({ type: 'SET_ERROR', error: String(err) })
-        }
-        return
-      }
-
-      const selected = visibleItems[clampedIndex]
-      if (!selected) return
-      await handleSelect(selected)
-      return
-    }
-  }, [state, currentStep, isInputStep, isSliderStep, sliderValue, visibleItems, clampedIndex, actionPanelOpen, actionItems, currentActionMenu, actionMenuStack, actionPanelClampedIndex, selectedItem, previewResult, calcMode, timeMode, confirmReq, confirmFocus]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleSelect = useCallback(async (item: PaletteItem) => {
-    // Root level: find command and either run action or push step
-    if (!currentStep) {
-      // @ suggestion: insert the prefix into the query, stay open
-      if (item.id.startsWith('at:')) {
-        dispatch({ type: 'SET_QUERY', query: `${item.data as string} ` })
-        return
-      }
-      // @calc/@time results: copy and stay open
-      if (item.id === 'calc:result' || item.id === 'time:result') {
-        try {
-          await navigator.clipboard.writeText(item.data as string)
-          toast('Copied to clipboard', 'success')
-        } catch (err) {
-          dispatch({ type: 'SET_ERROR', error: String(err) })
-        }
-        return
-      }
-      // @web row: open the browser search
-      if (item.id.startsWith('web:')) {
-        try {
-          await openUrl(`https://www.google.com/search?q=${encodeURIComponent(item.data as string)}`)
-          dispatch({ type: 'RESET' })
-          await getCurrentWindow().hide()
-        } catch (err) {
-          dispatch({ type: 'SET_ERROR', error: String(err) })
-        }
-        return
-      }
-      // @search/@find results are files, not commands
-      if (item.id.startsWith('file:')) {
-        try {
-          await openFileItem(item)
-          recordUse(item.id)
-          dispatch({ type: 'RESET' })
-          await getCurrentWindow().hide()
-        } catch (err) {
-          dispatch({ type: 'SET_ERROR', error: String(err) })
-        }
-        return
-      }
-      // Inline script: Enter force-refreshes its captured output (re-runs the
-      // script and updates the live sublabel). Stays open so the row updates.
-      if (item.liveOutputKey) {
-        await refreshInline(item.liveOutputKey)
-        toast('Refreshed', 'info')
-        return
-      }
-      // Fallback commands (web / files / GitHub) shown when a query matched
-      // nothing. Files hands off to @find mode in-place; the rest open a URL.
-      if (item.id.startsWith('fallback:')) {
-        const data = item.data as { kind: string; q: string }
-        try {
-          if (data.kind === 'files') {
-            dispatch({ type: 'SET_QUERY', query: `@find ${data.q}` })
+        // Selecting a row: drill into a submenu, or run the leaf handler.
+        const activate = async (action: ActionItem) => {
+          if (action.submenu) {
+            setActionMenuStack(s => [...s, action])
+            setActionPanelIndex(0)
             return
           }
-          const url = data.kind === 'github'
-            ? `https://github.com/search?q=${encodeURIComponent(data.q)}`
-            : `https://www.google.com/search?q=${encodeURIComponent(data.q)}`
-          await openUrl(url)
-          recordUse(item.id)
-          dispatch({ type: 'RESET' })
-          await getCurrentWindow().hide()
-        } catch (err) {
-          dispatch({ type: 'SET_ERROR', error: String(err) })
+          if (selectedItem) recordUse(selectedItem.id)
+          try {
+            await action.handler?.()
+          } catch (err) {
+            dispatch({ type: 'SET_ERROR', error: String(err) })
+          }
+          closePanel()
         }
-        return
-      }
-      const cmd = resolveCommand(item.id)
-      if (!cmd) return
-      if (cmd.action) {
-        try {
-          await cmd.action(configRef.current)
-          recordUse(cmd.id)
-          if (cmd.noClose) return
-          localStorage.setItem(LAST_CMD_KEY, cmd.id)
-          dispatch({ type: 'RESET' })
-          await getCurrentWindow().hide()
-        } catch (err) {
-          dispatch({ type: 'SET_ERROR', error: String(err) })
-        }
-        return
-      }
-      if (cmd.createRootStep) {
-        recordUse(cmd.id)
-        const step = cmd.createRootStep(configRef.current)
-        dispatch({ type: 'PUSH_STEP', step })
-      }
-      return
-    }
 
-    try {
-      const result = await currentStep.onSelect(item, configRef.current)
-      // Same-id replace = the step refreshing itself; keep the user's spot
-      await applyStepResult(dispatch, result, {
-        preserveSelectionOnReplace: result.type === 'replace' && result.step.id === currentStep.id,
-      })
-    } catch (err) {
-      dispatch({ type: 'SET_ERROR', error: String(err) })
-    }
-    // The ref assignment below keeps the latest closure available to callers;
-    // deliberately keyed on currentStep only.
-  }, [currentStep]) // eslint-disable-line react-hooks/exhaustive-deps
+        if (e.key === 'Enter' || e.key === 'ArrowRight') {
+          e.preventDefault()
+          const action = currentActionMenu[actionPanelClampedIndex]
+          if (action) await activate(action)
+          else if (e.key === 'Enter') closePanel()
+          return
+        }
+        // Number shortcuts 1-9
+        const digit = parseInt(e.key, 10)
+        if (!Number.isNaN(digit) && digit >= 1 && digit <= currentActionMenu.length) {
+          e.preventDefault()
+          await activate(currentActionMenu[digit - 1])
+          return
+        }
+        // Letter shortcut matching action.shortcut
+        if (/^[a-z]$/i.test(e.key)) {
+          const action = currentActionMenu.find(a => a.shortcut?.toLowerCase() === e.key.toLowerCase())
+          if (action) {
+            e.preventDefault()
+            await activate(action)
+            return
+          }
+        }
+        return
+      }
+
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        // Esc walks back through menus one level at a time (sliders apply
+        // live, so the adjusted value is kept); it only hides the launcher
+        // from the root screen.
+        if (state.stepStack.length > 0) {
+          dispatch({ type: 'POP_STEP' })
+          return
+        }
+        dispatch({ type: 'RESET' })
+        await getCurrentWindow().hide()
+        return
+      }
+
+      // Let native form inputs handle their own keystrokes (Enter to move/submit,
+      // arrows to navigate fields). The main search input is exempt: nav keys
+      // must drive the results list from here.
+      const target = e.target as HTMLElement
+      const isSearchInput = target instanceof HTMLInputElement && target.dataset.paletteSearch !== undefined
+      if (
+        !isSearchInput &&
+        (target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement)
+      ) {
+        return
+      }
+
+      if (e.key.toLowerCase() === 'g' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault()
+        onToggleGameMode()
+        return
+      }
+
+      if (e.key.toLowerCase() === 'k' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault()
+        if (selectedItem && actionItems.length > 0) {
+          setActionPanelOpen(true)
+          setActionPanelIndex(0)
+          setActionMenuStack([])
+        }
+        return
+      }
+
+      if (e.key === ',' && (e.ctrlKey || e.metaKey) && settingsCmd?.createRootStep) {
+        e.preventDefault()
+        handleOpenSettings()
+        return
+      }
+
+      if (e.key === 'Backspace' && !state.query) {
+        e.preventDefault()
+        if (state.stepStack.length > 0) {
+          dispatch({ type: 'POP_STEP' })
+        } else {
+          dispatch({ type: 'RESET' })
+          await getCurrentWindow().hide()
+        }
+        return
+      }
+
+      // Slider steps: arrows nudge the value by stepValue (applies live)
+      if (isSliderStep && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault()
+        const min = currentStep?.minValue ?? 0
+        const max = currentStep?.maxValue ?? 100
+        const stepBy = currentStep?.stepValue ?? 1
+        const delta = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? stepBy : -stepBy
+        const next = Math.min(max, Math.max(min, sliderValue + delta))
+        if (next !== sliderValue) {
+          setSliderValue(next)
+          currentStep?.onSliderChange?.(next, configRef.current).catch(err => {
+            dispatch({ type: 'SET_ERROR', error: String(err) })
+          })
+        }
+        return
+      }
+
+      // Left/Right walk menus when the query is empty (with text they keep
+      // moving the caret): Left goes back a level, Right enters the selected
+      // item's submenu. Right never *runs* anything — only items that open a
+      // step (folders, device lists, settings pages) respond, so arrowing
+      // around can't fire an action.
+      if (e.key === 'ArrowLeft' && !state.query && !isGridStep) {
+        e.preventDefault()
+        if (state.stepStack.length > 0) dispatch({ type: 'POP_STEP' })
+        return
+      }
+      if (e.key === 'ArrowRight' && !state.query && !isGridStep) {
+        const selected = visibleItems[clampedIndex]
+        const opensSubmenu = selected
+          ? currentStep
+            ? selected.isFolder === true
+            : !!resolveCommand(selected.id)?.createRootStep
+          : false
+        if (selected && opensSubmenu) {
+          e.preventDefault()
+          await handleSelect(selected)
+        }
+        return
+      }
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        const next = Math.min(clampedIndex + 1, Math.max(0, visibleItems.length - 1))
+        dispatch({ type: 'MOVE_SELECTION', delta: next - state.selectedIndex })
+        return
+      }
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        const next = Math.max(0, clampedIndex - 1)
+        dispatch({ type: 'MOVE_SELECTION', delta: next - state.selectedIndex })
+        return
+      }
+
+      if (e.key === 'Enter') {
+        e.preventDefault()
+
+        // Slider step: the value is already applied; Enter confirms and goes back
+        if (isSliderStep) {
+          dispatch({ type: 'POP_STEP' })
+          return
+        }
+
+        // Input step: commit raw query
+        if (isInputStep && currentStep?.onCommitQuery) {
+          try {
+            const result = await currentStep.onCommitQuery(state.query, configRef.current)
+            await applyStepResult(dispatch, result)
+          } catch (err) {
+            dispatch({ type: 'SET_ERROR', error: String(err) })
+          }
+          return
+        }
+
+        // @calc / @time: copy the inline preview and stay open
+        if ((calcMode || timeMode) && previewResult) {
+          try {
+            await navigator.clipboard.writeText(previewResult.copy)
+            toast('Copied to clipboard', 'success')
+          } catch (err) {
+            dispatch({ type: 'SET_ERROR', error: String(err) })
+          }
+          return
+        }
+
+        const selected = visibleItems[clampedIndex]
+        if (!selected) return
+        await handleSelect(selected)
+        return
+      }
+    },
+    [
+      state,
+      currentStep,
+      isInputStep,
+      isSliderStep,
+      sliderValue,
+      visibleItems,
+      clampedIndex,
+      actionPanelOpen,
+      actionItems,
+      currentActionMenu,
+      actionMenuStack,
+      actionPanelClampedIndex,
+      selectedItem,
+      previewResult,
+      calcMode,
+      timeMode,
+      confirmReq,
+      confirmFocus,
+    ],
+  ) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSelect = useCallback(
+    async (item: PaletteItem) => {
+      // Root level: find command and either run action or push step
+      if (!currentStep) {
+        // @ suggestion: insert the prefix into the query, stay open
+        if (item.id.startsWith('at:')) {
+          dispatch({ type: 'SET_QUERY', query: `${item.data as string} ` })
+          return
+        }
+        // @calc/@time results: copy and stay open
+        if (item.id === 'calc:result' || item.id === 'time:result') {
+          try {
+            await navigator.clipboard.writeText(item.data as string)
+            toast('Copied to clipboard', 'success')
+          } catch (err) {
+            dispatch({ type: 'SET_ERROR', error: String(err) })
+          }
+          return
+        }
+        // @web row: open the browser search
+        if (item.id.startsWith('web:')) {
+          try {
+            await openUrl(`https://www.google.com/search?q=${encodeURIComponent(item.data as string)}`)
+            dispatch({ type: 'RESET' })
+            await getCurrentWindow().hide()
+          } catch (err) {
+            dispatch({ type: 'SET_ERROR', error: String(err) })
+          }
+          return
+        }
+        // @search/@find results are files, not commands
+        if (item.id.startsWith('file:')) {
+          try {
+            await openFileItem(item)
+            recordUse(item.id)
+            dispatch({ type: 'RESET' })
+            await getCurrentWindow().hide()
+          } catch (err) {
+            dispatch({ type: 'SET_ERROR', error: String(err) })
+          }
+          return
+        }
+        // Inline script: Enter force-refreshes its captured output (re-runs the
+        // script and updates the live sublabel). Stays open so the row updates.
+        if (item.liveOutputKey) {
+          await refreshInline(item.liveOutputKey)
+          toast('Refreshed', 'info')
+          return
+        }
+        // Fallback commands (web / files / GitHub) shown when a query matched
+        // nothing. Files hands off to @find mode in-place; the rest open a URL.
+        if (item.id.startsWith('fallback:')) {
+          const data = item.data as { kind: string; q: string }
+          try {
+            if (data.kind === 'files') {
+              dispatch({ type: 'SET_QUERY', query: `@find ${data.q}` })
+              return
+            }
+            const url =
+              data.kind === 'github'
+                ? `https://github.com/search?q=${encodeURIComponent(data.q)}`
+                : `https://www.google.com/search?q=${encodeURIComponent(data.q)}`
+            await openUrl(url)
+            recordUse(item.id)
+            dispatch({ type: 'RESET' })
+            await getCurrentWindow().hide()
+          } catch (err) {
+            dispatch({ type: 'SET_ERROR', error: String(err) })
+          }
+          return
+        }
+        const cmd = resolveCommand(item.id)
+        if (!cmd) return
+        if (cmd.action) {
+          try {
+            await cmd.action(configRef.current)
+            recordUse(cmd.id)
+            if (cmd.noClose) return
+            localStorage.setItem(LAST_CMD_KEY, cmd.id)
+            dispatch({ type: 'RESET' })
+            await getCurrentWindow().hide()
+          } catch (err) {
+            dispatch({ type: 'SET_ERROR', error: String(err) })
+          }
+          return
+        }
+        if (cmd.createRootStep) {
+          recordUse(cmd.id)
+          const step = cmd.createRootStep(configRef.current)
+          dispatch({ type: 'PUSH_STEP', step })
+        }
+        return
+      }
+
+      try {
+        const result = await currentStep.onSelect(item, configRef.current)
+        // Same-id replace = the step refreshing itself; keep the user's spot
+        await applyStepResult(dispatch, result, {
+          preserveSelectionOnReplace: result.type === 'replace' && result.step.id === currentStep.id,
+        })
+      } catch (err) {
+        dispatch({ type: 'SET_ERROR', error: String(err) })
+      }
+      // The ref assignment below keeps the latest closure available to callers;
+      // deliberately keyed on currentStep only.
+    },
+    [currentStep],
+  ) // eslint-disable-line react-hooks/exhaustive-deps
   handleSelectRef.current = handleSelect
 
   // Focus input whenever visible (the container on slider steps, so
@@ -844,8 +936,12 @@ export default function Palette({
           dispatch({ type: 'SET_ITEMS', stepId: '__folder__', items: [] })
         }
       })
-      .then(fn => { unlisten = fn })
-    return () => { unlisten?.() }
+      .then(fn => {
+        unlisten = fn
+      })
+    return () => {
+      unlisten?.()
+    }
   }, [])
 
   const placeholder = isInputStep
@@ -858,190 +954,216 @@ export default function Palette({
     // inner container is a fixed base width scaled by `zoom`, so it renders at
     // paletteWidth × scale — exactly the window width the hook sets.
     <div ref={sizeRef} style={{ width: '100%' }}>
-    <div
-      ref={containerRef}
-      data-palette-root
-      tabIndex={-1}
-      style={{
-        outline: 'none',
-        position: 'relative',
-        width: paletteWidth,
-        zoom: scale,
-        background: 'var(--bg)',
-        backdropFilter: 'blur(60px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(60px) saturate(180%)',
-        // Windows rounds the OS window itself via DWM (DWMWCP_ROUND), so only
-        // round in CSS on platforms that don't: macOS 12px (matches the
-        // vibrancy radius applied natively), Linux 8px (layer-shell surface
-        // has no compositor rounding).
-        borderRadius: IS_MAC ? 12 : IS_LINUX ? 8 : undefined,
-        display: 'flex',
-        flexDirection: 'column',
-        fontFamily: 'var(--font)',
-        overflow: 'hidden',
-        color: 'var(--text)',
-      }}
-      onKeyDown={handleKeyDown}
-    >
-      <ToastContainer toasts={toasts} />
-
-      {hud && <HudOverlay message={hud.message} icon={hud.icon} />}
-
-      {confirmReq && (
-        <ConfirmOverlay
-          options={confirmReq.options}
-          remember={confirmRemember}
-          focus={confirmFocus}
-          onToggleRemember={() => setConfirmRemember(v => !v)}
-          onResolve={resolveConfirm}
-        />
-      )}
-
-      {isSliderStep && currentStep ? (
-        <SliderInput
-          value={sliderValue}
-          min={currentStep.minValue ?? 0}
-          max={currentStep.maxValue ?? 100}
-          step={currentStep.stepValue ?? 1}
-          icon={currentStep.icon ?? 'eye'}
-          onChange={value => {
-            setSliderValue(value)
-            currentStep.onSliderChange?.(value, configRef.current).catch(err => {
-              dispatch({ type: 'SET_ERROR', error: String(err) })
-            })
-          }}
-        />
-      ) : isFormStep ? null : (
-        <SearchInput
-          ref={inputRef}
-          value={state.query}
-          placeholder={placeholder}
-          loading={state.loading}
-          onChange={q => dispatch({ type: 'SET_QUERY', query: q })}
-          preview={previewResult}
-          showBack={config.ui_style?.toLowerCase() === 'onix' && state.stepStack.length > 0}
-          onBack={() => dispatch({ type: 'POP_STEP' })}
-        />
-      )}
-
-      {state.error && (
-        <div style={{
-          padding: '4px 12px',
-          color: '#f7768e',
-          fontSize: 12,
-          fontFamily: 'var(--font)',
-          borderBottom: '1px solid var(--border)',
-        }}>
-          {state.error}
-        </div>
-      )}
-
-      {state.stepStack.length > 0 && (
-        <div data-step-breadcrumb>
-          <StepBreadcrumb steps={state.stepStack} />
-        </div>
-      )}
-
-      {!isInputStep && !isSliderStep && !state.loading && noMatches && state.query
-        && !(findMode && !findQuery.trim()) && !(webMode && !webQuery)
-        && !calcMode && !timeMode && (
-        <div style={{
-          padding: '12px 14px',
+      <div
+        ref={containerRef}
+        data-palette-root
+        tabIndex={-1}
+        style={{
+          outline: 'none',
+          position: 'relative',
+          width: paletteWidth,
+          zoom: scale,
+          background: 'var(--bg)',
+          backdropFilter: 'blur(60px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(60px) saturate(180%)',
+          // Windows rounds the OS window itself via DWM (DWMWCP_ROUND), so only
+          // round in CSS on platforms that don't: macOS 12px (matches the
+          // vibrancy radius applied natively), Linux 8px (layer-shell surface
+          // has no compositor rounding).
+          borderRadius: IS_MAC ? 12 : IS_LINUX ? 8 : undefined,
           display: 'flex',
           flexDirection: 'column',
-          gap: 6,
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            color: 'var(--text-dim)',
-            fontSize: 12,
-            fontFamily: 'var(--font)',
-          }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" />
-              <path d="m21 21-4.3-4.3" />
-            </svg>
-            {folderMode || findMode
-              ? `No files matching '${folderMode ? folderQuery : findQuery}'`
-              : `No commands matching '${state.query}'`}
-          </div>
-        </div>
-      )}
+          fontFamily: 'var(--font)',
+          overflow: 'hidden',
+          color: 'var(--text)',
+        }}
+        onKeyDown={handleKeyDown}
+      >
+        <ToastContainer toasts={toasts} />
 
-      {!isInputStep && !isSliderStep && !isFormStep && visibleItems.length > 0 && (
-        <div style={{ display: 'flex', minHeight: 0 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            {isGridStep ? (
-              <ResultsGrid
-                items={displayItems}
-                selectedIndex={clampedIndex}
-                query={state.query}
-                columns={currentStep?.gridColumns}
-                onSelect={handleSelect}
-                onHover={i => dispatch({ type: 'MOVE_SELECTION', delta: i - clampedIndex })}
-              />
-            ) : (
-              <ResultsList
-                items={displayItems}
-                selectedIndex={clampedIndex}
-                onSelect={handleSelect}
-                onHover={i => dispatch({ type: 'MOVE_SELECTION', delta: i - clampedIndex })}
-              />
-            )}
+        {hud && <HudOverlay message={hud.message} icon={hud.icon} />}
+
+        {confirmReq && (
+          <ConfirmOverlay
+            options={confirmReq.options}
+            remember={confirmRemember}
+            focus={confirmFocus}
+            onToggleRemember={() => setConfirmRemember(v => !v)}
+            onResolve={resolveConfirm}
+          />
+        )}
+
+        {isSliderStep && currentStep ? (
+          <SliderInput
+            value={sliderValue}
+            min={currentStep.minValue ?? 0}
+            max={currentStep.maxValue ?? 100}
+            step={currentStep.stepValue ?? 1}
+            icon={currentStep.icon ?? 'eye'}
+            onChange={value => {
+              setSliderValue(value)
+              currentStep.onSliderChange?.(value, configRef.current).catch(err => {
+                dispatch({ type: 'SET_ERROR', error: String(err) })
+              })
+            }}
+          />
+        ) : isFormStep ? null : (
+          <SearchInput
+            ref={inputRef}
+            value={state.query}
+            placeholder={placeholder}
+            loading={state.loading}
+            onChange={q => dispatch({ type: 'SET_QUERY', query: q })}
+            preview={previewResult}
+            showBack={config.ui_style?.toLowerCase() === 'onix' && state.stepStack.length > 0}
+            onBack={() => dispatch({ type: 'POP_STEP' })}
+          />
+        )}
+
+        {state.error && (
+          <div
+            style={{
+              padding: '4px 12px',
+              color: '#f7768e',
+              fontSize: 12,
+              fontFamily: 'var(--font)',
+              borderBottom: '1px solid var(--border)',
+            }}
+          >
+            {state.error}
           </div>
-          {showPreview && (
-            <DetailPane item={selectedItem} />
+        )}
+
+        {state.stepStack.length > 0 && (
+          <div data-step-breadcrumb>
+            <StepBreadcrumb steps={state.stepStack} />
+          </div>
+        )}
+
+        {!isInputStep &&
+          !isSliderStep &&
+          !state.loading &&
+          noMatches &&
+          state.query &&
+          !(findMode && !findQuery.trim()) &&
+          !(webMode && !webQuery) &&
+          !calcMode &&
+          !timeMode && (
+            <div
+              style={{
+                padding: '12px 14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  color: 'var(--text-dim)',
+                  fontSize: 12,
+                  fontFamily: 'var(--font)',
+                }}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+                {folderMode || findMode
+                  ? `No files matching '${folderMode ? folderQuery : findQuery}'`
+                  : `No commands matching '${state.query}'`}
+              </div>
+            </div>
           )}
-        </div>
-      )}
 
-      {isFormStep && currentStep && (
-        <FormView
-          fields={currentStep.fields ?? []}
-          values={formValues}
-          onChange={(id, value) => setFormValues(prev => ({ ...prev, [id]: value }))}
-          onSubmit={handleFormSubmit}
-        />
-      )}
+        {!isInputStep && !isSliderStep && !isFormStep && visibleItems.length > 0 && (
+          <div style={{ display: 'flex', minHeight: 0 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {isGridStep ? (
+                <ResultsGrid
+                  items={displayItems}
+                  selectedIndex={clampedIndex}
+                  query={state.query}
+                  columns={currentStep?.gridColumns}
+                  onSelect={handleSelect}
+                  onHover={i => dispatch({ type: 'MOVE_SELECTION', delta: i - clampedIndex })}
+                />
+              ) : (
+                <ResultsList
+                  items={displayItems}
+                  selectedIndex={clampedIndex}
+                  onSelect={handleSelect}
+                  onHover={i => dispatch({ type: 'MOVE_SELECTION', delta: i - clampedIndex })}
+                />
+              )}
+            </div>
+            {showPreview && <DetailPane item={selectedItem} />}
+          </div>
+        )}
 
-      {actionPanelOpen && actionItems.length > 0 && (
-        <ActionPanel
-          items={currentActionMenu}
-          selectedIndex={actionPanelClampedIndex}
-          title={actionMenuTitle}
-          onBack={() => { setActionMenuStack(s => s.slice(0, -1)); setActionPanelIndex(0) }}
-          onSelect={async item => {
-            if (item.submenu) {
-              setActionMenuStack(s => [...s, item])
+        {isFormStep && currentStep && (
+          <FormView
+            fields={currentStep.fields ?? []}
+            values={formValues}
+            onChange={(id, value) => setFormValues(prev => ({ ...prev, [id]: value }))}
+            onSubmit={handleFormSubmit}
+          />
+        )}
+
+        {actionPanelOpen && actionItems.length > 0 && (
+          <ActionPanel
+            items={currentActionMenu}
+            selectedIndex={actionPanelClampedIndex}
+            title={actionMenuTitle}
+            onBack={() => {
+              setActionMenuStack(s => s.slice(0, -1))
               setActionPanelIndex(0)
-              return
-            }
-            if (selectedItem) recordUse(selectedItem.id)
-            try { await item.handler?.() } catch (err) { dispatch({ type: 'SET_ERROR', error: String(err) }) }
-            setActionPanelOpen(false)
-            setActionPanelIndex(0)
-            setActionMenuStack([])
-          }}
-          onHover={i => setActionPanelIndex(i)}
-        />
-      )}
+            }}
+            onSelect={async item => {
+              if (item.submenu) {
+                setActionMenuStack(s => [...s, item])
+                setActionPanelIndex(0)
+                return
+              }
+              if (selectedItem) recordUse(selectedItem.id)
+              try {
+                await item.handler?.()
+              } catch (err) {
+                dispatch({ type: 'SET_ERROR', error: String(err) })
+              }
+              setActionPanelOpen(false)
+              setActionPanelIndex(0)
+              setActionMenuStack([])
+            }}
+            onHover={i => setActionPanelIndex(i)}
+          />
+        )}
 
-      {claudeUsageVisible && <ClaudeUsage />}
-      {codexUsageVisible && <CodexUsage />}
-      {systemStatsVisible && <SystemStatsPanel />}
-      <Footer
-        selectedItem={selectedItem}
-        primaryAction={primaryAction}
-        onOpenSettings={handleOpenSettings}
-        settingsVisible={!!settingsCmd}
-        gameModeEnabled={gameModeEnabled}
-        onToggleGameMode={onToggleGameMode}
-        navigationTitle={currentStep?.label}
-        navigationIcon={currentStep?.icon}
-      />
-    </div>
+        {claudeUsageVisible && <ClaudeUsage />}
+        {codexUsageVisible && <CodexUsage />}
+        {systemStatsVisible && <SystemStatsPanel />}
+        <Footer
+          selectedItem={selectedItem}
+          primaryAction={primaryAction}
+          onOpenSettings={handleOpenSettings}
+          settingsVisible={!!settingsCmd}
+          gameModeEnabled={gameModeEnabled}
+          onToggleGameMode={onToggleGameMode}
+          navigationTitle={currentStep?.label}
+          navigationIcon={currentStep?.icon}
+        />
+      </div>
     </div>
   )
 }

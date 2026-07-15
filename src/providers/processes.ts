@@ -65,7 +65,7 @@ function killProcessStep(): Step {
     label: 'Kill Process',
     placeholder: 'Search processes to kill...',
     load: async () => (await loadProcessGroups()).map(processGroupToItem),
-    onSelect: async (item) => {
+    onSelect: async item => {
       await killAll((item.data as ProcessGroup).pids)
       return { type: 'done' }
     },

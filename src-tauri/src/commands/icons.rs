@@ -141,7 +141,12 @@ mod win {
                 .ok()?;
             let png = hbitmap_to_png(hbm);
             let _ = DeleteObject(hbm);
-            png.map(|bytes| format!("data:image/png;base64,{}", super::super::fs::base64_encode(&bytes)))
+            png.map(|bytes| {
+                format!(
+                    "data:image/png;base64,{}",
+                    super::super::fs::base64_encode(&bytes)
+                )
+            })
         }
     }
 
@@ -181,11 +186,10 @@ mod win {
             }
 
             let mut target = [0u16; 260];
-            shell_link.GetPath(&mut target, std::ptr::null_mut(), 0).ok()?;
-            let len = target
-                .iter()
-                .position(|&c| c == 0)
-                .unwrap_or(target.len());
+            shell_link
+                .GetPath(&mut target, std::ptr::null_mut(), 0)
+                .ok()?;
+            let len = target.iter().position(|&c| c == 0).unwrap_or(target.len());
             let resolved = String::from_utf16_lossy(&target[..len]);
             if resolved.is_empty() {
                 None
@@ -234,7 +238,12 @@ mod win {
             }
             let png = hicon_to_png(info.hIcon);
             let _ = DestroyIcon(info.hIcon);
-            png.map(|bytes| format!("data:image/png;base64,{}", super::super::fs::base64_encode(&bytes)))
+            png.map(|bytes| {
+                format!(
+                    "data:image/png;base64,{}",
+                    super::super::fs::base64_encode(&bytes)
+                )
+            })
         }
     }
 
@@ -252,7 +261,11 @@ mod win {
 
         let mut bm = BITMAP::default();
         let has_color = !info.hbmColor.is_invalid();
-        let src = if has_color { info.hbmColor } else { info.hbmMask };
+        let src = if has_color {
+            info.hbmColor
+        } else {
+            info.hbmMask
+        };
         let got = GetObjectW(
             src,
             std::mem::size_of::<BITMAP>() as i32,
@@ -515,7 +528,11 @@ mod mac {
             ext
         };
         // Only path-keyed entries carry a meaningful mtime to invalidate on.
-        let mtime = if is_path_key { path_mtime(&lookup_path) } else { 0 };
+        let mtime = if is_path_key {
+            path_mtime(&lookup_path)
+        } else {
+            0
+        };
 
         if let Ok(c) = cache().lock() {
             if let Some(hit) = c.get(&key) {
@@ -526,7 +543,13 @@ mod mac {
         }
         let icon = nsimage_icon_for_path(&lookup_path);
         if let Ok(mut c) = cache().lock() {
-            c.insert(key, Entry { mtime, icon: icon.clone() });
+            c.insert(
+                key,
+                Entry {
+                    mtime,
+                    icon: icon.clone(),
+                },
+            );
         }
         DIRTY.store(true, Ordering::Release);
         icon
@@ -540,8 +563,13 @@ mod mac {
         let c = CString::new(s).ok()?;
         unsafe {
             let cls = AnyClass::get("NSString")?;
-            let ns: *mut objc2::runtime::AnyObject = msg_send![cls, stringWithUTF8String: c.as_ptr()];
-            if ns.is_null() { None } else { Some(ns) }
+            let ns: *mut objc2::runtime::AnyObject =
+                msg_send![cls, stringWithUTF8String: c.as_ptr()];
+            if ns.is_null() {
+                None
+            } else {
+                Some(ns)
+            }
         }
     }
 
@@ -652,9 +680,8 @@ mod mac {
     mod tests {
         #[test]
         fn process_executable_resolves_to_app_bundle() {
-            let executable = std::path::Path::new(
-                "/Applications/Commandeer.app/Contents/MacOS/commandeer",
-            );
+            let executable =
+                std::path::Path::new("/Applications/Commandeer.app/Contents/MacOS/commandeer");
             assert_eq!(
                 super::app_bundle_ancestor(executable),
                 Some(std::path::Path::new("/Applications/Commandeer.app"))
@@ -678,7 +705,9 @@ mod mac {
                 if std::path::Path::new(path).exists() {
                     let icon = super::icon_for_path(path);
                     assert!(
-                        icon.as_deref().unwrap_or("").starts_with("data:image/png;base64,"),
+                        icon.as_deref()
+                            .unwrap_or("")
+                            .starts_with("data:image/png;base64,"),
                         "expected PNG data URL for {path}, got {icon:?}"
                     );
                     found = true;
@@ -698,10 +727,13 @@ mod mac {
         // concern; this unit test guards the cache-key bug deterministically.
         #[test]
         fn distinct_app_cache_entries_and_small_payloads() {
-            let a = ["/System/Applications/Calculator.app", "/Applications/Calculator.app"]
-                .iter()
-                .find(|p| std::path::Path::new(p).exists())
-                .copied();
+            let a = [
+                "/System/Applications/Calculator.app",
+                "/Applications/Calculator.app",
+            ]
+            .iter()
+            .find(|p| std::path::Path::new(p).exists())
+            .copied();
             let b = [
                 "/System/Applications/Utilities/Activity Monitor.app",
                 "/System/Applications/Utilities/Terminal.app",
@@ -716,8 +748,14 @@ mod mac {
             let ib = super::icon_for_path(b).expect("icon for second app");
             let cache = super::cache().lock().expect("icon cache lock");
             assert_ne!(a, b);
-            assert!(cache.contains_key(a), "missing path-keyed cache entry for {a}");
-            assert!(cache.contains_key(b), "missing path-keyed cache entry for {b}");
+            assert!(
+                cache.contains_key(a),
+                "missing path-keyed cache entry for {a}"
+            );
+            assert!(
+                cache.contains_key(b),
+                "missing path-keyed cache entry for {b}"
+            );
             drop(cache);
             for (path, icon) in [(a, &ia), (b, &ib)] {
                 assert!(

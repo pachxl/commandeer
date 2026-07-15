@@ -104,10 +104,9 @@ fn read_firefox_bookmarks(profile_dir: &Path, out: &mut Vec<Bookmark>) {
         return;
     }
 
-    let Ok(conn) = rusqlite::Connection::open_with_flags(
-        &tmp,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    ) else {
+    let Ok(conn) =
+        rusqlite::Connection::open_with_flags(&tmp, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+    else {
         return;
     };
 
@@ -115,7 +114,7 @@ fn read_firefox_bookmarks(profile_dir: &Path, out: &mut Vec<Bookmark>) {
         "SELECT b.title, p.url
          FROM moz_bookmarks b
          JOIN moz_places p ON b.fk = p.id
-         WHERE b.type = 1 AND p.url NOT NULL AND p.url <> ''"
+         WHERE b.type = 1 AND p.url NOT NULL AND p.url <> ''",
     ) {
         Ok(s) => s,
         Err(_) => return,
@@ -154,9 +153,15 @@ fn chromium_browser_paths(home: &Path) -> Vec<(String, PathBuf)> {
     {
         let base = home.join("Library/Application Support");
         browsers.push(("Chrome".to_string(), base.join("Google/Chrome")));
-        browsers.push(("Chrome Canary".to_string(), base.join("Google/Chrome Canary")));
+        browsers.push((
+            "Chrome Canary".to_string(),
+            base.join("Google/Chrome Canary"),
+        ));
         browsers.push(("Edge".to_string(), base.join("Microsoft Edge")));
-        browsers.push(("Brave".to_string(), base.join("BraveSoftware/Brave-Browser")));
+        browsers.push((
+            "Brave".to_string(),
+            base.join("BraveSoftware/Brave-Browser"),
+        ));
         browsers.push(("Arc".to_string(), base.join("Arc/User Data")));
     }
 
@@ -183,9 +188,15 @@ fn chromium_browser_paths(home: &Path) -> Vec<(String, PathBuf)> {
     {
         let base = home.join(".config");
         browsers.push(("Chrome".to_string(), base.join("google-chrome")));
-        browsers.push(("Chrome Canary".to_string(), base.join("google-chrome-canary")));
+        browsers.push((
+            "Chrome Canary".to_string(),
+            base.join("google-chrome-canary"),
+        ));
         browsers.push(("Edge".to_string(), base.join("microsoft-edge")));
-        browsers.push(("Brave".to_string(), base.join("BraveSoftware/Brave-Browser")));
+        browsers.push((
+            "Brave".to_string(),
+            base.join("BraveSoftware/Brave-Browser"),
+        ));
         browsers.push(("Chromium".to_string(), base.join("chromium")));
     }
 
@@ -219,10 +230,7 @@ fn firefox_parent_dir(home: &Path) -> Option<PathBuf> {
 #[tauri::command]
 pub async fn list_bookmarks(app: tauri::AppHandle) -> Result<Vec<Bookmark>, String> {
     tokio::task::spawn_blocking(move || {
-        let home = app
-            .path()
-            .home_dir()
-            .map_err(|e| e.to_string())?;
+        let home = app.path().home_dir().map_err(|e| e.to_string())?;
 
         let mut out: Vec<Bookmark> = Vec::new();
 

@@ -271,10 +271,7 @@ const BUILTIN_STYLES: UIStyle[] = [defaultStyle, onixStyle]
 let appliedStyleKeys: string[] = []
 
 export function applyStyle(name: string | undefined | null) {
-  const style =
-    BUILTIN_STYLES.find(
-      s => s.name.toLowerCase() === (name ?? 'default').toLowerCase(),
-    ) ?? defaultStyle
+  const style = BUILTIN_STYLES.find(s => s.name.toLowerCase() === (name ?? 'default').toLowerCase()) ?? defaultStyle
   const root = document.documentElement
   for (const key of appliedStyleKeys) {
     root.style.removeProperty(key)
@@ -293,9 +290,6 @@ export function getAllStyles(): UIStyle[] {
 }
 
 export function getStyleName(name: string | undefined | null): string {
-  const style =
-    BUILTIN_STYLES.find(
-      s => s.name.toLowerCase() === (name ?? 'default').toLowerCase(),
-    ) ?? defaultStyle
+  const style = BUILTIN_STYLES.find(s => s.name.toLowerCase() === (name ?? 'default').toLowerCase()) ?? defaultStyle
   return style.name
 }

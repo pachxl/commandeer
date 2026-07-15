@@ -138,7 +138,9 @@ mod linux {
                 .filter(|v| !v.is_empty())
                 .unwrap_or(format!("{home}/.local/share"));
             for sub in ["files", "info"] {
-                let dir = std::path::PathBuf::from(&xdg_data_home).join("Trash").join(sub);
+                let dir = std::path::PathBuf::from(&xdg_data_home)
+                    .join("Trash")
+                    .join(sub);
                 let Ok(entries) = std::fs::read_dir(&dir) else {
                     continue;
                 };
@@ -274,9 +276,7 @@ mod win {
                 // privilege if the token doesn't hold it.
                 let err = GetLastError();
                 if err == WIN32_ERROR(ERROR_NOT_ALL_ASSIGNED) {
-                    return Err(
-                        "SeShutdownPrivilege is not held by this process".to_string(),
-                    );
+                    return Err("SeShutdownPrivilege is not held by this process".to_string());
                 }
                 Ok(())
             })();
@@ -288,8 +288,9 @@ mod win {
     pub fn run(action: SystemAction) -> Result<(), String> {
         unsafe {
             match action {
-                SystemAction::Lock => LockWorkStation()
-                    .map_err(|_| last_error_string("LockWorkStation")),
+                SystemAction::Lock => {
+                    LockWorkStation().map_err(|_| last_error_string("LockWorkStation"))
+                }
 
                 SystemAction::Sleep | SystemAction::Hibernate => {
                     enable_shutdown_privilege()?;
@@ -321,10 +322,8 @@ mod win {
                         .map_err(|_| last_error_string("ExitWindowsEx"))
                 }
 
-                SystemAction::Logout => {
-                    ExitWindowsEx(EWX_LOGOFF, SHUTDOWN_REASON(0))
-                        .map_err(|_| last_error_string("ExitWindowsEx"))
-                }
+                SystemAction::Logout => ExitWindowsEx(EWX_LOGOFF, SHUTDOWN_REASON(0))
+                    .map_err(|_| last_error_string("ExitWindowsEx")),
 
                 SystemAction::EmptyTrash => {
                     match SHEmptyRecycleBinW(

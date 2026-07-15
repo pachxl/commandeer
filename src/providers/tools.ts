@@ -13,7 +13,7 @@ function calculatorStep(): Step {
     label: 'Calculator',
     placeholder: 'Type an expression (e.g. 40+2, 100 usd to eur)...',
     isInputStep: true,
-    livePreview: (query) => {
+    livePreview: query => {
       const trimmed = query.trim()
       if (!trimmed) return null
       const r = evaluateCalcQuery(trimmed)
@@ -50,7 +50,7 @@ function timezonesStep(): Step {
     label: 'Time Zone Converter',
     placeholder: 'e.g. 4pm bst to est, 16:30 to tokyo, pst to gmt...',
     isInputStep: true,
-    livePreview: (query) => {
+    livePreview: query => {
       const trimmed = query.trim()
       if (!trimmed) return null
       const r = tryTimeConversion(trimmed)

@@ -6,7 +6,8 @@ import type { PaletteItem, PaletteMetadata } from '../types'
 // Extensions the backend can thumbnail (raw bytes as a data URL)
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|ico)$/i
 // Extensions we can preview as plain text
-const TEXT_EXT = /\.(txt|md|markdown|json|jsonc|js|jsx|ts|tsx|mjs|cjs|html|htm|css|scss|sass|less|xml|yaml|yml|toml|ini|cfg|conf|sh|bash|zsh|fish|ps1|py|rb|go|rs|c|cpp|h|hpp|cs|java|kt|swift|php|sql|log)$/i
+const TEXT_EXT =
+  /\.(txt|md|markdown|json|jsonc|js|jsx|ts|tsx|mjs|cjs|html|htm|css|scss|sass|less|xml|yaml|yml|toml|ini|cfg|conf|sh|bash|zsh|fish|ps1|py|rb|go|rs|c|cpp|h|hpp|cs|java|kt|swift|php|sql|log)$/i
 const MARKDOWN_EXT = /\.(md|markdown)$/i
 
 export function isImagePath(path: string): boolean {
@@ -46,19 +47,13 @@ function metadataRow(label: string, value: string) {
       <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--text-dim)' }}>
         {label}
       </span>
-      <span style={{ fontSize: 12, color: 'var(--text)', wordBreak: 'break-all' }}>
-        {value}
-      </span>
+      <span style={{ fontSize: 12, color: 'var(--text)', wordBreak: 'break-all' }}>{value}</span>
     </div>
   )
 }
 
 function MetadataRows({ metadata }: { metadata: PaletteMetadata[] }) {
-  return (
-    <>
-      {metadata.map(m => metadataRow(m.label, m.value))}
-    </>
-  )
+  return <>{metadata.map(m => metadataRow(m.label, m.value))}</>
 }
 
 interface DetailPaneProps {
@@ -89,23 +84,36 @@ export default function DetailPane({ item }: DetailPaneProps) {
 
     if (isFile && path) {
       fileInfo(path)
-        .then(i => { if (!cancelled) setInfo(i) })
+        .then(i => {
+          if (!cancelled) setInfo(i)
+        })
         .catch(() => {})
     }
 
     if (path && isText) {
       readTextPreview(path)
-        .then(t => { if (!cancelled) setTextPreview(t) })
-        .catch(err => { if (!cancelled) setTextError(String(err)) })
+        .then(t => {
+          if (!cancelled) setTextPreview(t)
+        })
+        .catch(err => {
+          if (!cancelled) setTextError(String(err))
+        })
     }
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [item.id, path, isText, isFile])
 
   const isMarkdown = path ? isMarkdownPath(path) : false
   const title = item.label
-  const hasContent = isImage || isText || item.color || item.fontFamily || item.detailMarkdown
-    || (item.metadata && item.metadata.length > 0)
+  const hasContent =
+    isImage ||
+    isText ||
+    item.color ||
+    item.fontFamily ||
+    item.detailMarkdown ||
+    (item.metadata && item.metadata.length > 0)
   if (!hasContent) return null
 
   return (
@@ -174,15 +182,11 @@ export default function DetailPane({ item }: DetailPaneProps) {
           >
             Aa Bb Cc 123
           </div>
-          <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-            {item.fontFamily}
-          </span>
+          <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{item.fontFamily}</span>
         </div>
       )}
 
-      {item.detailMarkdown && (
-        <MarkdownBlock label="Details" source={item.detailMarkdown} />
-      )}
+      {item.detailMarkdown && <MarkdownBlock label="Details" source={item.detailMarkdown} />}
 
       {isText && textPreview && isMarkdown && (
         // .md/.markdown files render their preview as formatted markdown
@@ -218,26 +222,25 @@ export default function DetailPane({ item }: DetailPaneProps) {
       )}
 
       {isText && textError && (
-        <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>
-          Preview unavailable
-        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>Preview unavailable</div>
       )}
 
-      <div title={title} style={{
-        fontSize: 13,
-        fontFamily: 'var(--font)',
-        color: 'var(--text)',
-        fontWeight: 600,
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-      }}>
+      <div
+        title={title}
+        style={{
+          fontSize: 13,
+          fontFamily: 'var(--font)',
+          color: 'var(--text)',
+          fontWeight: 600,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
         {title}
       </div>
 
-      {item.metadata && item.metadata.length > 0 && (
-        <MetadataRows metadata={item.metadata} />
-      )}
+      {item.metadata && item.metadata.length > 0 && <MetadataRows metadata={item.metadata} />}
 
       {info && (
         <>

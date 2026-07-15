@@ -1,2 +1,9 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Normalize all text files to LF in the repo and on checkout so line endings
+# are identical across Windows / Linux / macOS. (The stored blobs are already
+# LF; this attribute keeps future checkouts LF too.)
+* text=auto eol=lf
+
+# Binary assets — never normalize
+*.png  binary
+*.ico  binary
+*.icns binary

@@ -34,10 +34,7 @@ if (platform === 'darwin') {
   // external tooling (create-dmg) that may not be installed; the .app is the
   // usable artifact anyway.
   run('tauri build --bundles app')
-  copyDir(
-    'src-tauri/target/release/bundle/macos/commandeer.app',
-    'bin/commandeer.app'
-  )
+  copyDir('src-tauri/target/release/bundle/macos/commandeer.app', 'bin/commandeer.app')
 } else if (platform === 'win32') {
   run('tauri build --no-bundle')
   copy('src-tauri/target/release/commandeer.exe', 'bin/commandeer.exe')

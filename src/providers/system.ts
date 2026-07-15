@@ -19,16 +19,52 @@ interface SystemCommand {
 
 const SYSTEM_COMMANDS: SystemCommand[] = [
   { id: 'lock', label: 'Lock Screen', description: 'Lock your computer', icon: 'lock', keywords: ['lock', 'screen'] },
-  { id: 'sleep', label: 'Sleep', description: 'Put your computer to sleep', icon: 'moon', keywords: ['sleep', 'suspend'] },
-  { id: 'hibernate', label: 'Hibernate', description: 'Hibernate your computer', icon: 'snowflake', keywords: ['hibernate'] },
-  { id: 'restart', label: 'Restart', description: 'Restart your computer', icon: 'refresh', keywords: ['restart', 'reboot'],
-    confirm: 'Restart the computer now?' },
-  { id: 'shutdown', label: 'Shut Down', description: 'Shut down your computer', icon: 'power', keywords: ['shutdown', 'power off', 'turn off'],
-    confirm: 'Shut down the computer now?' },
-  { id: 'logout', label: 'Log Out', description: 'Log out of your account', icon: 'logout', keywords: ['logout', 'sign out'],
-    confirm: 'Log out of this session? Unsaved work will be lost.' },
-  { id: 'empty-trash', label: 'Empty Trash', description: `Empty the ${TRASH_NOUN.toLowerCase()}`, icon: 'trash', keywords: ['trash', 'recycle bin', 'empty'],
-    confirm: `Permanently delete everything in the ${TRASH_NOUN}?` },
+  {
+    id: 'sleep',
+    label: 'Sleep',
+    description: 'Put your computer to sleep',
+    icon: 'moon',
+    keywords: ['sleep', 'suspend'],
+  },
+  {
+    id: 'hibernate',
+    label: 'Hibernate',
+    description: 'Hibernate your computer',
+    icon: 'snowflake',
+    keywords: ['hibernate'],
+  },
+  {
+    id: 'restart',
+    label: 'Restart',
+    description: 'Restart your computer',
+    icon: 'refresh',
+    keywords: ['restart', 'reboot'],
+    confirm: 'Restart the computer now?',
+  },
+  {
+    id: 'shutdown',
+    label: 'Shut Down',
+    description: 'Shut down your computer',
+    icon: 'power',
+    keywords: ['shutdown', 'power off', 'turn off'],
+    confirm: 'Shut down the computer now?',
+  },
+  {
+    id: 'logout',
+    label: 'Log Out',
+    description: 'Log out of your account',
+    icon: 'logout',
+    keywords: ['logout', 'sign out'],
+    confirm: 'Log out of this session? Unsaved work will be lost.',
+  },
+  {
+    id: 'empty-trash',
+    label: 'Empty Trash',
+    description: `Empty the ${TRASH_NOUN.toLowerCase()}`,
+    icon: 'trash',
+    keywords: ['trash', 'recycle bin', 'empty'],
+    confirm: `Permanently delete everything in the ${TRASH_NOUN}?`,
+  },
 ]
 
 function confirmStep(sc: SystemCommand): Step {
@@ -60,7 +96,12 @@ function actionCommand(sc: SystemCommand): Command {
   }
   return sc.confirm
     ? { ...base, createRootStep: () => confirmStep(sc) }
-    : { ...base, action: async () => { await systemAction(sc.id) } }
+    : {
+        ...base,
+        action: async () => {
+          await systemAction(sc.id)
+        },
+      }
 }
 
 export const systemProvider: CommandProvider = {
@@ -83,7 +124,9 @@ export const systemProvider: CommandProvider = {
         source: 'system' as const,
         folderName: 'System',
         keywords: ['dark', 'mode', 'appearance', 'theme'],
-        action: async () => { await setDarkMode(true) },
+        action: async () => {
+          await setDarkMode(true)
+        },
       },
       {
         id: 'system:dark-mode-off',
@@ -93,7 +136,9 @@ export const systemProvider: CommandProvider = {
         source: 'system' as const,
         folderName: 'System',
         keywords: ['light', 'mode', 'appearance', 'theme'],
-        action: async () => { await setDarkMode(false) },
+        action: async () => {
+          await setDarkMode(false)
+        },
       },
     ]
   },

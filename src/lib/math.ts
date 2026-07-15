@@ -253,24 +253,42 @@ class Parser {
 
 function applyFunction(name: string, arg: number): number {
   switch (name.toLowerCase()) {
-    case 'abs': return Math.abs(arg)
-    case 'acos': return Math.acos(arg)
-    case 'asin': return Math.asin(arg)
-    case 'atan': return Math.atan(arg)
-    case 'ceil': return Math.ceil(arg)
-    case 'cos': return Math.cos(arg)
-    case 'exp': return Math.exp(arg)
-    case 'floor': return Math.floor(arg)
-    case 'log': return Math.log(arg)
-    case 'log10': return Math.log10(arg)
-    case 'log2': return Math.log2(arg)
-    case 'round': return Math.round(arg)
-    case 'sign': return Math.sign(arg)
-    case 'sin': return Math.sin(arg)
-    case 'sqrt': return Math.sqrt(arg)
-    case 'tan': return Math.tan(arg)
-    case 'trunc': return Math.trunc(arg)
-    default: throw new Error(`Unknown function: ${name}`)
+    case 'abs':
+      return Math.abs(arg)
+    case 'acos':
+      return Math.acos(arg)
+    case 'asin':
+      return Math.asin(arg)
+    case 'atan':
+      return Math.atan(arg)
+    case 'ceil':
+      return Math.ceil(arg)
+    case 'cos':
+      return Math.cos(arg)
+    case 'exp':
+      return Math.exp(arg)
+    case 'floor':
+      return Math.floor(arg)
+    case 'log':
+      return Math.log(arg)
+    case 'log10':
+      return Math.log10(arg)
+    case 'log2':
+      return Math.log2(arg)
+    case 'round':
+      return Math.round(arg)
+    case 'sign':
+      return Math.sign(arg)
+    case 'sin':
+      return Math.sin(arg)
+    case 'sqrt':
+      return Math.sqrt(arg)
+    case 'tan':
+      return Math.tan(arg)
+    case 'trunc':
+      return Math.trunc(arg)
+    default:
+      throw new Error(`Unknown function: ${name}`)
   }
 }
 
@@ -358,9 +376,12 @@ const UNITS: Record<string, { group: string; factor: number }> = {
 }
 
 const TEMP_UNITS: Record<string, string> = {
-  c: 'c', celsius: 'c',
-  f: 'f', fahrenheit: 'f',
-  k: 'k', kelvin: 'k',
+  c: 'c',
+  celsius: 'c',
+  f: 'f',
+  fahrenheit: 'f',
+  k: 'k',
+  kelvin: 'k',
 }
 
 function lookupUnit(raw: string): string | null {
@@ -373,13 +394,8 @@ function lookupUnit(raw: string): string | null {
 }
 
 function convertTemp(value: number, from: string, to: string): number {
-  const kelvin =
-    from === 'c' ? value + 273.15 :
-    from === 'f' ? (value - 32) * 5 / 9 + 273.15 :
-    value
-  return to === 'c' ? kelvin - 273.15 :
-    to === 'f' ? (kelvin - 273.15) * 9 / 5 + 32 :
-    kelvin
+  const kelvin = from === 'c' ? value + 273.15 : from === 'f' ? ((value - 32) * 5) / 9 + 273.15 : value
+  return to === 'c' ? kelvin - 273.15 : to === 'f' ? ((kelvin - 273.15) * 9) / 5 + 32 : kelvin
 }
 
 function tryUnits(input: string): CalcResult | null {
@@ -409,7 +425,7 @@ function tryUnits(input: string): CalcResult | null {
 
 // Currency symbols the calculator understands on either side of a conversion.
 const CURRENCY_SYMBOLS: Record<string, string> = {
-  '$': 'USD',
+  $: 'USD',
   '€': 'EUR',
   '£': 'GBP',
   '¥': 'JPY',
@@ -488,10 +504,15 @@ function parseLooseDate(s: string): Date | null {
 }
 
 const DATE_UNIT_MS: Record<string, number> = {
-  minute: 60_000, min: 60_000,
-  hour: 3_600_000, hr: 3_600_000, h: 3_600_000,
-  day: 86_400_000, d: 86_400_000,
-  week: 604_800_000, w: 604_800_000,
+  minute: 60_000,
+  min: 60_000,
+  hour: 3_600_000,
+  hr: 3_600_000,
+  h: 3_600_000,
+  day: 86_400_000,
+  d: 86_400_000,
+  week: 604_800_000,
+  w: 604_800_000,
 }
 
 function tryDates(input: string): CalcResult | null {
@@ -506,7 +527,10 @@ function tryDates(input: string): CalcResult | null {
     }
   }
 
-  m = /^(now|today|tomorrow)\s*([+-])\s*(\d+(?:\.\d+)?)\s*(minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?)$/i.exec(input)
+  m =
+    /^(now|today|tomorrow)\s*([+-])\s*(\d+(?:\.\d+)?)\s*(minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?)$/i.exec(
+      input,
+    )
   if (m) {
     const base = new Date()
     if (m[1].toLowerCase() === 'tomorrow') base.setDate(base.getDate() + 1)

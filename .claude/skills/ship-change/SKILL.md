@@ -23,14 +23,18 @@ git commit -m "<concise subject>
 
 <why, if not obvious from the diff>
 
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_019MsTTtDpfSGxULhdDeoTCA"
+Co-Authored-By: <assistant name + model> <noreply@anthropic.com>
+<Assistant>-Session: <session URL>"
 git push
 ```
 
 - If on the default branch (`main`), that is fine here — this repo ships from `main`.
 - Match the existing commit-message style: imperative subject, a body explaining the
-  *why* for anything non-obvious. Always include the two footer lines above.
+  _why_ for anything non-obvious.
+- Attribute the change to whichever AI assistant produced it with the two footer
+  lines above — e.g. `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` +
+  `Claude-Session: <url>`, or `Co-Authored-By: Codex Opus 4.8 <noreply@anthropic.com>`
+  - `Codex-Session: <url>`. If you authored the change yourself, omit the footers.
 - If `git push` is rejected (remote moved), `git pull --rebase` then push again.
 
 ## 2. Stop the running process

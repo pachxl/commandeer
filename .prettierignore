@@ -1,0 +1,18 @@
+# Build output & deps
+node_modules/
+dist/
+bin/
+src-tauri/target/
+src-tauri/gen/
+
+# Lockfiles (machine-generated; formatting them just noise)
+bun.lock
+package-lock.json
+yarn.lock
+
+# Husky — the wrappers under .husky/_/ are regenerated locally; the user hook
+# (.husky/pre-commit) is a plain shell command, not JS, so don't format it.
+.husky/
+
+# Minified / vendored
+*.min.*

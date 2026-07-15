@@ -163,7 +163,11 @@ impl ClipboardDb {
             let Some(text) = Self::decrypt_row(&encrypted)? else {
                 continue;
             };
-            items.push(ClipboardItem { id, text, copied_at });
+            items.push(ClipboardItem {
+                id,
+                text,
+                copied_at,
+            });
         }
         Ok(items)
     }
@@ -178,9 +182,7 @@ impl ClipboardDb {
         // (MAX_HISTORY items), so this is cheap and avoids storing plaintext
         // hashes for comparison.
         let mut stmt = tx
-            .prepare(
-                "SELECT id, text, copied_at FROM clipboard_history ORDER BY copied_at DESC",
-            )
+            .prepare("SELECT id, text, copied_at FROM clipboard_history ORDER BY copied_at DESC")
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |row| {

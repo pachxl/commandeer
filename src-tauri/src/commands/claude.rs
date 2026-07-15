@@ -5,7 +5,9 @@ fn credentials_path() -> Result<PathBuf, String> {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .map_err(|_| "could not resolve home directory".to_string())?;
-    Ok(PathBuf::from(home).join(".claude").join(".credentials.json"))
+    Ok(PathBuf::from(home)
+        .join(".claude")
+        .join(".credentials.json"))
 }
 
 /// Claude Code's OAuth credentials JSON (`{"claudeAiOauth":{...}}`), read from
@@ -24,7 +26,12 @@ fn credentials_from_file() -> Result<String, String> {
 #[cfg(target_os = "macos")]
 fn credentials_from_keychain() -> Result<String, String> {
     let output = std::process::Command::new("/usr/bin/security")
-        .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+        .args([
+            "find-generic-password",
+            "-s",
+            "Claude Code-credentials",
+            "-w",
+        ])
         .output()
         .map_err(|e| format!("run security: {e}"))?;
     if !output.status.success() {
@@ -69,8 +76,7 @@ fn read_credentials() -> Result<String, String> {
 #[tauri::command]
 pub async fn claude_usage() -> Result<Value, String> {
     let raw = read_credentials()?;
-    let creds: Value =
-        serde_json::from_str(&raw).map_err(|e| format!("parse credentials: {e}"))?;
+    let creds: Value = serde_json::from_str(&raw).map_err(|e| format!("parse credentials: {e}"))?;
     let token = creds["claudeAiOauth"]["accessToken"]
         .as_str()
         .ok_or("no Claude OAuth access token found")?;

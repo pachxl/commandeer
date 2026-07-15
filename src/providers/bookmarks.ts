@@ -36,10 +36,7 @@ export const bookmarksProvider: CommandProvider = {
     if (!trimmed || trimmed.length < 2) return []
     const bookmarks = await listBookmarks()
     return bookmarks
-      .filter(b =>
-        b.name.toLowerCase().includes(trimmed) ||
-        b.url.toLowerCase().includes(trimmed)
-      )
+      .filter(b => b.name.toLowerCase().includes(trimmed) || b.url.toLowerCase().includes(trimmed))
       .map(bookmarkCommand)
   },
 }

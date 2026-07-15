@@ -84,7 +84,9 @@ export function usePaletteWindowSize(scale: number, baseWidth = DEFAULT_PALETTE_
   useEffect(() => {
     const el = sizeRef.current
     if (!el) return
-    const observer = new ResizeObserver(() => { void applySize() })
+    const observer = new ResizeObserver(() => {
+      void applySize()
+    })
     observer.observe(el)
     let unlisten: (() => void) | undefined
     getCurrentWindow()
@@ -95,8 +97,13 @@ export function usePaletteWindowSize(scale: number, baseWidth = DEFAULT_PALETTE_
           void applySize()
         }
       })
-      .then(fn => { unlisten = fn })
-    return () => { observer.disconnect(); unlisten?.() }
+      .then(fn => {
+        unlisten = fn
+      })
+    return () => {
+      observer.disconnect()
+      unlisten?.()
+    }
   }, [applySize])
 
   return { sizeRef, containerRef }

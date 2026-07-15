@@ -53,11 +53,11 @@ pub(crate) fn snapshot_processes() -> Vec<ProcessInfo> {
 
 #[cfg(target_os = "windows")]
 fn windows_processes() -> Result<Vec<ProcessInfo>, String> {
+    use windows::core::PWSTR;
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::ProcessStatus::{
         EnumProcesses, K32GetModuleBaseNameW, K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
     };
-    use windows::core::PWSTR;
     use windows::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_INFORMATION,
         PROCESS_VM_READ,

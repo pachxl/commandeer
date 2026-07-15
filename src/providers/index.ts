@@ -39,7 +39,7 @@ export async function loadProviderCommands(config: AppConfig): Promise<Command[]
         console.error(`provider ${p.id} getCommands failed:`, err)
         return []
       }
-    })
+    }),
   )
   return results.flat()
 }
@@ -54,7 +54,7 @@ export async function searchAllProviders(query: string, config: AppConfig): Prom
         console.error(`provider ${p.id} search failed:`, err)
         return []
       }
-    })
+    }),
   )
   return results.flat()
 }

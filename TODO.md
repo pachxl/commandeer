@@ -82,7 +82,7 @@ and cached in `OnceLock`s. Someone with a Mac still needs to:
 ### Linux — intentionally unsupported
 
 Wayland isolates clients: an app cannot read or change another app's window
-geometry. This is *by design* and is exactly why a compositor like Hyprland can
+geometry. This is _by design_ and is exactly why a compositor like Hyprland can
 offer move/resize binds — it **is** the compositor. COSMIC already provides the
 gesture natively (Super + drag to move, Super + right-drag to resize floating
 windows), so the Settings entry is hidden on Linux. If X11 support is ever

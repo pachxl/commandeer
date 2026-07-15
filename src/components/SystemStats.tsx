@@ -22,33 +22,44 @@ function StatCell({ label, percent, detail }: { label: string; percent: number |
   const pct = percent === null ? null : Math.min(100, Math.max(0, Math.round(percent)))
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{
-        display: 'flex',
-        alignItems: 'baseline',
-        justifyContent: 'space-between',
-        marginBottom: 4,
-      }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          marginBottom: 4,
+        }}
+      >
         <span style={{ fontSize: 11, color: 'var(--text)' }}>{label}</span>
         <span style={{ fontSize: 10, color: 'var(--text-dim)', fontVariantNumeric: 'tabular-nums' }}>
-          {detail && <><span>{detail}</span><span style={{ opacity: 0.5, margin: '0 4px' }}>·</span></>}
+          {detail && (
+            <>
+              <span>{detail}</span>
+              <span style={{ opacity: 0.5, margin: '0 4px' }}>·</span>
+            </>
+          )}
           <span style={{ color: pct !== null && pct >= 75 ? barColor(pct) : 'var(--text)' }}>
             {pct === null ? '—' : `${pct}%`}
           </span>
         </span>
       </div>
-      <div style={{
-        height: 4,
-        borderRadius: 2,
-        background: 'rgba(255,255,255,0.06)',
-        overflow: 'hidden',
-      }}>
-        <div style={{
-          height: '100%',
-          width: `${pct ?? 0}%`,
+      <div
+        style={{
+          height: 4,
           borderRadius: 2,
-          background: barColor(pct ?? 0),
-          transition: 'width 0.4s ease',
-        }} />
+          background: 'rgba(255,255,255,0.06)',
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            height: '100%',
+            width: `${pct ?? 0}%`,
+            borderRadius: 2,
+            background: barColor(pct ?? 0),
+            transition: 'width 0.4s ease',
+          }}
+        />
       </div>
     </div>
   )
@@ -63,7 +74,11 @@ export default function SystemStatsPanel() {
     let disposed = false
 
     const poll = () => {
-      systemStats().then(s => { if (!disposed) setStats(s) }).catch(console.error)
+      systemStats()
+        .then(s => {
+          if (!disposed) setStats(s)
+        })
+        .catch(console.error)
     }
     const start = () => {
       if (timer !== undefined) return
@@ -77,23 +92,33 @@ export default function SystemStatsPanel() {
 
     start()
     let unlisten: (() => void) | undefined
-    getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      if (focused) start()
-      else stop()
-    }).then(fn => { unlisten = fn })
+    getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        if (focused) start()
+        else stop()
+      })
+      .then(fn => {
+        unlisten = fn
+      })
 
-    return () => { disposed = true; stop(); unlisten?.() }
+    return () => {
+      disposed = true
+      stop()
+      unlisten?.()
+    }
   }, [])
 
   return (
-    <div style={{
-      display: 'flex',
-      gap: 16,
-      padding: '8px 12px 10px',
-      borderTop: '1px solid var(--border)',
-      fontFamily: 'var(--font-ui)',
-      userSelect: 'none',
-    }}>
+    <div
+      style={{
+        display: 'flex',
+        gap: 16,
+        padding: '8px 12px 10px',
+        borderTop: '1px solid var(--border)',
+        fontFamily: 'var(--font-ui)',
+        userSelect: 'none',
+      }}
+    >
       <StatCell label="CPU" percent={stats ? stats.cpu : null} />
       <StatCell
         label="RAM"

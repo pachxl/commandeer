@@ -143,9 +143,7 @@ export default function ClaudeUsage() {
   const inFlightRef = useRef<Promise<void> | null>(null)
 
   const [cache, setCache] = useState<CachedUsage | null>(cacheRef.current)
-  const [loading, setLoading] = useState(
-    !cacheRef.current && Date.now() >= stateRef.current.nextAllowedAt,
-  )
+  const [loading, setLoading] = useState(!cacheRef.current && Date.now() >= stateRef.current.nextAllowedAt)
   const [error, setError] = useState<string | null>(null)
   const [rateLimitedUntil, setRateLimitedUntil] = useState<number>(0)
   const [now, setNow] = useState<number>(Date.now())
@@ -198,9 +196,7 @@ export default function ClaudeUsage() {
           // Rate limited: escalate hard. Wait at least the server's retry-after,
           // and at least double our current interval, so repeated limits ramp
           // the spacing up until we fall under the shared budget.
-          const interval = clampInterval(
-            Math.max(retrySeconds * 1000, stateRef.current.interval * 2),
-          )
+          const interval = clampInterval(Math.max(retrySeconds * 1000, stateRef.current.interval * 2))
           const nextAllowedAt = Date.now() + interval
           stateRef.current = { interval, nextAllowedAt }
           saveState(stateRef.current)
@@ -231,32 +227,46 @@ export default function ClaudeUsage() {
     const unlisten = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
       if (focused) refresh()
     })
-    return () => { unlisten.then(fn => fn()) }
+    return () => {
+      unlisten.then(fn => fn())
+    }
   }, [refresh])
 
   const showRateLimit = rateLimitedUntil > now
   const hasLimits = !!limits && limits.length > 0
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 8,
-      padding: '8px 12px 10px',
-      borderTop: '1px solid var(--border)',
-      fontFamily: 'var(--font-ui)',
-      userSelect: 'none',
-    }}>
-      <div style={{
+    <div
+      style={{
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-      }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: CLAUDE_ORANGE }}>
-          Claude Usage
-        </span>
+        flexDirection: 'column',
+        gap: 8,
+        padding: '8px 12px 10px',
+        borderTop: '1px solid var(--border)',
+        fontFamily: 'var(--font-ui)',
+        userSelect: 'none',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 600, color: CLAUDE_ORANGE }}>Claude Usage</span>
         {loading && (
-          <svg style={{ animation: 'spin 1s linear infinite' }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            style={{ animation: 'spin 1s linear infinite' }}
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M21 12a9 9 0 1 1-6.219-8.56" />
           </svg>
         )}
@@ -271,15 +281,15 @@ export default function ClaudeUsage() {
             const color = barColor(limit)
             return (
               <div key={limit.kind + (limit.scope?.model?.display_name ?? '')}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'baseline',
-                  justifyContent: 'space-between',
-                  marginBottom: 4,
-                }}>
-                  <span style={{ fontSize: 11, color: 'var(--text)' }}>
-                    {limitLabel(limit)}
-                  </span>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    justifyContent: 'space-between',
+                    marginBottom: 4,
+                  }}
+                >
+                  <span style={{ fontSize: 11, color: 'var(--text)' }}>{limitLabel(limit)}</span>
                   <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>
                     <span style={{ color: pct >= 75 ? color : 'var(--text)' }}>{pct}% used</span>
                     <span style={{ opacity: 0.5, margin: '0 4px' }}>·</span>
@@ -288,19 +298,23 @@ export default function ClaudeUsage() {
                     </span>
                   </span>
                 </div>
-                <div style={{
-                  height: 4,
-                  borderRadius: 2,
-                  background: 'rgba(255,255,255,0.06)',
-                  overflow: 'hidden',
-                }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${pct}%`,
+                <div
+                  style={{
+                    height: 4,
                     borderRadius: 2,
-                    background: color,
-                    transition: 'width 0.4s ease',
-                  }} />
+                    background: 'rgba(255,255,255,0.06)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${pct}%`,
+                      borderRadius: 2,
+                      background: color,
+                      transition: 'width 0.4s ease',
+                    }}
+                  />
                 </div>
               </div>
             )
@@ -311,33 +325,39 @@ export default function ClaudeUsage() {
       {/* Backoff countdown — subtle when we still have bars to show, since it's
           just informational; the stale numbers above remain useful. */}
       {showRateLimit && (
-        <div style={{
-          padding: '2px 0',
-          color: 'var(--text-dim)',
-          fontSize: 10,
-        }}>
+        <div
+          style={{
+            padding: '2px 0',
+            color: 'var(--text-dim)',
+            fontSize: 10,
+          }}
+        >
           Rate limited — retrying in {formatDuration(rateLimitedUntil - now)}
         </div>
       )}
 
       {/* Hard error with nothing cached to fall back on. */}
       {error && !showRateLimit && !hasLimits && (
-        <div style={{
-          padding: '4px 0',
-          color: '#f7768e',
-          fontSize: 11,
-          lineHeight: 1.4,
-        }}>
+        <div
+          style={{
+            padding: '4px 0',
+            color: '#f7768e',
+            fontSize: 11,
+            lineHeight: 1.4,
+          }}
+        >
           {error}
         </div>
       )}
 
       {!error && !hasLimits && !loading && !showRateLimit && (
-        <div style={{
-          padding: '4px 0',
-          color: 'var(--text-dim)',
-          fontSize: 11,
-        }}>
+        <div
+          style={{
+            padding: '4px 0',
+            color: 'var(--text-dim)',
+            fontSize: 11,
+          }}
+        >
           No usage data available.
         </div>
       )}

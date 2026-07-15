@@ -2,9 +2,12 @@
 // Stop hook: nudge — but never force — shipping a completed change.
 //
 // Cross-platform (Windows / macOS / Linux): written in Node (always present in
-// this npm/Tauri project) and invoked as `node .claude/hooks/ship-reminder.mjs`,
+// this npm/Tauri project) and invoked as `node .agents/hooks/ship-reminder.mjs`,
 // a command line that parses identically in bash, PowerShell, and cmd. No shell
 // builtins, no $VAR expansion, no bash-isms — so it behaves the same on all three.
+//
+// This hook is shared by both Claude Code and Codex (see .claude/settings.json
+// and .codex/hooks.json); .agents/ is the canonical home for skills + hooks.
 //
 // Design goal (per user): do NOT commit on every stop, and do not treat every
 // changed file as a shippable unit. This hook only *reminds*; the model decides
@@ -17,46 +20,46 @@
 //   - Uncommitted changes present      -> block once, feed a reminder back to
 //                                         the model to judge + ship-or-leave.
 
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 
-let input = "";
+let input = ''
 try {
-  input = readFileSync(0, "utf8");
+  input = readFileSync(0, 'utf8')
 } catch {
-  input = "";
+  input = ''
 }
 
-let payload = {};
+let payload = {}
 try {
-  payload = JSON.parse(input || "{}");
+  payload = JSON.parse(input || '{}')
 } catch {
-  payload = {};
+  payload = {}
 }
 
 // Don't re-fire if this stop was itself triggered by a Stop-hook continuation.
-if (payload.stop_hook_active === true) process.exit(0);
+if (payload.stop_hook_active === true) process.exit(0)
 
 function git(args) {
   // execFileSync (no shell) — argument handling is identical on every OS.
-  return execFileSync("git", args, { encoding: "utf8" });
+  return execFileSync('git', args, { encoding: 'utf8' })
 }
 
 // Only meaningful inside a git work tree.
 try {
-  git(["rev-parse", "--is-inside-work-tree"]);
+  git(['rev-parse', '--is-inside-work-tree'])
 } catch {
-  process.exit(0);
+  process.exit(0)
 }
 
-let changes = "";
+let changes = ''
 try {
-  changes = git(["status", "--short"]).trim();
+  changes = git(['status', '--short']).trim()
 } catch {
-  process.exit(0);
+  process.exit(0)
 }
 
-if (!changes) process.exit(0); // clean tree — nothing to ship, stop normally.
+if (!changes) process.exit(0) // clean tree — nothing to ship, stop normally.
 
 const reason = `You are about to stop with uncommitted changes in the working tree:
 
@@ -72,7 +75,7 @@ Decide whether this represents a COMPLETE, verified feature or bug fix:
     satisfy this check.
 
 Group only the files that belong to the completed change into the commit; leave
-unrelated in-progress edits out of it.`;
+unrelated in-progress edits out of it.`
 
-process.stdout.write(JSON.stringify({ decision: "block", reason }));
-process.exit(0);
+process.stdout.write(JSON.stringify({ decision: 'block', reason }))
+process.exit(0)

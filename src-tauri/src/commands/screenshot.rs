@@ -411,12 +411,7 @@ async fn start_inner(app: &AppHandle, delay_ms: u64) -> Result<(), String> {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-            let pending = app
-                .state::<ScreenshotState>()
-                .0
-                .lock()
-                .unwrap()
-                .is_some();
+            let pending = app.state::<ScreenshotState>().0.lock().unwrap().is_some();
             let visible = app
                 .get_webview_window("screenshot")
                 .and_then(|w| w.is_visible().ok())
@@ -576,12 +571,7 @@ pub async fn finish_screenshot(
     }
 
     let state = app.state::<ScreenshotState>();
-    let capture = state
-        .0
-        .lock()
-        .unwrap()
-        .take()
-        .ok_or("no pending capture")?;
+    let capture = state.0.lock().unwrap().take().ok_or("no pending capture")?;
 
     // Reuse the frame the Alt color picker already decoded, if any.
     let frame = match capture.decoded {

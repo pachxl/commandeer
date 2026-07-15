@@ -1,0 +1,8 @@
+# rustfmt config — stable options only, so `cargo fmt` and the per-file
+# `rustfmt --edition 2021` invoked by lint-staged produce identical output.
+#
+# `edition` is set explicitly because rustfmt defaults to 2015 when run on a
+# single file outside of `cargo fmt`; without this, lint-staged would format
+# 2021 syntax (e.g. `dyn`, async) against the wrong edition.
+edition = "2021"
+max_width = 100

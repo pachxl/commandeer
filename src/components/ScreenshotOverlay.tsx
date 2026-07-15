@@ -56,7 +56,10 @@ const normalize = (d: Drag): Rect => ({
 })
 
 const pathExtent = (path: Point[]): number => {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity
   for (const p of path) {
     minX = Math.min(minX, p.x)
     minY = Math.min(minY, p.y)
@@ -161,29 +164,32 @@ export default function ScreenshotOverlay() {
 
   // With copyColor set (Alt+click pick), the color text is copied instead of
   // the image; the annotated crop is saved to disk either way.
-  const finish = useCallback((copyColor?: string) => {
-    if (!sel || !frame || finishing.current) return
-    // CSS px → frame-image px. The overlay covers exactly the captured
-    // area, so a uniform scale is correct regardless of display scaling.
-    const scaleX = frame.width / window.innerWidth
-    const scaleY = frame.height / window.innerHeight
-    finishing.current = true
-    const region = {
-      x: Math.round(sel.left * scaleX),
-      y: Math.round(sel.top * scaleY),
-      w: Math.max(1, Math.round(sel.width * scaleX)),
-      h: Math.max(1, Math.round(sel.height * scaleY)),
-    }
-    const annotations = paths.map(path => ({
-      points: path.map(p => [p.x * scaleX, p.y * scaleY] as [number, number]),
-      stroke: (STROKE * (scaleX + scaleY)) / 2,
-    }))
-    reset()
-    setFrame(null)
-    void afterClearPaint()
-      .then(() => finishScreenshot(region, annotations, copyColor))
-      .catch(err => console.error('finish_screenshot failed:', err))
-  }, [sel, paths, frame])
+  const finish = useCallback(
+    (copyColor?: string) => {
+      if (!sel || !frame || finishing.current) return
+      // CSS px → frame-image px. The overlay covers exactly the captured
+      // area, so a uniform scale is correct regardless of display scaling.
+      const scaleX = frame.width / window.innerWidth
+      const scaleY = frame.height / window.innerHeight
+      finishing.current = true
+      const region = {
+        x: Math.round(sel.left * scaleX),
+        y: Math.round(sel.top * scaleY),
+        w: Math.max(1, Math.round(sel.width * scaleX)),
+        h: Math.max(1, Math.round(sel.height * scaleY)),
+      }
+      const annotations = paths.map(path => ({
+        points: path.map(p => [p.x * scaleX, p.y * scaleY] as [number, number]),
+        stroke: (STROKE * (scaleX + scaleY)) / 2,
+      }))
+      reset()
+      setFrame(null)
+      void afterClearPaint()
+        .then(() => finishScreenshot(region, annotations, copyColor))
+        .catch(err => console.error('finish_screenshot failed:', err))
+    },
+    [sel, paths, frame],
+  )
 
   // Sample the raw frame pixel under a CSS-px cursor position for the Alt
   // color-pick tooltip. In-flight throttled; the next mousemove resamples.
@@ -200,7 +206,7 @@ export default function ScreenshotOverlay() {
           sampling.current = false
         })
     },
-    [frame]
+    [frame],
   )
 
   useEffect(() => {
@@ -273,14 +279,8 @@ export default function ScreenshotOverlay() {
         // Alt+click color pick: sample the exact click pixel (not the possibly
         // in-flight tooltip value), copy it, and finish without the image copy.
         if (!frame || finishing.current) return
-        const x = Math.min(
-          frame.width - 1,
-          Math.max(0, Math.round(e.clientX * (frame.width / window.innerWidth)))
-        )
-        const y = Math.min(
-          frame.height - 1,
-          Math.max(0, Math.round(e.clientY * (frame.height / window.innerHeight)))
-        )
+        const x = Math.min(frame.width - 1, Math.max(0, Math.round(e.clientX * (frame.width / window.innerWidth))))
+        const y = Math.min(frame.height - 1, Math.max(0, Math.round(e.clientY * (frame.height / window.innerHeight))))
         void pickFrameColor(x, y)
           .then(color => finish(color))
           .catch(err => console.error('pick_frame_color failed:', err))
@@ -288,7 +288,7 @@ export default function ScreenshotOverlay() {
         setLivePath([{ x: e.clientX, y: e.clientY }])
       }
     },
-    [sel, frame, finish]
+    [sel, frame, finish],
   )
 
   const onMouseMove = useCallback(
@@ -312,7 +312,7 @@ export default function ScreenshotOverlay() {
         return [...path, { x: e.clientX, y: e.clientY }]
       })
     },
-    [sel, sampleAt]
+    [sel, sampleAt],
   )
 
   const onMouseUp = useCallback(
@@ -332,7 +332,7 @@ export default function ScreenshotOverlay() {
         setPaths(p => [...p, livePath])
       }
     },
-    [drag, livePath, frame, sel]
+    [drag, livePath, frame, sel],
   )
 
   // The selection box: committed one in the annotate stage, live drag before.

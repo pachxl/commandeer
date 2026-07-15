@@ -17,7 +17,7 @@ const APPS_CACHE_KEY = 'commandeer:apps'
 function loadCachedApps(): AppInfo[] {
   try {
     const raw = localStorage.getItem(APPS_CACHE_KEY)
-    return raw ? JSON.parse(raw) as AppInfo[] : []
+    return raw ? (JSON.parse(raw) as AppInfo[]) : []
   } catch {
     return []
   }

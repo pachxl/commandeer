@@ -330,7 +330,9 @@ fn desktop_for_executable(path: &Path) -> Option<PathBuf> {
                 .filter_map(Result::ok);
             for entry in walker {
                 let desktop_path = entry.path();
-                if desktop_path.extension().and_then(|extension| extension.to_str())
+                if desktop_path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
                     != Some("desktop")
                 {
                     continue;
@@ -422,7 +424,11 @@ pub(crate) fn icon_for_path(path: &str) -> Option<String> {
 /// `Terminal=true`, DBusActivatable, and Flatpak wrappers); when gio is not
 /// installed, falls back to parsing `Exec=` and spawning detached.
 pub(crate) fn launch_desktop_file(path: &Path) -> Result<(), String> {
-    match std::process::Command::new("gio").arg("launch").arg(path).spawn() {
+    match std::process::Command::new("gio")
+        .arg("launch")
+        .arg(path)
+        .spawn()
+    {
         Ok(_) => return Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {} // no gio: fall through
         Err(e) => return Err(format!("gio launch failed: {e}")),
@@ -437,7 +443,8 @@ pub(crate) fn launch_desktop_file(path: &Path) -> Result<(), String> {
     }
     let exec = desktop_entry_value(&content, "Exec")
         .ok_or_else(|| "desktop entry has no Exec line".to_string())?;
-    let args = parse_exec(&exec).ok_or_else(|| "desktop entry has an empty Exec line".to_string())?;
+    let args =
+        parse_exec(&exec).ok_or_else(|| "desktop entry has an empty Exec line".to_string())?;
 
     let mut cmd = std::process::Command::new(&args[0]);
     cmd.args(&args[1..]);

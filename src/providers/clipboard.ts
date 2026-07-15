@@ -36,7 +36,7 @@ function clipboardHistoryStep(): Step {
     label: 'Clipboard History',
     placeholder: 'Select an item to paste...',
     load: async () => loadHistory(),
-    onSelect: async (item) => {
+    onSelect: async item => {
       const clipboardItem = item.data as ClipboardItem
       const pasted = await pasteToPrevious(clipboardItem.text)
       if (!pasted) appEvents.toast?.('Copied — press Ctrl+V to paste', 'success')

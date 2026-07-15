@@ -57,8 +57,29 @@ export function buildFallbackItems(query: string): PaletteItem[] {
   if (!q) return []
   const data = (kind: string) => ({ kind, q }) as unknown
   return [
-    { id: 'fallback:web', label: `Search the web for “${q}”`, icon: 'search', source: 'builtin', data: data('web'), actionLabel: 'Open' },
-    { id: 'fallback:files', label: `Search files for “${q}”`, icon: 'folder', source: 'builtin', data: data('files'), actionLabel: 'Search' },
-    { id: 'fallback:github', label: `Search GitHub for “${q}”`, icon: 'search', source: 'builtin', data: data('github'), actionLabel: 'Open' },
+    {
+      id: 'fallback:web',
+      label: `Search the web for “${q}”`,
+      icon: 'search',
+      source: 'builtin',
+      data: data('web'),
+      actionLabel: 'Open',
+    },
+    {
+      id: 'fallback:files',
+      label: `Search files for “${q}”`,
+      icon: 'folder',
+      source: 'builtin',
+      data: data('files'),
+      actionLabel: 'Search',
+    },
+    {
+      id: 'fallback:github',
+      label: `Search GitHub for “${q}”`,
+      icon: 'search',
+      source: 'builtin',
+      data: data('github'),
+      actionLabel: 'Open',
+    },
   ]
 }

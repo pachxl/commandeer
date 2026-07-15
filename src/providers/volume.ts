@@ -42,8 +42,7 @@ function devicesStep(): Step {
         data: d,
       }))
     },
-    onSelect: async (item): Promise<StepResult> =>
-      ({ type: 'push', step: deviceSliderStep(item.data as AudioDevice) }),
+    onSelect: async (item): Promise<StepResult> => ({ type: 'push', step: deviceSliderStep(item.data as AudioDevice) }),
   }
 }
 

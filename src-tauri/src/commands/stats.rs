@@ -40,8 +40,11 @@ fn cpu_percent() -> f32 {
     use windows::Win32::Foundation::FILETIME;
     use windows::Win32::System::Threading::GetSystemTimes;
 
-    let (mut idle, mut kernel, mut user) =
-        (FILETIME::default(), FILETIME::default(), FILETIME::default());
+    let (mut idle, mut kernel, mut user) = (
+        FILETIME::default(),
+        FILETIME::default(),
+        FILETIME::default(),
+    );
     if unsafe { GetSystemTimes(Some(&mut idle), Some(&mut kernel), Some(&mut user)) }.is_err() {
         return 0.0;
     }
@@ -127,7 +130,13 @@ fn gpu_percent() -> Option<f32> {
         }
         let mut buf = vec![0u8; buf_size as usize];
         let items = buf.as_mut_ptr() as *mut PDH_FMT_COUNTERVALUE_ITEM_W;
-        if PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, &mut buf_size, &mut count, Some(items)) != 0
+        if PdhGetFormattedCounterArrayW(
+            counter,
+            PDH_FMT_DOUBLE,
+            &mut buf_size,
+            &mut count,
+            Some(items),
+        ) != 0
         {
             return None;
         }
@@ -225,7 +234,10 @@ static GPU_SOURCE: Mutex<Option<Option<GpuSource>>> = Mutex::new(None);
 #[cfg(target_os = "linux")]
 fn nvidia_smi_utilization() -> Option<f32> {
     let out = std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"])
+        .args([
+            "--query-gpu=utilization.gpu",
+            "--format=csv,noheader,nounits",
+        ])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -235,7 +247,9 @@ fn nvidia_smi_utilization() -> Option<f32> {
     String::from_utf8_lossy(&out.stdout)
         .lines()
         .filter_map(|l| l.trim().parse::<f32>().ok())
-        .fold(None, |acc: Option<f32>, v| Some(acc.map_or(v, |a| a.max(v))))
+        .fold(None, |acc: Option<f32>, v| {
+            Some(acc.map_or(v, |a| a.max(v)))
+        })
         .map(|v| v.clamp(0.0, 100.0))
 }
 
@@ -299,7 +313,13 @@ pub async fn system_stats() -> SystemStats {
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-    SystemStats { cpu: 0.0, mem_used: 0, mem_total: 0, mem_percent: 0.0, gpu: None }
+    SystemStats {
+        cpu: 0.0,
+        mem_used: 0,
+        mem_total: 0,
+        mem_percent: 0.0,
+        gpu: None,
+    }
 }
 
 #[cfg(all(test, target_os = "macos"))]
@@ -307,7 +327,11 @@ mod tests {
     #[tokio::test]
     async fn smoke_system_stats() {
         let stats = super::system_stats().await;
-        assert!((0.0..=100.0).contains(&stats.cpu), "cpu {} out of range", stats.cpu);
+        assert!(
+            (0.0..=100.0).contains(&stats.cpu),
+            "cpu {} out of range",
+            stats.cpu
+        );
         assert!(stats.mem_total > 0, "mem_total should be positive");
         assert!(stats.mem_used <= stats.mem_total, "mem_used > mem_total");
         assert!(

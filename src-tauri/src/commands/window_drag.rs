@@ -82,26 +82,22 @@ mod platform {
         AttachThreadInput, GetCurrentProcessId, GetCurrentThreadId,
     };
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
-        KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_MENU,
+        GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
+        KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_MENU,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        BeginDeferWindowPos, BringWindowToTop, CallNextHookEx, CreateWindowExW, DeferWindowPos,
-        DefWindowProcW, DestroyWindow, DispatchMessageW, EndDeferWindowPos, GetAncestor,
+        BeginDeferWindowPos, BringWindowToTop, CallNextHookEx, CreateWindowExW, DefWindowProcW,
+        DeferWindowPos, DestroyWindow, DispatchMessageW, EndDeferWindowPos, GetAncestor,
         GetClassNameW, GetCursorPos, GetDesktopWindow, GetForegroundWindow, GetMessageW,
-        GetShellWindow, GetWindowLongW, SetForegroundWindow,
-        GetWindowRect, GetWindowThreadProcessId, IsWindowVisible, IsZoomed, PostThreadMessageW,
-        RegisterClassW, SetTimer, SetWindowPos, SetWindowsHookExW, ShowWindow, TranslateMessage,
-        UnhookWindowsHookEx, UpdateLayeredWindow, WindowFromPoint, GA_ROOT, GWL_STYLE, HHOOK,
-        HWND_TOP, MSG,
-        MSLLHOOKSTRUCT, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
-        SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SW_SHOWNA, ULW_ALPHA,
-        WH_MOUSE_LL,
-        WM_LBUTTONDOWN,
-        WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
-        WS_CAPTION, WS_THICKFRAME,
-        WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
-        WS_POPUP,
+        GetShellWindow, GetWindowLongW, GetWindowRect, GetWindowThreadProcessId, IsWindowVisible,
+        IsZoomed, PostThreadMessageW, RegisterClassW, SetForegroundWindow, SetTimer, SetWindowPos,
+        SetWindowsHookExW, ShowWindow, TranslateMessage, UnhookWindowsHookEx, UpdateLayeredWindow,
+        WindowFromPoint, GA_ROOT, GWL_STYLE, HHOOK, HWND_TOP, MSG, MSLLHOOKSTRUCT,
+        SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+        SWP_NOZORDER, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SW_SHOWNA, ULW_ALPHA, WH_MOUSE_LL,
+        WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
+        WM_TIMER, WNDCLASSW, WS_CAPTION, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+        WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WS_THICKFRAME,
     };
 
     #[derive(Clone, Copy, PartialEq)]
@@ -254,18 +250,14 @@ mod platform {
                 // hMod must reference the module containing the hook proc; our
                 // Rust is linked into the process's main module.
                 let hmod = GetModuleHandleW(None).unwrap_or_default();
-                let hook = match SetWindowsHookExW(
-                    WH_MOUSE_LL,
-                    Some(mouse_proc),
-                    HINSTANCE(hmod.0),
-                    0,
-                ) {
-                    Ok(h) => h,
-                    Err(e) => {
-                        eprintln!("window_drag: SetWindowsHookExW failed: {e}");
-                        return;
-                    }
-                };
+                let hook =
+                    match SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), HINSTANCE(hmod.0), 0) {
+                        Ok(h) => h,
+                        Err(e) => {
+                            eprintln!("window_drag: SetWindowsHookExW failed: {e}");
+                            return;
+                        }
+                    };
                 HOOK.store(hook.0 as isize, Ordering::Relaxed);
                 HOOK_THREAD.store(GetCurrentThreadId(), Ordering::Relaxed);
 
@@ -587,7 +579,15 @@ mod platform {
             && AttachThreadInput(fg_thread, our, BOOL(1)).as_bool();
         let _ = BringWindowToTop(hw);
         let _ = SetForegroundWindow(hw);
-        let _ = SetWindowPos(hw, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        let _ = SetWindowPos(
+            hw,
+            HWND_TOP,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
         if attached {
             let _ = AttachThreadInput(fg_thread, our, BOOL(0));
         }
@@ -674,10 +674,22 @@ mod platform {
         for i in 0..=SAMPLES {
             let t = start + (end - start) * i / SAMPLES;
             let probe = match snap {
-                SnapKind::Right => POINT { x: rect.left - PROBE, y: t },
-                SnapKind::Left => POINT { x: rect.right + PROBE, y: t },
-                SnapKind::Top => POINT { x: t, y: rect.bottom + PROBE },
-                SnapKind::Bottom => POINT { x: t, y: rect.top - PROBE },
+                SnapKind::Right => POINT {
+                    x: rect.left - PROBE,
+                    y: t,
+                },
+                SnapKind::Left => POINT {
+                    x: rect.right + PROBE,
+                    y: t,
+                },
+                SnapKind::Top => POINT {
+                    x: t,
+                    y: rect.bottom + PROBE,
+                },
+                SnapKind::Bottom => POINT {
+                    x: t,
+                    y: rect.top - PROBE,
+                },
                 SnapKind::None => continue,
             };
             let root = GetAncestor(WindowFromPoint(probe), GA_ROOT);
@@ -939,7 +951,7 @@ mod platform {
         let vb = visible_bounds(root).unwrap_or(wr);
         Some(match want {
             SnapKind::Right => vb.left, // occupant on the right; fill our right edge to its left
-            _ => vb.right,             // occupant on the left; fill our left edge to its right
+            _ => vb.right,              // occupant on the left; fill our left edge to its right
         })
     }
 
@@ -1014,7 +1026,7 @@ mod platform {
                 // the switcher window itself.
                 | "XamlExplorerHostIslandWindow" // Win11 Alt+Tab / Task View / Snap
                 | "MultitaskingViewFrame"        // Task View frame
-                | "TaskSwitcherWnd"              // legacy Alt+Tab
+                | "TaskSwitcherWnd" // legacy Alt+Tab
         )
     }
 
@@ -1133,8 +1145,7 @@ mod platform {
         .is_ok();
         // Fall back to GetWindowRect (which refills `r`) when the DWM bounds
         // are unavailable or degenerate.
-        if (dwm_ok && r.right > r.left && r.bottom > r.top) || GetWindowRect(hwnd, &mut r).is_ok()
-        {
+        if (dwm_ok && r.right > r.left && r.bottom > r.top) || GetWindowRect(hwnd, &mut r).is_ok() {
             Some(r)
         } else {
             None
@@ -1191,7 +1202,9 @@ mod platform {
             hide_indicator();
             return;
         };
-        if GetWindowRect(target, &mut wr).is_err() || wr.right - wr.left < 2 || wr.bottom - wr.top < 2
+        if GetWindowRect(target, &mut wr).is_err()
+            || wr.right - wr.left < 2
+            || wr.bottom - wr.top < 2
         {
             hide_indicator();
             return;
@@ -1447,10 +1460,10 @@ mod platform {
     /// pick which of a window's tileable edges a resize grabs.
     fn edge_dist(e: SnapKind, px: i32, py: i32, r: &RECT) -> i32 {
         match e {
-            SnapKind::Right => px - r.left,  // free edge = left
-            SnapKind::Left => r.right - px,  // free edge = right
-            SnapKind::Bottom => py - r.top,  // free edge = top
-            SnapKind::Top => r.bottom - py,  // free edge = bottom
+            SnapKind::Right => px - r.left, // free edge = left
+            SnapKind::Left => r.right - px, // free edge = right
+            SnapKind::Bottom => py - r.top, // free edge = top
+            SnapKind::Top => r.bottom - py, // free edge = bottom
             SnapKind::None => i32::MAX,
         }
     }
@@ -1761,7 +1774,8 @@ mod platform {
                     // (no SWP_ASYNCWINDOWPOS) so they land together this frame.
                     let dflags = SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE;
                     if let Ok(mut hdwp) = BeginDeferWindowPos(1 + neighbor_apply.len() as i32) {
-                        if let Ok(h) = DeferWindowPos(hdwp, hw, HWND::default(), x, y, w, h, dflags) {
+                        if let Ok(h) = DeferWindowPos(hdwp, hw, HWND::default(), x, y, w, h, dflags)
+                        {
                             hdwp = h;
                             for (nh, nx, ny, nw, nhh) in &neighbor_apply {
                                 let nhw = HWND(*nh as *mut _);
@@ -1797,7 +1811,10 @@ mod platform {
                         y,
                         w,
                         h,
-                        SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOSIZE | SWP_NOACTIVATE
+                        SWP_NOZORDER
+                            | SWP_NOOWNERZORDER
+                            | SWP_NOSIZE
+                            | SWP_NOACTIVATE
                             | SWP_ASYNCWINDOWPOS,
                     );
                 } else {
@@ -1998,13 +2015,15 @@ mod platform {
         macro_rules! get {
             ($cell:expr) => {{
                 $cell
-                    .get_or_init(|| CFStr(unsafe {
-                        CFStringCreateWithCString(
-                            kCFAllocatorDefault,
-                            literal.as_ptr() as *const std::os::raw::c_char,
-                            K_CF_STRING_ENCODING_UTF8,
-                        )
-                    }))
+                    .get_or_init(|| {
+                        CFStr(unsafe {
+                            CFStringCreateWithCString(
+                                kCFAllocatorDefault,
+                                literal.as_ptr() as *const std::os::raw::c_char,
+                                K_CF_STRING_ENCODING_UTF8,
+                            )
+                        })
+                    })
                     .0
             }};
         }
@@ -2182,10 +2201,9 @@ mod platform {
                     Mode::Resize
                 };
                 if let Some(win) = window_at(loc.x, loc.y) {
-                    if let (Some(origin), Some(size)) = (
-                        read_point(win, k_position()),
-                        read_size(win, k_size()),
-                    ) {
+                    if let (Some(origin), Some(size)) =
+                        (read_point(win, k_position()), read_size(win, k_size()))
+                    {
                         st.active = true;
                         st.mode = mode;
                         st.window = win as usize;

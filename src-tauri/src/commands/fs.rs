@@ -166,9 +166,13 @@ fn parse_argument(json: &str, index: u8) -> Option<ScriptArgument> {
         secure: Option<bool>,
     }
     let a: ArgJson = serde_json::from_str(json).ok()?;
-    let arg_type = a
-        .arg_type
-        .unwrap_or_else(|| if a.secure.unwrap_or(false) { "password".into() } else { "text".into() });
+    let arg_type = a.arg_type.unwrap_or_else(|| {
+        if a.secure.unwrap_or(false) {
+            "password".into()
+        } else {
+            "text".into()
+        }
+    });
     // `optional` wins; else `optional = !required`; default required → not optional.
     let optional = a.optional.unwrap_or_else(|| !a.required.unwrap_or(true));
     Some(ScriptArgument {
@@ -190,7 +194,9 @@ fn apply_metadata(meta: &mut ScriptMetadata, key: &str, value: &str) {
         "packageName" => meta.package_name = Some(unquote(value).to_string()),
         "author" => meta.author = Some(unquote(value).to_string()),
         "currentDirectoryPath" => meta.current_directory_path = Some(unquote(value).to_string()),
-        "needsConfirmation" => meta.needs_confirmation = unquote(value).eq_ignore_ascii_case("true"),
+        "needsConfirmation" => {
+            meta.needs_confirmation = unquote(value).eq_ignore_ascii_case("true")
+        }
         "keywords" => {
             if let Ok(arr) = serde_json::from_str::<Vec<String>>(unquote(value)) {
                 meta.keywords = arr;
@@ -245,7 +251,11 @@ fn parse_metadata_from_text(head: &str) -> Option<ScriptMetadata> {
         apply_metadata(&mut meta, key, value);
     }
 
-    if found_any { Some(meta) } else { None }
+    if found_any {
+        Some(meta)
+    } else {
+        None
+    }
 }
 
 /// Read the script head and parse `@raycast.*`/`@vicinae.*` directives.
@@ -286,14 +296,16 @@ fn collect_script_files(dir: &Path, folder: Option<String>) -> Vec<ScriptInfo> {
             // Use <stem>.png if it exists; for .code-workspace fall back to vscode.png
             let stem_png = path.with_extension("png");
             let png_path = if ext == "code-workspace" && !stem_png.exists() {
-                path.parent().map(|p| p.join("vscode.png")).unwrap_or(stem_png)
+                path.parent()
+                    .map(|p| p.join("vscode.png"))
+                    .unwrap_or(stem_png)
             } else {
                 stem_png
             };
             let icon = if png_path.exists() {
-                fs::read(&png_path).ok().map(|bytes| {
-                    format!("data:image/png;base64,{}", base64_encode(&bytes))
-                })
+                fs::read(&png_path)
+                    .ok()
+                    .map(|bytes| format!("data:image/png;base64,{}", base64_encode(&bytes)))
             } else {
                 None
             };
@@ -312,7 +324,15 @@ fn collect_script_files(dir: &Path, folder: Option<String>) -> Vec<ScriptInfo> {
             // (.lnk, AppImages) and bare scripts without directives → None.
             let metadata = parse_script_metadata(&path);
 
-            Some(ScriptInfo { name: stem, path: path_str, ext, icon, folder: folder.clone(), is_folder: false, metadata })
+            Some(ScriptInfo {
+                name: stem,
+                path: path_str,
+                ext,
+                icon,
+                folder: folder.clone(),
+                is_folder: false,
+                metadata,
+            })
         })
         .collect()
 }
@@ -349,9 +369,9 @@ pub async fn list_scripts(scripts_dir: String) -> Result<Vec<ScriptInfo>, String
         // Folder icon: look for <FolderName>.png alongside the folder in scripts_dir
         let folder_png = dir.join(format!("{}.png", folder_name));
         let folder_icon = if folder_png.exists() {
-            fs::read(&folder_png).ok().map(|bytes| {
-                format!("data:image/png;base64,{}", base64_encode(&bytes))
-            })
+            fs::read(&folder_png)
+                .ok()
+                .map(|bytes| format!("data:image/png;base64,{}", base64_encode(&bytes)))
         } else {
             None
         };
@@ -509,7 +529,10 @@ ConvertTo-Json -InputObject @($result) -Compress"#,
 
     results
         .into_iter()
-        .filter_map(|r| r.icon.map(|ico| (r.path, format!("data:image/png;base64,{ico}"))))
+        .filter_map(|r| {
+            r.icon
+                .map(|ico| (r.path, format!("data:image/png;base64,{ico}")))
+        })
         .collect()
 }
 
@@ -518,12 +541,28 @@ pub(crate) fn base64_encode(input: &[u8]) -> String {
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
         let b0 = chunk[0] as usize;
-        let b1 = if chunk.len() > 1 { chunk[1] as usize } else { 0 };
-        let b2 = if chunk.len() > 2 { chunk[2] as usize } else { 0 };
+        let b1 = if chunk.len() > 1 {
+            chunk[1] as usize
+        } else {
+            0
+        };
+        let b2 = if chunk.len() > 2 {
+            chunk[2] as usize
+        } else {
+            0
+        };
         out.push(CHARS[b0 >> 2] as char);
         out.push(CHARS[((b0 & 3) << 4) | (b1 >> 4)] as char);
-        out.push(if chunk.len() > 1 { CHARS[((b1 & 0xf) << 2) | (b2 >> 6)] as char } else { '=' });
-        out.push(if chunk.len() > 2 { CHARS[b2 & 0x3f] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            CHARS[((b1 & 0xf) << 2) | (b2 >> 6)] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            CHARS[b2 & 0x3f] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -541,7 +580,8 @@ pub async fn read_text_preview(path: String) -> Result<String, String> {
         if bytes.contains(&0) {
             return Err("Binary file".to_string());
         }
-        let mut text = String::from_utf8_lossy(&bytes[..bytes.len().min(TEXT_PREVIEW_MAX_BYTES)]).to_string();
+        let mut text =
+            String::from_utf8_lossy(&bytes[..bytes.len().min(TEXT_PREVIEW_MAX_BYTES)]).to_string();
         let lines: Vec<&str> = text.lines().collect();
         if lines.len() > TEXT_PREVIEW_MAX_LINES {
             text = lines[..TEXT_PREVIEW_MAX_LINES].join("\n");
@@ -575,7 +615,10 @@ pub async fn run_script(path: String) -> Result<(), String> {
 
         let ps_cmd = if ext == "code-workspace" {
             // Open directly with VS Code; -WindowStyle Hidden suppresses the code.cmd console window
-            format!("Start-Process code -ArgumentList '\"{}\"' -WindowStyle Hidden", escaped)
+            format!(
+                "Start-Process code -ArgumentList '\"{}\"' -WindowStyle Hidden",
+                escaped
+            )
         } else {
             // Everything else: let Windows shell handle via file association
             format!("Start-Process -FilePath '{}' -WindowStyle Hidden", escaped)
@@ -647,7 +690,11 @@ pub async fn run_script(path: String) -> Result<(), String> {
             c
         } else {
             // Fall back to the desktop's default handler for the file type.
-            let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+            let opener = if cfg!(target_os = "macos") {
+                "open"
+            } else {
+                "xdg-open"
+            };
             let mut c = std::process::Command::new(opener);
             c.arg(&path);
             c
@@ -741,11 +788,17 @@ fn capture_script_output(path: &str) -> Result<String, String> {
 }
 
 fn run_and_read_first_line(cmd: &mut std::process::Command) -> Result<String, String> {
-    let out = cmd.output().map_err(|e| format!("Failed to run script: {e}"))?;
+    let out = cmd
+        .output()
+        .map_err(|e| format!("Failed to run script: {e}"))?;
     let stdout = String::from_utf8_lossy(&out.stdout);
     let line = stdout.lines().next().unwrap_or("").trim().to_string();
     if !line.is_empty() {
-        return Ok(if line.len() > 200 { line[..200].to_string() } else { line });
+        return Ok(if line.len() > 200 {
+            line[..200].to_string()
+        } else {
+            line
+        });
     }
     let stderr = String::from_utf8_lossy(&out.stderr);
     let err_line = stderr.lines().next().unwrap_or("").trim();
@@ -900,7 +953,10 @@ mod tests {
         let src = "#!/bin/bash\n# @raycast.schemaVersion 1\n# @raycast.title Git Status\n# @raycast.description Show the working tree status\n# @raycast.icon git\n# @raycast.mode inline\n# @raycast.needsConfirmation true\n# @raycast.packageName dev\n";
         let m = parse_metadata_from_text(src).expect("metadata should be found");
         assert_eq!(m.title.as_deref(), Some("Git Status"));
-        assert_eq!(m.description.as_deref(), Some("Show the working tree status"));
+        assert_eq!(
+            m.description.as_deref(),
+            Some("Show the working tree status")
+        );
         assert_eq!(m.icon_name.as_deref(), Some("git"));
         assert_eq!(m.mode.as_deref(), Some("inline"));
         assert!(m.needs_confirmation);
@@ -925,7 +981,13 @@ mod tests {
         assert_eq!(m.arguments[0].arg_type, "text");
         assert!(!m.arguments[0].optional);
         assert_eq!(m.arguments[1].arg_type, "dropdown");
-        assert_eq!(m.arguments[1].data, vec![("Info".into(), "info".into()), ("Error".into(), "err".into())]);
+        assert_eq!(
+            m.arguments[1].data,
+            vec![
+                ("Info".into(), "info".into()),
+                ("Error".into(), "err".into())
+            ]
+        );
     }
 
     #[test]

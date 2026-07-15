@@ -10,7 +10,7 @@ export function initialState(_config: AppConfig): PaletteState {
     query: '',
     stepStack: [],
     selectionStack: [],
-    itemCache: { '__root__': [] },
+    itemCache: { __root__: [] },
     selectedIndex: 0,
     loading: false,
     error: null,
@@ -35,10 +35,7 @@ export function reducer(state: PaletteState, action: PaletteAction): PaletteStat
         ...state,
         stepStack: [...state.stepStack, action.step],
         // Remember where we were so popping back restores this view
-        selectionStack: [
-          ...state.selectionStack,
-          { query: state.query, selectedIndex: state.selectedIndex },
-        ],
+        selectionStack: [...state.selectionStack, { query: state.query, selectedIndex: state.selectedIndex }],
         query: '',
         selectedIndex: 0,
         loading: false,

@@ -41,7 +41,11 @@ const DEFAULT_SCREENSHOT_HOTKEY: &str = "Insert";
 /// Parse a human-readable shortcut like "Ctrl+Space" or "Alt+Shift+T" into a
 /// Tauri Shortcut. Key names are case-insensitive.
 pub fn parse_shortcut(s: &str) -> Result<Shortcut, String> {
-    let parts: Vec<&str> = s.split('+').map(|p| p.trim()).filter(|p| !p.is_empty()).collect();
+    let parts: Vec<&str> = s
+        .split('+')
+        .map(|p| p.trim())
+        .filter(|p| !p.is_empty())
+        .collect();
     if parts.is_empty() {
         return Err(format!("empty shortcut: {}", s));
     }
@@ -164,9 +168,16 @@ fn read_overrides_sync(app: &AppHandle) -> Result<HashMap<String, CommandOverrid
 
 /// (Re-)register the base palette hotkey from config. If game mode is enabled,
 /// the game hotkey is registered instead.
-pub fn register_base_hotkey(app: &AppHandle, config: &AppConfig, game_mode: bool) -> Result<(), String> {
+pub fn register_base_hotkey(
+    app: &AppHandle,
+    config: &AppConfig,
+    game_mode: bool,
+) -> Result<(), String> {
     let hotkey_str = if game_mode {
-        config.global_hotkey_game.as_deref().unwrap_or(DEFAULT_GAME_HOTKEY)
+        config
+            .global_hotkey_game
+            .as_deref()
+            .unwrap_or(DEFAULT_GAME_HOTKEY)
     } else {
         config.global_hotkey.as_deref().unwrap_or(DEFAULT_HOTKEY)
     };
@@ -239,7 +250,9 @@ pub fn register_command_hotkeys(
     active.commands.clear();
 
     for (id, ov) in overrides {
-        let Some(hotkey_str) = &ov.hotkey else { continue };
+        let Some(hotkey_str) = &ov.hotkey else {
+            continue;
+        };
         let shortcut = parse_shortcut(hotkey_str)?;
 
         // Avoid collisions with the base hotkey.
@@ -254,7 +267,10 @@ pub fn register_command_hotkeys(
                 active.commands.insert(id.clone(), shortcut);
             }
             Err(e) => {
-                eprintln!("Failed to register command hotkey {} for {}: {}", hotkey_str, id, e);
+                eprintln!(
+                    "Failed to register command hotkey {} for {}: {}",
+                    hotkey_str, id, e
+                );
             }
         }
     }
@@ -411,7 +427,11 @@ mod tests {
     fn parses_simple_modifiers() {
         assert_shortcut("Ctrl+Space", Modifiers::CONTROL, Code::Space);
         assert_shortcut("Alt+G", Modifiers::ALT, Code::KeyG);
-        assert_shortcut("Ctrl+Shift+T", Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyT);
+        assert_shortcut(
+            "Ctrl+Shift+T",
+            Modifiers::CONTROL | Modifiers::SHIFT,
+            Code::KeyT,
+        );
     }
 
     #[test]

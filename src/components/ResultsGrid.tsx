@@ -111,54 +111,74 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
             }}
           >
             {hasIconValue && (
-              <div style={{
-                width: 'var(--grid-icon-size)',
-                height: 'var(--grid-icon-size)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                fontSize: 'var(--grid-icon-font-size)',
-                color: selected ? 'var(--grid-cell-selected-fg)' : 'var(--text)',
-              }}>
-                {isDataUrl
-                  ? <img src={item.icon} width="100%" height="100%" style={{ objectFit: 'contain' }} />
-                  : isNamedIcon
-                    ? <div dangerouslySetInnerHTML={{ __html: getIconSvg(item.icon, selected ? 'var(--grid-cell-selected-fg)' : 'var(--text)') ?? '' }} style={{ display: 'flex' }} />
-                    : item.icon
-                }
+              <div
+                style={{
+                  width: 'var(--grid-icon-size)',
+                  height: 'var(--grid-icon-size)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  fontSize: 'var(--grid-icon-font-size)',
+                  color: selected ? 'var(--grid-cell-selected-fg)' : 'var(--text)',
+                }}
+              >
+                {isDataUrl ? (
+                  <img src={item.icon} width="100%" height="100%" style={{ objectFit: 'contain' }} />
+                ) : isNamedIcon ? (
+                  <div
+                    dangerouslySetInnerHTML={{
+                      __html: getIconSvg(item.icon, selected ? 'var(--grid-cell-selected-fg)' : 'var(--text)') ?? '',
+                    }}
+                    style={{ display: 'flex' }}
+                  />
+                ) : (
+                  item.icon
+                )}
               </div>
             )}
-            <span style={{
-              fontSize: 'var(--grid-label-font-size)',
-              fontFamily: item.fontFamily ? `"${item.fontFamily}", var(--font)` : 'var(--font)',
-              color: selected ? 'var(--grid-cell-selected-fg)' : 'var(--text)',
-              fontWeight: 400,
-              textAlign: 'center',
-              lineHeight: '14px',
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              wordBreak: 'break-word',
-            }}>
-              {labelSegments.map((seg, j) => seg.matched
-                ? <span key={j} style={{ fontWeight: 600, color: selected ? 'var(--grid-cell-selected-fg)' : 'var(--accent)' }}>{seg.text}</span>
-                : <span key={j}>{seg.text}</span>
+            <span
+              style={{
+                fontSize: 'var(--grid-label-font-size)',
+                fontFamily: item.fontFamily ? `"${item.fontFamily}", var(--font)` : 'var(--font)',
+                color: selected ? 'var(--grid-cell-selected-fg)' : 'var(--text)',
+                fontWeight: 400,
+                textAlign: 'center',
+                lineHeight: '14px',
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                wordBreak: 'break-word',
+              }}
+            >
+              {labelSegments.map((seg, j) =>
+                seg.matched ? (
+                  <span
+                    key={j}
+                    style={{ fontWeight: 600, color: selected ? 'var(--grid-cell-selected-fg)' : 'var(--accent)' }}
+                  >
+                    {seg.text}
+                  </span>
+                ) : (
+                  <span key={j}>{seg.text}</span>
+                ),
               )}
             </span>
             {item.sublabel && (
-              <span style={{
-                fontSize: 'var(--grid-sublabel-font-size)',
-                fontFamily: 'var(--font-ui)',
-                color: selected ? 'rgba(255,255,255,0.78)' : 'var(--text-dim)',
-                textAlign: 'center',
-                lineHeight: '11px',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                maxWidth: '100%',
-              }}>
+              <span
+                style={{
+                  fontSize: 'var(--grid-sublabel-font-size)',
+                  fontFamily: 'var(--font-ui)',
+                  color: selected ? 'rgba(255,255,255,0.78)' : 'var(--text-dim)',
+                  textAlign: 'center',
+                  lineHeight: '11px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  maxWidth: '100%',
+                }}
+              >
                 {item.sublabel}
               </span>
             )}
