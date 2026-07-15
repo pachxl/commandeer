@@ -52,8 +52,8 @@ fn activate_app(pid: i32) -> Result<(), String> {
     use objc2::msg_send;
     use objc2::runtime::{AnyClass, AnyObject};
     unsafe {
-        let cls = AnyClass::get("NSRunningApplication")
-            .ok_or("NSRunningApplication class not found")?;
+        let cls =
+            AnyClass::get("NSRunningApplication").ok_or("NSRunningApplication class not found")?;
         let target: *mut AnyObject = msg_send![cls, runningApplicationWithProcessIdentifier: pid];
         if target.is_null() {
             return Err(format!("previous app (pid {pid}) is no longer running"));
@@ -160,7 +160,11 @@ pub async fn paste_to_previous(app: tauri::AppHandle, text: String) -> Result<bo
                         ki: KEYBDINPUT {
                             wVk: vk,
                             wScan: 0,
-                            dwFlags: if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) },
+                            dwFlags: if up {
+                                KEYEVENTF_KEYUP
+                            } else {
+                                KEYBD_EVENT_FLAGS(0)
+                            },
                             time: 0,
                             dwExtraInfo: 0,
                         },

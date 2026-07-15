@@ -1,0 +1,29 @@
+{
+  "format_on_save": "on",
+  "tab_size": 2,
+  "hard_tabs": false,
+  "ensure_final_newline_on_save": true,
+  "remove_trailing_whitespace_on_save": true,
+  "languages": {
+    "Rust": {
+      "language_servers": ["rust-analyzer"],
+      "tab_size": 4,
+      "formatter": "language_server"
+    },
+    "TOML": {
+      "tab_size": 4
+    },
+    "TypeScript": {
+      "tab_size": 2,
+      "formatter": "prettier"
+    },
+    "TSX": {
+      "tab_size": 2,
+      "formatter": "prettier"
+    },
+    "JavaScript": {
+      "tab_size": 2,
+      "formatter": "prettier"
+    }
+  }
+}

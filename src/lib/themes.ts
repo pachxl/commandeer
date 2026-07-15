@@ -523,9 +523,7 @@ function parseCssColor(value: string): Rgba | null {
     const n = parseInt(hex[1], 16)
     return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff, 1]
   }
-  const rgb = value.trim().match(
-    /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d*\.?\d+))?\s*\)$/i,
-  )
+  const rgb = value.trim().match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d*\.?\d+))?\s*\)$/i)
   if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3]), Number(rgb[4] ?? 1)]
   return null
 }
@@ -541,9 +539,11 @@ function opaque(theme: Theme, variable: string, fallback: Rgba): Rgba {
 
 function composite(foreground: Rgba, background: Rgba): [number, number, number] {
   const alpha = Math.min(1, Math.max(0, foreground[3]))
-  return [0, 1, 2].map(index =>
-    Math.round(foreground[index] * alpha + background[index] * (1 - alpha)),
-  ) as [number, number, number]
+  return [0, 1, 2].map(index => Math.round(foreground[index] * alpha + background[index] * (1 - alpha))) as [
+    number,
+    number,
+    number,
+  ]
 }
 
 function nativeTheme(theme: Theme): AltTabTheme {

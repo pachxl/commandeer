@@ -19,7 +19,7 @@ fn apps_folder_entries() -> Option<Vec<AppEntry>> {
     use windows::core::w;
     use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_APARTMENTTHREADED};
     use windows::Win32::UI::Shell::{
-        IEnumShellItems, IShellItem, SHCreateItemFromParsingName, BHID_EnumItems, SIGDN,
+        BHID_EnumItems, IEnumShellItems, IShellItem, SHCreateItemFromParsingName, SIGDN,
         SIGDN_NORMALDISPLAY, SIGDN_PARENTRELATIVEPARSING,
     };
 
@@ -179,8 +179,7 @@ mod tests {
         let apps = super::app_entries();
         let procs = crate::commands::process::snapshot_processes();
         let running = super::match_running_apps(&apps, &procs);
-        let known: std::collections::HashSet<&str> =
-            apps.iter().map(|a| a.path.as_str()).collect();
+        let known: std::collections::HashSet<&str> = apps.iter().map(|a| a.path.as_str()).collect();
         assert!(
             running.iter().all(|p| known.contains(p.as_str())),
             "matcher returned a path not in the app list"
@@ -251,9 +250,11 @@ fn match_running_apps(
         .filter(|app| {
             // /Applications/Foo.app  →  a process exe under /Applications/Foo.app/
             let prefix = format!("{}/", app.path);
-            procs
-                .iter()
-                .any(|p| p.exe_path.as_deref().is_some_and(|e| e.starts_with(&prefix)))
+            procs.iter().any(|p| {
+                p.exe_path
+                    .as_deref()
+                    .is_some_and(|e| e.starts_with(&prefix))
+            })
         })
         .map(|app| app.path.clone())
         .collect()
@@ -349,7 +350,10 @@ fn desktop_dir_entries() -> Vec<AppEntry> {
         .filter(|v| !v.is_empty())
         .unwrap_or("/usr/local/share:/usr/share".to_string());
     for d in data_dirs.split(':').filter(|d| !d.is_empty()) {
-        app_dirs.push(PathBuf::from(format!("{}/applications", d.trim_end_matches('/'))));
+        app_dirs.push(PathBuf::from(format!(
+            "{}/applications",
+            d.trim_end_matches('/')
+        )));
     }
 
     let mut seen: HashSet<String> = HashSet::new();
@@ -429,7 +433,10 @@ pub async fn run_app(path: String) -> Result<(), String> {
                 if h.0 as isize > 32 {
                     Ok(())
                 } else {
-                    Err(format!("failed to launch '{}' (code {})", path, h.0 as isize))
+                    Err(format!(
+                        "failed to launch '{}' (code {})",
+                        path, h.0 as isize
+                    ))
                 }
             }
         })

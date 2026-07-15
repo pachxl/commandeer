@@ -32,7 +32,7 @@ const isWebSearchVisible = () => localStorage.getItem(WEB_SEARCH_KEY) !== 'false
 function loadCachedScripts(): ScriptInfo[] {
   try {
     const raw = localStorage.getItem(SCRIPTS_CACHE_KEY)
-    return raw ? JSON.parse(raw) as ScriptInfo[] : []
+    return raw ? (JSON.parse(raw) as ScriptInfo[]) : []
   } catch {
     return []
   }
@@ -43,26 +43,16 @@ export default function App() {
   // Single mutable config object shared with settings steps: they update it
   // in place (Object.assign) so writes stay visible without re-creating commands.
   const configRef = useRef<AppConfig>({ ...EMPTY_CONFIG })
-  const [commands, setCommands] = useState<Command[]>(
-    () => [
-      ...scriptsToCommands(loadCachedScripts()),
-      ...(isWebSearchVisible() ? [webSearchCommand] : []),
-      killProcessCommand,
-      settingsCommand(configRef.current),
-    ]
-  )
-  const [gameModeEnabled, setGameModeEnabled] = useState(
-    () => localStorage.getItem(GAME_MODE_KEY) === 'true'
-  )
-  const [claudeUsageVisible, setClaudeUsageVisible] = useState(
-    () => localStorage.getItem(CLAUDE_USAGE_KEY) === 'true'
-  )
-  const [codexUsageVisible, setCodexUsageVisible] = useState(
-    () => localStorage.getItem(CODEX_USAGE_KEY) === 'true'
-  )
-  const [systemStatsVisible, setSystemStatsVisible] = useState(
-    () => localStorage.getItem(SYSTEM_STATS_KEY) !== 'false'
-  )
+  const [commands, setCommands] = useState<Command[]>(() => [
+    ...scriptsToCommands(loadCachedScripts()),
+    ...(isWebSearchVisible() ? [webSearchCommand] : []),
+    killProcessCommand,
+    settingsCommand(configRef.current),
+  ])
+  const [gameModeEnabled, setGameModeEnabled] = useState(() => localStorage.getItem(GAME_MODE_KEY) === 'true')
+  const [claudeUsageVisible, setClaudeUsageVisible] = useState(() => localStorage.getItem(CLAUDE_USAGE_KEY) === 'true')
+  const [codexUsageVisible, setCodexUsageVisible] = useState(() => localStorage.getItem(CODEX_USAGE_KEY) === 'true')
+  const [systemStatsVisible, setSystemStatsVisible] = useState(() => localStorage.getItem(SYSTEM_STATS_KEY) !== 'false')
   // Palette scale factor (CSS zoom). Seeded from config once it loads; 1.0 =
   // default size. Held in React state so the scale slider updates the palette live.
   const [paletteScale, setPaletteScale] = useState(1)
@@ -188,7 +178,11 @@ export default function App() {
           dismiss()
         }
       })
-      if (disposed) { unlisten?.(); unlistenHotkey?.(); removeDismissListeners?.() }
+      if (disposed) {
+        unlisten?.()
+        unlistenHotkey?.()
+        removeDismissListeners?.()
+      }
     })()
 
     return () => {
@@ -230,7 +224,9 @@ export default function App() {
   }
 
   // Keep the bridge fresh each render so settings commands see current state
-  appEvents.toggleGameMode = () => { void toggleGameMode() }
+  appEvents.toggleGameMode = () => {
+    void toggleGameMode()
+  }
   appEvents.toggleClaudeUsage = toggleClaudeUsage
   appEvents.toggleCodexUsage = toggleCodexUsage
   appEvents.toggleWebSearch = toggleWebSearch
@@ -242,7 +238,9 @@ export default function App() {
   appEvents.isSystemStatsVisible = () => systemStatsVisible
   appEvents.getScale = () => paletteScale
   appEvents.setScale = setPaletteScale
-  appEvents.refreshCommands = () => { void refresh() }
+  appEvents.refreshCommands = () => {
+    void refresh()
+  }
 
   return (
     <Palette

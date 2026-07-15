@@ -17,8 +17,10 @@
 
 #[cfg(target_os = "windows")]
 pub fn encrypt(plaintext: &[u8]) -> Result<Vec<u8>, String> {
-    use windows::Win32::Foundation::{HLOCAL, LocalFree};
-    use windows::Win32::Security::Cryptography::{CryptProtectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN};
+    use windows::Win32::Foundation::{LocalFree, HLOCAL};
+    use windows::Win32::Security::Cryptography::{
+        CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
 
     let blob_in = CRYPT_INTEGER_BLOB {
         cbData: plaintext.len() as u32,
@@ -47,8 +49,10 @@ pub fn encrypt(plaintext: &[u8]) -> Result<Vec<u8>, String> {
 
 #[cfg(target_os = "windows")]
 pub fn decrypt(ciphertext: &[u8]) -> Result<Vec<u8>, String> {
-    use windows::Win32::Foundation::{HLOCAL, LocalFree};
-    use windows::Win32::Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN};
+    use windows::Win32::Foundation::{LocalFree, HLOCAL};
+    use windows::Win32::Security::Cryptography::{
+        CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
 
     let blob_in = CRYPT_INTEGER_BLOB {
         cbData: ciphertext.len() as u32,
@@ -188,8 +192,7 @@ fn generate_key() -> [u8; 32] {
 
 #[cfg(target_os = "linux")]
 fn keyring_key() -> Result<[u8; 32], String> {
-    let entry =
-        keyring::Entry::new("commandeer", "clipboard-key").map_err(|e| e.to_string())?;
+    let entry = keyring::Entry::new("commandeer", "clipboard-key").map_err(|e| e.to_string())?;
     match entry.get_password() {
         Ok(hex) => hex_decode(&hex).ok_or_else(|| "malformed key in keyring".to_string()),
         Err(keyring::Error::NoEntry) => {
@@ -278,7 +281,10 @@ fn file_key() -> Result<[u8; 32], String> {
         .map_err(|e| e.to_string())?;
     f.write_all(&key).map_err(|e| e.to_string())?;
     #[cfg(target_os = "linux")]
-    eprintln!("clipboard: no Secret Service available, using key file at {}", path.display());
+    eprintln!(
+        "clipboard: no Secret Service available, using key file at {}",
+        path.display()
+    );
     Ok(key)
 }
 
@@ -320,8 +326,15 @@ mod tests {
     fn roundtrip_and_marker() {
         let plain = "clipboard row \u{1F980} with unicode".as_bytes();
         let blob = super::encrypt(plain).expect("encrypt");
-        assert!(super::is_encrypted(&blob), "encrypted rows carry the magic marker");
-        assert_ne!(&blob[super::MAGIC.len()..], plain, "must not store plaintext");
+        assert!(
+            super::is_encrypted(&blob),
+            "encrypted rows carry the magic marker"
+        );
+        assert_ne!(
+            &blob[super::MAGIC.len()..],
+            plain,
+            "must not store plaintext"
+        );
         assert_eq!(super::decrypt(&blob).expect("decrypt"), plain);
     }
 

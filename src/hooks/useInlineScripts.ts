@@ -49,9 +49,11 @@ export function useInlineScripts(inlineScripts: InlineScript[]): UseInlineScript
   // don't keep running user scripts in the background.
   useEffect(() => {
     const unlistenPromise = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-        setWindowFocused(focused)
+      setWindowFocused(focused)
     })
-    return () => { void unlistenPromise.then(unlisten => unlisten()) }
+    return () => {
+      void unlistenPromise.then(unlisten => unlisten())
+    }
   }, [])
 
   // Seed + poll each inline script on its @vicinae.refreshTime interval. Only
@@ -62,10 +64,18 @@ export function useInlineScripts(inlineScripts: InlineScript[]): UseInlineScript
     if (!windowFocused) return
     for (const s of inlineScripts) {
       void refreshInline(s.path)
-      const id = window.setInterval(() => { void refreshInline(s.path) }, Math.max(1, s.refreshSeconds) * 1000)
+      const id = window.setInterval(
+        () => {
+          void refreshInline(s.path)
+        },
+        Math.max(1, s.refreshSeconds) * 1000,
+      )
       inlineTimersRef.current.push(id)
     }
-    return () => { inlineTimersRef.current.forEach(clearInterval); inlineTimersRef.current = [] }
+    return () => {
+      inlineTimersRef.current.forEach(clearInterval)
+      inlineTimersRef.current = []
+    }
   }, [inlineScripts, windowFocused, refreshInline])
 
   return { inlineOutputs, refreshInline }

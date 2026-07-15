@@ -1,5 +1,16 @@
 import type { AppConfig, Command, PaletteItem, Step, StepResult } from '../types'
-import { dataDir, getAutostart, openPath, setAutostart, setGlobalHotkey, setPerMonitorAltTab, setScreenshotHotkey, setWindowDrag, setWindowTransparency, writeConfig } from '../lib/tauri'
+import {
+  dataDir,
+  getAutostart,
+  openPath,
+  setAutostart,
+  setGlobalHotkey,
+  setPerMonitorAltTab,
+  setScreenshotHotkey,
+  setWindowDrag,
+  setWindowTransparency,
+  writeConfig,
+} from '../lib/tauri'
 import { appEvents } from '../lib/appEvents'
 import { applyTheme, applyThemeByName, getAllThemes, type Theme } from '../lib/themes'
 import { applyStyle, getAllStyles, getStyleName, type UIStyle } from '../lib/styles'
@@ -178,32 +189,44 @@ function settingsStep(config: AppConfig): Step {
         isFolder: true,
         actionLabel: 'Change',
       },
-      ...(IS_LINUX ? [] : [{
-        id: 'settings:screenshot-hotkey',
-        label: 'Screenshot Hotkey',
-        sublabel: `Current: ${config.screenshot_hotkey || DEFAULT_SCREENSHOT_HOTKEY} — starts region capture`,
-        icon: 'camera',
-        isFolder: true,
-        actionLabel: 'Change',
-      } as PaletteItem]),
-      ...(IS_WINDOWS ? [{
-        id: 'settings:per-monitor-alt-tab',
-        label: 'Per-Monitor Alt+Tab',
-        sublabel: config.per_monitor_alt_tab
-          ? 'On — show windows from the monitor under the cursor only'
-          : 'Off — use the standard Windows switcher',
-        icon: 'window',
-        actionLabel: 'Toggle',
-      } as PaletteItem] : []),
+      ...(IS_LINUX
+        ? []
+        : [
+            {
+              id: 'settings:screenshot-hotkey',
+              label: 'Screenshot Hotkey',
+              sublabel: `Current: ${config.screenshot_hotkey || DEFAULT_SCREENSHOT_HOTKEY} — starts region capture`,
+              icon: 'camera',
+              isFolder: true,
+              actionLabel: 'Change',
+            } as PaletteItem,
+          ]),
+      ...(IS_WINDOWS
+        ? [
+            {
+              id: 'settings:per-monitor-alt-tab',
+              label: 'Per-Monitor Alt+Tab',
+              sublabel: config.per_monitor_alt_tab
+                ? 'On — show windows from the monitor under the cursor only'
+                : 'Off — use the standard Windows switcher',
+              icon: 'window',
+              actionLabel: 'Toggle',
+            } as PaletteItem,
+          ]
+        : []),
       // Alt-drag window management is Windows/macOS only — Wayland forbids a
       // client from moving other apps' windows (COSMIC provides it natively).
-      ...(IS_LINUX ? [] : [{
-        id: 'settings:window-drag',
-        label: 'Alt-Drag Windows',
-        sublabel: `${config.window_drag ? 'On' : 'Off'} — hold Alt to move, Alt + right-drag to resize any window`,
-        icon: 'window',
-        actionLabel: 'Toggle',
-      } as PaletteItem]),
+      ...(IS_LINUX
+        ? []
+        : [
+            {
+              id: 'settings:window-drag',
+              label: 'Alt-Drag Windows',
+              sublabel: `${config.window_drag ? 'On' : 'Off'} — hold Alt to move, Alt + right-drag to resize any window`,
+              icon: 'window',
+              actionLabel: 'Toggle',
+            } as PaletteItem,
+          ]),
       {
         id: 'settings:toggle-claude-usage',
         label: 'Claude Usage Panel',
@@ -354,7 +377,9 @@ function chooseStyleStep(config: AppConfig): Step {
     },
     // Live preview while browsing; onExit re-applies the saved style.
     onHighlight: item => applyStyle((item.data as UIStyle).name),
-    onExit: () => { applyStyle(config.ui_style) },
+    onExit: () => {
+      applyStyle(config.ui_style)
+    },
     onSelect: async (item): Promise<StepResult> => {
       const style = item.data as UIStyle
       applyStyle(style.name)
@@ -438,7 +463,9 @@ function transparencyStep(config: AppConfig): Step {
       persister.schedule({ ...config, transparency })
       await applyTransparency(transparency)
     },
-    onExit: () => { void persister.flush() },
+    onExit: () => {
+      void persister.flush()
+    },
     load: async () => [],
     onSelect: async () => ({ type: 'pop' }),
   }
@@ -468,7 +495,9 @@ function scaleStep(config: AppConfig): Step {
       appEvents.setScale?.(scale)
       persister.schedule({ ...config, palette_scale: scale })
     },
-    onExit: () => { void persister.flush() },
+    onExit: () => {
+      void persister.flush()
+    },
     load: async () => [],
     onSelect: async () => ({ type: 'pop' }),
   }
@@ -479,9 +508,8 @@ function scaleStep(config: AppConfig): Step {
 // and re-registered immediately, including the COSMIC/GNOME managed binding on
 // Linux. An empty commit leaves the binding unchanged.
 function hotkeyStep(config: AppConfig, which: 'toggle' | 'game'): Step {
-  const current = which === 'toggle'
-    ? (config.global_hotkey || DEFAULT_HOTKEY)
-    : (config.global_hotkey_game || DEFAULT_GAME_HOTKEY)
+  const current =
+    which === 'toggle' ? config.global_hotkey || DEFAULT_HOTKEY : config.global_hotkey_game || DEFAULT_GAME_HOTKEY
   const label = which === 'toggle' ? 'Toggle Hotkey' : 'Game Mode Hotkey'
   return {
     id: `settings:${which}-hotkey`,

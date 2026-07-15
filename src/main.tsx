@@ -10,7 +10,5 @@ import ScreenshotOverlay from './components/ScreenshotOverlay'
 const isScreenshotWindow = getCurrentWindow().label === 'screenshot'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    {isScreenshotWindow ? <ScreenshotOverlay /> : <App />}
-  </React.StrictMode>,
+  <React.StrictMode>{isScreenshotWindow ? <ScreenshotOverlay /> : <App />}</React.StrictMode>,
 )

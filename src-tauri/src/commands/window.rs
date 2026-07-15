@@ -1,6 +1,9 @@
 /// Set window transparency (0.0 = fully opaque, 1.0 = fully transparent)
 #[tauri::command]
-pub async fn set_window_transparency(transparency: f64, window: tauri::Window) -> Result<(), String> {
+pub async fn set_window_transparency(
+    transparency: f64,
+    window: tauri::Window,
+) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Foundation::HWND;

@@ -84,16 +84,17 @@ export function usePaletteWindowSize(scale: number, baseWidth = DEFAULT_PALETTE_
   useEffect(() => {
     const el = sizeRef.current
     if (!el) return
-    const observer = new ResizeObserver(() => { void applySize() })
+    const observer = new ResizeObserver(() => {
+      void applySize()
+    })
     observer.observe(el)
-    const unlistenPromise = getCurrentWindow()
-      .onFocusChanged(({ payload: focused }) => {
-        if (focused) {
-          // Force a re-apply even if the height didn't change while hidden
-          lastHeightRef.current = 0
-          void applySize()
-        }
-      })
+    const unlistenPromise = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) {
+        // Force a re-apply even if the height didn't change while hidden
+        lastHeightRef.current = 0
+        void applySize()
+      }
+    })
     return () => {
       observer.disconnect()
       void unlistenPromise.then(unlisten => unlisten())

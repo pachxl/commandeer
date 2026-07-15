@@ -135,8 +135,8 @@ mod everything {
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, FindWindowW,
         MsgWaitForMultipleObjects, PeekMessageW, RegisterClassW, SendMessageTimeoutW,
-        TranslateMessage, HWND_MESSAGE, MSG, PM_REMOVE, QS_ALLINPUT, SMTO_ABORTIFHUNG,
-        SMTO_BLOCK, WINDOW_EX_STYLE, WINDOW_STYLE, WM_COPYDATA, WNDCLASSW,
+        TranslateMessage, HWND_MESSAGE, MSG, PM_REMOVE, QS_ALLINPUT, SMTO_ABORTIFHUNG, SMTO_BLOCK,
+        WINDOW_EX_STYLE, WINDOW_STYLE, WM_COPYDATA, WNDCLASSW,
     };
 
     /// dwData tag Everything echoes back in its reply so we can recognise it.
@@ -236,8 +236,7 @@ mod everything {
     /// Everything is not running or doesn't answer within `timeout`.
     pub fn query(search: &str, max_results: u32, timeout: Duration) -> Option<Vec<FileResult>> {
         unsafe {
-            let target =
-                FindWindowW(w!("EVERYTHING_TASKBAR_NOTIFICATION"), PCWSTR::null()).ok()?;
+            let target = FindWindowW(w!("EVERYTHING_TASKBAR_NOTIFICATION"), PCWSTR::null()).ok()?;
             let hwnd = CreateWindowExW(
                 WINDOW_EX_STYLE(0),
                 reply_class(),
@@ -514,9 +513,15 @@ pub async fn file_info(path: String) -> Result<FileInfo, String> {
             _ => None,
         };
         let thumbnail = match mime {
-            Some(mime) if !meta.is_dir() && meta.len() < 5 * 1024 * 1024 => std::fs::read(p)
-                .ok()
-                .map(|bytes| format!("data:{};base64,{}", mime, crate::commands::fs::base64_encode(&bytes))),
+            Some(mime) if !meta.is_dir() && meta.len() < 5 * 1024 * 1024 => {
+                std::fs::read(p).ok().map(|bytes| {
+                    format!(
+                        "data:{};base64,{}",
+                        mime,
+                        crate::commands::fs::base64_encode(&bytes)
+                    )
+                })
+            }
             _ => None,
         };
 

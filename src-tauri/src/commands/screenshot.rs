@@ -411,12 +411,7 @@ async fn start_inner(app: &AppHandle, delay_ms: u64) -> Result<(), String> {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-            let pending = app
-                .state::<ScreenshotState>()
-                .0
-                .lock()
-                .unwrap()
-                .is_some();
+            let pending = app.state::<ScreenshotState>().0.lock().unwrap().is_some();
             let visible = app
                 .get_webview_window("screenshot")
                 .and_then(|w| w.is_visible().ok())

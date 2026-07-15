@@ -287,9 +287,7 @@ mod linux {
                 // "Volume: front-left: 26214 /  40% / ..." — first percentage.
                 let out = run("pactl", &["get-sink-volume", id])?;
                 out.split('/')
-                    .find_map(|part| {
-                        part.trim().strip_suffix('%')?.trim().parse::<f32>().ok()
-                    })
+                    .find_map(|part| part.trim().strip_suffix('%')?.trim().parse::<f32>().ok())
                     .map(|pct| (pct / 100.0).clamp(0.0, 1.0))
                     .ok_or_else(|| format!("unexpected pactl output: {out}"))
             }
@@ -300,9 +298,7 @@ mod linux {
         let backend = backend()?;
         let id = id.unwrap_or(default_id(backend));
         match backend {
-            Backend::Wpctl => {
-                run("wpctl", &["set-volume", id, &format!("{level:.2}")]).map(|_| ())
-            }
+            Backend::Wpctl => run("wpctl", &["set-volume", id, &format!("{level:.2}")]).map(|_| ()),
             Backend::Pactl => {
                 let pct = (level * 100.0).round() as u32;
                 run("pactl", &["set-sink-volume", id, &format!("{pct}%")]).map(|_| ())
@@ -387,7 +383,10 @@ mod mac {
         let bytes = (status as u32).to_be_bytes();
         let printable = bytes.iter().all(|byte| byte.is_ascii_graphic());
         if printable {
-            format!("CoreAudio {action} failed: '{}' ({status})", String::from_utf8_lossy(&bytes))
+            format!(
+                "CoreAudio {action} failed: '{}' ({status})",
+                String::from_utf8_lossy(&bytes)
+            )
         } else {
             format!("CoreAudio {action} failed: {status}")
         }
@@ -409,7 +408,11 @@ mod mac {
                 (&mut value as *mut T).cast(),
             )
         };
-        if status == 0 { Ok(value) } else { Err(status) }
+        if status == 0 {
+            Ok(value)
+        } else {
+            Err(status)
+        }
     }
 
     fn set_property<T>(
@@ -427,7 +430,11 @@ mod mac {
                 (value as *const T).cast(),
             )
         };
-        if status == 0 { Ok(()) } else { Err(status) }
+        if status == 0 {
+            Ok(())
+        } else {
+            Err(status)
+        }
     }
 
     fn default_output() -> Result<AudioObjectId, String> {
@@ -445,10 +452,9 @@ mod mac {
 
     fn read_volume(device: AudioObjectId) -> Result<f32, String> {
         for selector in [VIRTUAL_MAIN_VOLUME, VOLUME_SCALAR] {
-            if let Ok(value) = get_property::<f32>(
-                device,
-                &address(selector, SCOPE_OUTPUT, ELEMENT_MAIN),
-            ) {
+            if let Ok(value) =
+                get_property::<f32>(device, &address(selector, SCOPE_OUTPUT, ELEMENT_MAIN))
+            {
                 return Ok(value.clamp(0.0, 1.0));
             }
         }
@@ -471,7 +477,11 @@ mod mac {
         let level = level.clamp(0.0, 1.0);
         let mut last_status = None;
         for selector in [VIRTUAL_MAIN_VOLUME, VOLUME_SCALAR] {
-            match set_property(device, &address(selector, SCOPE_OUTPUT, ELEMENT_MAIN), &level) {
+            match set_property(
+                device,
+                &address(selector, SCOPE_OUTPUT, ELEMENT_MAIN),
+                &level,
+            ) {
                 Ok(()) => return Ok(()),
                 Err(status) => last_status = Some(status),
             }
@@ -479,7 +489,13 @@ mod mac {
 
         let mut wrote_channel = false;
         for element in [1, 2] {
-            if set_property(device, &address(VOLUME_SCALAR, SCOPE_OUTPUT, element), &level).is_ok() {
+            if set_property(
+                device,
+                &address(VOLUME_SCALAR, SCOPE_OUTPUT, element),
+                &level,
+            )
+            .is_ok()
+            {
                 wrote_channel = true;
             }
         }

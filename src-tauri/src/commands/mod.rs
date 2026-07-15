@@ -17,12 +17,12 @@ pub mod icons;
 pub mod launcher;
 #[cfg(target_os = "linux")]
 pub mod linux_shortcuts;
+pub mod paste;
 pub mod process;
 pub mod rates;
 pub mod screenshot;
 pub mod search;
 pub mod shortcuts;
-pub mod paste;
 pub mod stats;
 pub mod store;
 pub mod system;

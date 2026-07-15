@@ -17,7 +17,11 @@
 /// Modifier names are normalised to the COSMIC/GNOME capitalisation
 /// (Ctrl, Alt, Shift, Super). Returns None if the string is empty.
 fn parse_binding(s: &str) -> Option<(Vec<&'static str>, String)> {
-    let parts: Vec<&str> = s.split('+').map(|p| p.trim()).filter(|p| !p.is_empty()).collect();
+    let parts: Vec<&str> = s
+        .split('+')
+        .map(|p| p.trim())
+        .filter(|p| !p.is_empty())
+        .collect();
     if parts.is_empty() {
         return None;
     }
@@ -77,8 +81,8 @@ fn update_cosmic_shortcut(hotkey: &str) {
         Some(h) => h,
         None => return,
     };
-    let dir = std::path::Path::new(&home)
-        .join(".config/cosmic/com.system76.CosmicSettings.Shortcuts/v1");
+    let dir =
+        std::path::Path::new(&home).join(".config/cosmic/com.system76.CosmicSettings.Shortcuts/v1");
     let file = dir.join("custom");
 
     let exe = match std::env::current_exe() {
@@ -209,6 +213,10 @@ fn update_gnome_shortcuts(hotkey: &str) {
 
     let shot_schema = format!("{ENTRY_SCHEMA}:{SCREENSHOT_PATH}");
     gsettings_set(&shot_schema, "name", "Commandeer Screenshot");
-    gsettings_set(&shot_schema, "command", &format!("{exe} commandeer://screenshot"));
+    gsettings_set(
+        &shot_schema,
+        "command",
+        &format!("{exe} commandeer://screenshot"),
+    );
     gsettings_set(&shot_schema, "binding", "Print");
 }

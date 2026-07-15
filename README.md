@@ -1,6 +1,6 @@
 # Commandeer
 
-this was made with like 10 different models (gpt 5.6 sol, fable 5, opus 4.7 and 4.8, kimi 2.6 and 2.7, deepseek-v4-pro *maybe*, some cursor stuff too idk).
+this was made with like 10 different models (gpt 5.6 sol, fable 5, opus 4.7 and 4.8, kimi 2.6 and 2.7, deepseek-v4-pro _maybe_, some cursor stuff too idk).
 
 we have not looked at a single line of code nor do we understand how it works at all which is always good.
 
@@ -13,12 +13,13 @@ oh it also has a quick access "commands" folder where you can put shortcuts and 
 and it has a screenshot tool but i forgot what the default key is (most of the keybinds are configurable through the settings page) it might be insert or prntsc?
 
 ## Contributing
-if you have any ideas just add them and make a pr or do it in ur own fork who cares
 
+if you have any ideas just add them and make a pr or do it in ur own fork who cares
 
 The project is under active development. Platform integrations differ where the operating systems require it, especially for global shortcuts, window management, screenshots, and application discovery.
 
 ## Highlights
+
 - Launch installed applications and user scripts.
 - Search files locally with a self-hosted SQLite/FTS5 index.
 - Search browser bookmarks, notes, quick links, and clipboard history.
@@ -32,11 +33,11 @@ Clipboard history is encrypted at rest on every supported platform.
 
 ## Platform notes
 
-| Platform | Palette shortcut | Notable behavior |
-| --- | --- | --- |
-| Windows | Configurable | Full Alt-drag window moving/resizing and snapping; screenshot hotkey defaults to `Insert`. |
-| Linux | `Ctrl+Space` by default on COSMIC | Uses a Wayland layer-shell palette. Re-launching the binary is a reliable palette toggle when global X11-style grabs are unavailable. Alt-drag is left to the compositor. |
-| macOS | `Cmd+Shift+Space` by default | Runs as an Accessory app. Screenshot and paste features require Screen Recording and Accessibility permission respectively. |
+| Platform | Palette shortcut                  | Notable behavior                                                                                                                                                          |
+| -------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows  | Configurable                      | Full Alt-drag window moving/resizing and snapping; screenshot hotkey defaults to `Insert`.                                                                                |
+| Linux    | `Ctrl+Space` by default on COSMIC | Uses a Wayland layer-shell palette. Re-launching the binary is a reliable palette toggle when global X11-style grabs are unavailable. Alt-drag is left to the compositor. |
+| macOS    | `Cmd+Shift+Space` by default      | Runs as an Accessory app. Screenshot and paste features require Screen Recording and Accessibility permission respectively.                                               |
 
 macOS system actions and Finder-aware search may also cause one-time Automation permission prompts. Some platform-specific behavior can only be fully verified on that operating system.
 

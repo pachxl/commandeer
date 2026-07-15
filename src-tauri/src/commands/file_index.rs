@@ -207,16 +207,10 @@ impl FileIndex {
             .optional()
             .map_err(|e| e.to_string())?;
         if let Some(rowid) = rowid {
-            conn.execute(
-                "DELETE FROM path_idx WHERE rowid = ?",
-                [rowid],
-            )
-            .map_err(|e| e.to_string())?;
-            conn.execute(
-                "DELETE FROM indexed_file WHERE rowid = ?",
-                [rowid],
-            )
-            .map_err(|e| e.to_string())?;
+            conn.execute("DELETE FROM path_idx WHERE rowid = ?", [rowid])
+                .map_err(|e| e.to_string())?;
+            conn.execute("DELETE FROM indexed_file WHERE rowid = ?", [rowid])
+                .map_err(|e| e.to_string())?;
         }
         Ok(())
     }
@@ -239,11 +233,8 @@ impl FileIndex {
             conn.execute("DELETE FROM indexed_file WHERE rowid = ?", [rowid])
                 .map_err(|e| e.to_string())?;
         } else {
-            conn.execute(
-                "INSERT INTO path_idx(path) VALUES (?)",
-                [path],
-            )
-            .map_err(|e| e.to_string())?;
+            conn.execute("INSERT INTO path_idx(path) VALUES (?)", [path])
+                .map_err(|e| e.to_string())?;
             let rowid = conn.last_insert_rowid();
             conn.execute(
                 "INSERT INTO indexed_file(rowid, path, modified, size) VALUES (?, ?, ?, ?)",
@@ -412,7 +403,9 @@ fn scan_index(index: &FileIndex, roots: &[PathBuf]) -> Result<usize, String> {
     // Gather current indexed paths so we can detect deletions.
     let existing: HashSet<String> = {
         let conn = index.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT path FROM indexed_file").map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare("SELECT path FROM indexed_file")
+            .map_err(|e| e.to_string())?;
         let rows: Vec<String> = stmt
             .query_map([], |row| row.get::<_, String>(0))
             .map_err(|e| e.to_string())?
@@ -713,7 +706,10 @@ mod tests {
 
         // First population (all INSERTs).
         flush_batch(&index, &batch).unwrap();
-        assert_eq!(paths(&index.search("report", 10).unwrap()), vec!["home/user/report.txt"]);
+        assert_eq!(
+            paths(&index.search("report", 10).unwrap()),
+            vec!["home/user/report.txt"]
+        );
 
         // Re-scan with identical data: this is the exact path that errored on a
         // contentless table. Must succeed and not duplicate rows.
@@ -749,8 +745,10 @@ mod tests {
         let index = mem_index();
         flush_batch(
             &index,
-            &[("home/user/downloads/report.pdf".to_string(), 1, 1),
-                ("home/user/desktop/notes.txt".to_string(), 2, 2)],
+            &[
+                ("home/user/downloads/report.pdf".to_string(), 1, 1),
+                ("home/user/desktop/notes.txt".to_string(), 2, 2),
+            ],
         )
         .unwrap();
 
@@ -775,8 +773,10 @@ mod tests {
         let index = mem_index();
         flush_batch(
             &index,
-            &[("home/user/go.txt".to_string(), 1, 1),
-                ("home/user/rust.rs".to_string(), 2, 2)],
+            &[
+                ("home/user/go.txt".to_string(), 1, 1),
+                ("home/user/rust.rs".to_string(), 2, 2),
+            ],
         )
         .unwrap();
 
@@ -798,8 +798,10 @@ mod tests {
         let index = mem_index();
         flush_batch(
             &index,
-            &[("home/user/downloads/readme.md".to_string(), 1, 1),
-                ("home/user/downloads/photo.png".to_string(), 2, 2)],
+            &[
+                ("home/user/downloads/readme.md".to_string(), 1, 1),
+                ("home/user/downloads/photo.png".to_string(), 2, 2),
+            ],
         )
         .unwrap();
 
@@ -822,8 +824,10 @@ mod tests {
         let index = mem_index();
         flush_batch(
             &index,
-            &[("home/user/a_b.txt".to_string(), 1, 1),
-                ("home/user/axb.txt".to_string(), 2, 2)],
+            &[
+                ("home/user/a_b.txt".to_string(), 1, 1),
+                ("home/user/axb.txt".to_string(), 2, 2),
+            ],
         )
         .unwrap();
 

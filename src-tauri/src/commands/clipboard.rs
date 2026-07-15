@@ -69,8 +69,8 @@ fn pasteboard_change_count() -> Option<isize> {
 
 #[cfg(target_os = "windows")]
 mod win_monitor {
-    use std::cell::RefCell;
     use super::ClipboardDb;
+    use std::cell::RefCell;
 
     pub struct MonitorState {
         pub app: tauri::AppHandle,
@@ -96,7 +96,12 @@ mod win_monitor {
         if msg == WM_CLIPBOARDUPDATE {
             STATE.with(|s| {
                 if let Some(state) = s.borrow_mut().as_mut() {
-                    super::record_current(&state.app, &mut state.clipboard, &mut state.last_text, &state.db);
+                    super::record_current(
+                        &state.app,
+                        &mut state.clipboard,
+                        &mut state.last_text,
+                        &state.db,
+                    );
                 }
             });
             return LRESULT(0);

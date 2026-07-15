@@ -69,10 +69,26 @@ fn default_quicklinks() -> Vec<Quicklink> {
         icon: None,
     };
     vec![
-        seed("seed-google", "Search Google", "https://www.google.com/search?q={query}"),
-        seed("seed-youtube", "Search YouTube", "https://www.youtube.com/results?search_query={query}"),
-        seed("seed-github", "Search GitHub", "https://github.com/search?q={query}"),
-        seed("seed-wikipedia", "Search Wikipedia", "https://en.wikipedia.org/wiki/Special:Search?search={query}"),
+        seed(
+            "seed-google",
+            "Search Google",
+            "https://www.google.com/search?q={query}",
+        ),
+        seed(
+            "seed-youtube",
+            "Search YouTube",
+            "https://www.youtube.com/results?search_query={query}",
+        ),
+        seed(
+            "seed-github",
+            "Search GitHub",
+            "https://github.com/search?q={query}",
+        ),
+        seed(
+            "seed-wikipedia",
+            "Search Wikipedia",
+            "https://en.wikipedia.org/wiki/Special:Search?search={query}",
+        ),
     ]
 }
 

@@ -101,16 +101,18 @@ export async function loadNoteCommands(): Promise<Command[]> {
       createRootStep: addNoteStep,
     },
     ...(notes.length > 0
-      ? [{
-          id: 'note:remove',
-          label: 'Remove Note',
-          description: 'Delete a saved note',
-          icon: 'trash',
-          folderName: 'Notes',
-          keywords: ['note', 'remove', 'delete'],
-          actionLabel: 'Open',
-          createRootStep: removeNoteStep,
-        } satisfies Command]
+      ? [
+          {
+            id: 'note:remove',
+            label: 'Remove Note',
+            description: 'Delete a saved note',
+            icon: 'trash',
+            folderName: 'Notes',
+            keywords: ['note', 'remove', 'delete'],
+            actionLabel: 'Open',
+            createRootStep: removeNoteStep,
+          } satisfies Command,
+        ]
       : []),
     ...notes.map(noteCommand),
   ]

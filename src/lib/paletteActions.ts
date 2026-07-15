@@ -10,9 +10,22 @@ import type { Dispatch, MutableRefObject } from 'react'
 import { setOverride, invalidateOverridesCache } from './overrides'
 import { appEvents } from './appEvents'
 import {
-  IS_LINUX, IS_MAC, openPath, openUrl, pasteToPrevious, readQuicklinks, readNotes,
-  revealPath, setCommandHotkey, writeClipboardText, writeQuicklinks, writeNotes,
-  type Bookmark, type ClipboardItem, type Note, type Quicklink,
+  IS_LINUX,
+  IS_MAC,
+  openPath,
+  openUrl,
+  pasteToPrevious,
+  readQuicklinks,
+  readNotes,
+  revealPath,
+  setCommandHotkey,
+  writeClipboardText,
+  writeQuicklinks,
+  writeNotes,
+  type Bookmark,
+  type ClipboardItem,
+  type Note,
+  type Quicklink,
 } from './tauri'
 import type { Overrides } from './paletteRanking'
 import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem } from '../types'
@@ -37,8 +50,19 @@ export interface ActionContext {
 }
 
 export function buildItemActions(item: PaletteItem, ctx: ActionContext): ActionItem[] {
-  const { dispatch, configRef, commandsRef, overridesRef, handleSelectRef, reloadStepRef,
-    resolveCommand, toast, showHud, requestConfirm, refreshOverrides } = ctx
+  const {
+    dispatch,
+    configRef,
+    commandsRef,
+    overridesRef,
+    handleSelectRef,
+    reloadStepRef,
+    resolveCommand,
+    toast,
+    showHud,
+    requestConfirm,
+    refreshOverrides,
+  } = ctx
   const actions: ActionItem[] = []
   const cmd = resolveCommand(item.id)
 
@@ -79,10 +103,16 @@ export function buildItemActions(item: PaletteItem, ctx: ActionContext): ActionI
     case 'file': {
       const filePath = item.data as string
       // Path parts for the Copy… submenu (POSIX + Windows separators)
-      const base = filePath.replace(/[/\\]+$/, '').split(/[/\\]/).pop() ?? filePath
+      const base =
+        filePath
+          .replace(/[/\\]+$/, '')
+          .split(/[/\\]/)
+          .pop() ?? filePath
       const dir = filePath.slice(0, filePath.length - base.length).replace(/[/\\]+$/, '') || filePath
       const copyLeaf = (id: string, label: string, value: string): ActionItem => ({
-        id, label, icon: 'copy',
+        id,
+        label,
+        icon: 'copy',
         handler: async () => {
           await navigator.clipboard.writeText(value)
           showHud('Copied to clipboard', 'copy')
@@ -92,14 +122,20 @@ export function buildItemActions(item: PaletteItem, ctx: ActionContext): ActionI
         id: 'open',
         label: 'Open file',
         shortcut: '↵',
-        handler: async () => { await openPath(filePath); await getCurrentWindow().hide() },
+        handler: async () => {
+          await openPath(filePath)
+          await getCurrentWindow().hide()
+        },
       })
       actions.push({
         id: 'reveal',
         label: IS_MAC ? 'Reveal in Finder' : IS_LINUX ? 'Reveal in File Manager' : 'Reveal in File Explorer',
         shortcut: 'R',
         icon: 'folder',
-        handler: async () => { await revealPath(filePath); await getCurrentWindow().hide() },
+        handler: async () => {
+          await revealPath(filePath)
+          await getCurrentWindow().hide()
+        },
       })
       actions.push({
         id: 'copy',
@@ -214,7 +250,10 @@ export function buildItemActions(item: PaletteItem, ctx: ActionContext): ActionI
         id: 'open',
         label: 'Open in browser',
         shortcut: '↵',
-        handler: async () => { await openUrl(b.url); await getCurrentWindow().hide() },
+        handler: async () => {
+          await openUrl(b.url)
+          await getCurrentWindow().hide()
+        },
       })
       pushCopy('Copy URL', b.url, 'C')
       break
@@ -263,7 +302,7 @@ export function buildItemActions(item: PaletteItem, ctx: ActionContext): ActionI
             placeholder: 'Type an alias (leave empty to clear)…',
             isInputStep: true,
             onSelect: async () => ({ type: 'done' }),
-            onCommitQuery: async (query) => {
+            onCommitQuery: async query => {
               await setOverride(item.id, { alias: query.trim() || undefined })
               await refreshOverrides()
               return { type: 'pop' }
@@ -285,7 +324,7 @@ export function buildItemActions(item: PaletteItem, ctx: ActionContext): ActionI
             placeholder: 'e.g. Ctrl+Alt+L (leave empty to clear)…',
             isInputStep: true,
             onSelect: async () => ({ type: 'done' }),
-            onCommitQuery: async (query) => {
+            onCommitQuery: async query => {
               await setCommandHotkey(item.id, query.trim() || null)
               // The backend wrote overrides.json directly — drop the cache
               // so the action label reflects the new hotkey immediately

@@ -171,7 +171,13 @@ impl HookState {
     /// Feed one keystroke; returns true when the event must be swallowed.
     /// `alt_flag` is the hook's own LLKHF_ALTDOWN, a fallback for the very
     /// first Tab if the Alt down predates the hook.
-    fn on_key(&mut self, key: HookKey, down: bool, alt_flag: bool, host: &mut impl HookHost) -> bool {
+    fn on_key(
+        &mut self,
+        key: HookKey,
+        down: bool,
+        alt_flag: bool,
+        host: &mut impl HookHost,
+    ) -> bool {
         match key {
             HookKey::LeftAlt => self.left_alt = down,
             HookKey::RightAlt => self.right_alt = down,
@@ -220,7 +226,10 @@ impl HookState {
         // Final Alt release: commit (or park in sticky mode). The release
         // itself always passes through — swallowing a modifier key-up desyncs
         // the system key state and the activated window would see Alt held.
-        if matches!(key, HookKey::LeftAlt | HookKey::RightAlt) && !down && self.session && !self.alt()
+        if matches!(key, HookKey::LeftAlt | HookKey::RightAlt)
+            && !down
+            && self.session
+            && !self.alt()
         {
             if self.sticky {
                 let _ = host.post(SessionEvent::Sticky);
@@ -414,8 +423,8 @@ fn is_windows_desktop_class(class_name: &str) -> bool {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::{
-        cycled_index, grid_card_left, grid_layout, initial_selection, selection_after_prune,
-        is_windows_desktop_class, AltTabTheme, Direction, GridLayout, GridMove, HookHost, HookKey,
+        cycled_index, grid_card_left, grid_layout, initial_selection, is_windows_desktop_class,
+        selection_after_prune, AltTabTheme, Direction, GridLayout, GridMove, HookHost, HookKey,
         HookState, SessionEvent,
     };
     use std::cell::RefCell;
@@ -431,17 +440,17 @@ mod platform {
     use windows::Win32::Graphics::Dwm::{
         DwmGetWindowAttribute, DwmQueryThumbnailSourceSize, DwmRegisterThumbnail,
         DwmSetWindowAttribute, DwmUnregisterThumbnail, DwmUpdateThumbnailProperties,
+        DWMSBT_TRANSIENTWINDOW, DWMWA_CLOAKED, DWMWA_SYSTEMBACKDROP_TYPE,
+        DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
         DWM_THUMBNAIL_PROPERTIES, DWM_TNP_OPACITY, DWM_TNP_RECTDESTINATION,
-        DWM_TNP_SOURCECLIENTAREAONLY, DWM_TNP_VISIBLE, DWMSBT_TRANSIENTWINDOW,
-        DWMWA_CLOAKED, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE,
-        DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+        DWM_TNP_SOURCECLIENTAREAONLY, DWM_TNP_VISIBLE,
     };
     use windows::Win32::Graphics::Gdi::{
         BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
         FillRect, GetMonitorInfoW, InvalidateRect, MonitorFromPoint, MonitorFromWindow, RoundRect,
-        SelectObject, SetBkMode, SetTextColor, ValidateRect, HGDIOBJ, MONITORINFO,
-        MONITOR_DEFAULTTONEAREST, PAINTSTRUCT, PS_SOLID, TRANSPARENT, DT_END_ELLIPSIS, DT_NOPREFIX,
-        DT_SINGLELINE, DT_VCENTER,
+        SelectObject, SetBkMode, SetTextColor, ValidateRect, DT_END_ELLIPSIS, DT_NOPREFIX,
+        DT_SINGLELINE, DT_VCENTER, HGDIOBJ, MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT,
+        PS_SOLID, TRANSPARENT,
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::System::Threading::{
@@ -461,16 +470,15 @@ mod platform {
         GetClassNameW, GetCursorPos, GetDesktopWindow, GetForegroundWindow, GetLastActivePopup,
         GetMessageW, GetShellWindow, GetWindowLongW, GetWindowRect, GetWindowTextW,
         GetWindowThreadProcessId, IsWindow, IsWindowVisible, IsZoomed, KillTimer, LoadCursorW,
-        PostMessageW,
-        PostThreadMessageW, RegisterClassW, SendMessageTimeoutW, SetTimer, SetWindowPos,
-        SetWindowsHookExW, ShowWindow, TranslateMessage, UnhookWindowsHookEx, CS_HREDRAW,
-        CS_VREDRAW, DI_NORMAL, FLASHWINFO, FLASHW_TRAY, GA_ROOTOWNER, GCLP_HICON, GCLP_HICONSM,
-        GWL_EXSTYLE, GWL_STYLE, HHOOK, HICON, HWND_TOPMOST, ICON_BIG, ICON_SMALL, ICON_SMALL2,
-        IDC_ARROW, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN, LLKHF_INJECTED, LLKHF_UP, MSG, SC_CLOSE,
-        SMTO_ABORTIFHUNG, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE,
+        PostMessageW, PostThreadMessageW, RegisterClassW, SendMessageTimeoutW, SetTimer,
+        SetWindowPos, SetWindowsHookExW, ShowWindow, TranslateMessage, UnhookWindowsHookEx,
+        CS_HREDRAW, CS_VREDRAW, DI_NORMAL, FLASHWINFO, FLASHW_TRAY, GA_ROOTOWNER, GCLP_HICON,
+        GCLP_HICONSM, GWL_EXSTYLE, GWL_STYLE, HHOOK, HICON, HWND_TOPMOST, ICON_BIG, ICON_SMALL,
+        ICON_SMALL2, IDC_ARROW, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN, LLKHF_INJECTED, LLKHF_UP, MSG,
+        SC_CLOSE, SMTO_ABORTIFHUNG, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE,
         WH_KEYBOARD_LL, WM_APP, WM_DESTROY, WM_DISPLAYCHANGE, WM_GETICON, WM_LBUTTONUP,
-        WM_MBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_QUIT, WM_SYSCOMMAND, WM_TIMER, WNDCLASSW, WS_CAPTION,
-        WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+        WM_MBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_QUIT, WM_SYSCOMMAND, WM_TIMER, WNDCLASSW,
+        WS_CAPTION, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
         WS_THICKFRAME,
     };
 
@@ -510,7 +518,9 @@ mod platform {
     }
 
     pub fn enable() -> Result<(), String> {
-        let mut guard = service().lock().map_err(|_| "Alt+Tab service lock poisoned")?;
+        let mut guard = service()
+            .lock()
+            .map_err(|_| "Alt+Tab service lock poisoned")?;
         if guard.is_some() {
             return Ok(());
         }
@@ -653,13 +663,8 @@ mod platform {
         SWITCHER.with(|slot| *slot.borrow_mut() = Some(Switcher::new(hwnd)));
         SetTimer(hwnd, PRUNE_TIMER, 150, None);
 
-        let hook = SetWindowsHookExW(
-            WH_KEYBOARD_LL,
-            Some(keyboard_proc),
-            HINSTANCE(module.0),
-            0,
-        )
-        .map_err(|e| format!("could not install Alt+Tab keyboard hook: {e}"))?;
+        let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), HINSTANCE(module.0), 0)
+            .map_err(|e| format!("could not install Alt+Tab keyboard hook: {e}"))?;
         Ok((hwnd, hook))
     }
 
@@ -793,7 +798,8 @@ mod platform {
                 let alt_flag = info.flags.0 & LLKHF_ALTDOWN.0 != 0;
                 let key = hook_key(info.vkCode as u16);
                 let swallow = KEYS.with(|keys| {
-                    keys.borrow_mut().on_key(key, down, alt_flag, &mut Win32Host)
+                    keys.borrow_mut()
+                        .on_key(key, down, alt_flag, &mut Win32Host)
                 });
                 if swallow {
                     return LRESULT(1);
@@ -847,8 +853,7 @@ mod platform {
     unsafe fn is_desktop_surface(hwnd: HWND) -> bool {
         let mut class_name = [0u16; 64];
         let len = GetClassNameW(hwnd, &mut class_name);
-        len > 0
-            && is_windows_desktop_class(&String::from_utf16_lossy(&class_name[..len as usize]))
+        len > 0 && is_windows_desktop_class(&String::from_utf16_lossy(&class_name[..len as usize]))
     }
 
     unsafe extern "system" fn overlay_proc(
@@ -1127,19 +1132,12 @@ mod platform {
             let Some(candidate) = self.candidates.get(index) else {
                 return;
             };
-            let _ = InvalidateRect(
-                self.hwnd,
-                Some(&candidate.card as *const RECT),
-                false,
-            );
+            let _ = InvalidateRect(self.hwnd, Some(&candidate.card as *const RECT), false);
             if candidate.thumbnail.is_some() {
                 // Remove the live thumbnail from the GDI update region. DWM
                 // composites it separately, so painting underneath it would
                 // briefly cover the preview until the next compositor pass.
-                let _ = ValidateRect(
-                    self.hwnd,
-                    Some(&candidate.thumbnail_rect as *const RECT),
-                );
+                let _ = ValidateRect(self.hwnd, Some(&candidate.thumbnail_rect as *const RECT));
             }
         }
 
@@ -1181,7 +1179,8 @@ mod platform {
                 self.candidates[absolute].card = card;
                 self.candidates[absolute].close = close;
 
-                if let Ok(thumbnail) = DwmRegisterThumbnail(self.hwnd, self.candidates[absolute].hwnd)
+                if let Ok(thumbnail) =
+                    DwmRegisterThumbnail(self.hwnd, self.candidates[absolute].hwnd)
                 {
                     let available = RECT {
                         left: card.left + 8,
@@ -1422,7 +1421,14 @@ mod platform {
                     right: candidate.close.left - 5,
                     bottom: candidate.card.bottom,
                 };
-                SetTextColor(dc, if selected { rgb(255, 255, 255) } else { theme.text });
+                SetTextColor(
+                    dc,
+                    if selected {
+                        rgb(255, 255, 255)
+                    } else {
+                        theme.text
+                    },
+                );
                 DrawTextW(
                     dc,
                     &mut title,
@@ -1491,8 +1497,7 @@ mod platform {
         }
         let available_w = (bounds.right - bounds.left).max(1);
         let available_h = (bounds.bottom - bounds.top).max(1);
-        let scale = (available_w as f64 / size.cx as f64)
-            .min(available_h as f64 / size.cy as f64);
+        let scale = (available_w as f64 / size.cx as f64).min(available_h as f64 / size.cy as f64);
         let width = (size.cx as f64 * scale).round() as i32;
         let height = (size.cy as f64 * scale).round() as i32;
         let left = bounds.left + (available_w - width) / 2;
@@ -1654,8 +1659,12 @@ mod platform {
         let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
         let mut path = [0u16; 1024];
         let mut len = path.len() as u32;
-        let queried =
-            QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, PWSTR(path.as_mut_ptr()), &mut len);
+        let queried = QueryFullProcessImageNameW(
+            process,
+            PROCESS_NAME_WIN32,
+            PWSTR(path.as_mut_ptr()),
+            &mut len,
+        );
         let _ = CloseHandle(process);
         queried.ok()?;
         if len == 0 {
@@ -1988,7 +1997,10 @@ mod tests {
     #[test]
     fn prune_keeps_or_moves_the_selection() {
         // Selected survives; an earlier removal shifts its index.
-        assert_eq!(selection_after_prune(2, &[true, false, true, true]), Some(1));
+        assert_eq!(
+            selection_after_prune(2, &[true, false, true, true]),
+            Some(1)
+        );
         // Selected died: nearest following survivor.
         assert_eq!(selection_after_prune(1, &[true, false, true]), Some(1));
         // Selected was last and died: previous survivor.

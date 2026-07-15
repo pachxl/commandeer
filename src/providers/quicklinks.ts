@@ -125,16 +125,18 @@ export async function loadQuicklinkCommands(): Promise<Command[]> {
       createRootStep: addQuicklinkStep,
     },
     ...(quicklinks.length > 0
-      ? [{
-          id: 'quicklink:remove',
-          label: 'Remove Quick Link',
-          description: 'Delete a saved quick link',
-          icon: 'trash',
-          folderName: 'Quick Links',
-          keywords: ['quicklink', 'remove', 'delete'],
-          actionLabel: 'Open',
-          createRootStep: removeQuicklinkStep,
-        } satisfies Command]
+      ? [
+          {
+            id: 'quicklink:remove',
+            label: 'Remove Quick Link',
+            description: 'Delete a saved quick link',
+            icon: 'trash',
+            folderName: 'Quick Links',
+            keywords: ['quicklink', 'remove', 'delete'],
+            actionLabel: 'Open',
+            createRootStep: removeQuicklinkStep,
+          } satisfies Command,
+        ]
       : []),
     ...quicklinks.map(quicklinkCommand),
   ]

@@ -59,17 +59,19 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
         const focused = i === focusedIndex
         return (
           <div key={field.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{
-              fontSize: 11,
-              fontFamily: 'var(--font-ui)',
-              color: 'var(--text-dim)',
-              fontWeight: 500,
-            }}>
+            <label
+              style={{
+                fontSize: 11,
+                fontFamily: 'var(--font-ui)',
+                color: 'var(--text-dim)',
+                fontWeight: 500,
+              }}
+            >
               {field.label}
             </label>
             {field.type === 'text' && (
               <input
-                ref={el => inputRefs.current[i] = el}
+                ref={el => (inputRefs.current[i] = el)}
                 type="text"
                 value={String(values[field.id] ?? field.defaultValue ?? '')}
                 placeholder={field.placeholder}
@@ -91,7 +93,7 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
             )}
             {field.type === 'dropdown' && (
               <select
-                ref={el => inputRefs.current[i] = el}
+                ref={el => (inputRefs.current[i] = el)}
                 value={String(values[field.id] ?? field.defaultValue ?? '')}
                 onChange={e => onChange(field.id, e.target.value)}
                 onFocus={() => setFocusedIndex(i)}
@@ -107,20 +109,24 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
                 }}
               >
                 {field.options?.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             )}
             {field.type === 'checkbox' && (
-              <label style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                cursor: 'pointer',
-                padding: '4px 0',
-              }}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  cursor: 'pointer',
+                  padding: '4px 0',
+                }}
+              >
                 <input
-                  ref={el => inputRefs.current[i] = el as HTMLInputElement}
+                  ref={el => (inputRefs.current[i] = el as HTMLInputElement)}
                   type="checkbox"
                   checked={Boolean(values[field.id] ?? field.defaultValue ?? false)}
                   onChange={e => onChange(field.id, e.target.checked)}
@@ -136,7 +142,7 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
         )
       })}
       <button
-        ref={el => inputRefs.current[fields.length] = el}
+        ref={el => (inputRefs.current[fields.length] = el)}
         onClick={onSubmit}
         onFocus={() => setFocusedIndex(fields.length)}
         style={{

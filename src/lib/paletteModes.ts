@@ -19,7 +19,15 @@ import type { Command, LivePreview, PaletteItem, Step } from '../types'
 //   @web    → web search in the browser
 export const AT_PREFIXES = [
   { token: '@find', icon: 'folder', description: 'Find files across your computer' },
-  { token: '@search', icon: 'folder', description: IS_LINUX ? 'Search your home folder' : IS_MAC ? 'Search the focused Finder folder' : 'Search the focused Explorer folder' },
+  {
+    token: '@search',
+    icon: 'folder',
+    description: IS_LINUX
+      ? 'Search your home folder'
+      : IS_MAC
+        ? 'Search the focused Finder folder'
+        : 'Search the focused Explorer folder',
+  },
   { token: '@web', icon: 'search', description: 'Search the web' },
   { token: '@calc', icon: 'calculator', description: 'Calculate an expression (40+2, 100 usd to eur)' },
   { token: '@time', icon: 'clock', description: 'Convert time zones (4pm bst to est)' },
@@ -105,7 +113,8 @@ export interface MatchedItemsParams {
 // Turn the current mode + backing items into the ranked/filtered rows shown in
 // the list. Mirrors the old inline branch order exactly.
 export function computeMatchedItems(params: MatchedItemsParams): PaletteItem[] {
-  const { at, currentStep, isInputStep, isSliderStep, isFormStep, rawItems, query, providerCommands, overrides } = params
+  const { at, currentStep, isInputStep, isSliderStep, isFormStep, rawItems, query, providerCommands, overrides } =
+    params
 
   if (isInputStep || isSliderStep || isFormStep) {
     return []
@@ -113,27 +122,27 @@ export function computeMatchedItems(params: MatchedItemsParams): PaletteItem[] {
   if (at.atSuggestMode) {
     // '@' or a partial token: list the available @ commands; selecting one
     // inserts it into the query instead of executing
-    return AT_PREFIXES
-      .filter(p => p.token.startsWith(at.atToken ?? '@'))
-      .map(p => ({
-        id: `at:${p.token}`,
-        label: p.token,
-        sublabel: p.description,
-        icon: p.icon,
-        data: p.token,
-        actionLabel: 'Use',
-      }))
+    return AT_PREFIXES.filter(p => p.token.startsWith(at.atToken ?? '@')).map(p => ({
+      id: `at:${p.token}`,
+      label: p.token,
+      sublabel: p.description,
+      icon: p.icon,
+      data: p.token,
+      actionLabel: 'Use',
+    }))
   }
   if (at.webMode) {
     return at.webQuery
-      ? [{
-          id: `web:${at.webQuery}`,
-          label: `Search the web for "${at.webQuery}"`,
-          sublabel: 'Opens your browser',
-          icon: 'search',
-          data: at.webQuery,
-          actionLabel: 'Search',
-        }]
+      ? [
+          {
+            id: `web:${at.webQuery}`,
+            label: `Search the web for "${at.webQuery}"`,
+            sublabel: 'Opens your browser',
+            icon: 'search',
+            data: at.webQuery,
+            actionLabel: 'Search',
+          },
+        ]
       : []
   }
   if (at.calcMode || at.timeMode) {
@@ -146,17 +155,16 @@ export function computeMatchedItems(params: MatchedItemsParams): PaletteItem[] {
     return rawItems
   }
   if (currentStep || at.folderMode) {
-    return fuzzyFilter(rawItems, at.folderMode ? at.folderQuery : query, i =>
-      i.searchText ?? (i.label + ' ' + (i.sublabel ?? ''))
+    return fuzzyFilter(
+      rawItems,
+      at.folderMode ? at.folderQuery : query,
+      i => i.searchText ?? i.label + ' ' + (i.sublabel ?? ''),
     )
   }
   if (query) {
     // Root query: scripts and provider search results (which can share ids —
     // keep the first occurrence) ranked together by fuzzy score + frecency
-    const merged = [
-      ...rawItems,
-      ...providerCommands.map(c => applyOverride(commandToItem(c), overrides[c.id])),
-    ]
+    const merged = [...rawItems, ...providerCommands.map(c => applyOverride(commandToItem(c), overrides[c.id]))]
     const seen = new Set<string>()
     const deduped = merged.filter(i => (seen.has(i.id) ? false : (seen.add(i.id), true)))
     const results = buildQueryResults(deduped, query, overrides)

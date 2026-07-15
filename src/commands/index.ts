@@ -16,7 +16,7 @@ export const webSearchCommand: Command = {
     placeholder: 'Type your search...',
     isInputStep: true,
     onSelect: async () => ({ type: 'done' }),
-    onCommitQuery: async (query) => {
+    onCommitQuery: async query => {
       const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`
       await openUrl(url)
       return { type: 'done' }
@@ -69,7 +69,13 @@ function scriptConfirmStep(script: ScriptInfo): Step {
     label: title,
     placeholder: `Run "${title}"?`,
     load: async () => [
-      { id: 'confirm', label: `Run ${title}`, sublabel: 'Press Enter to confirm', icon: 'script', actionLabel: 'Confirm' },
+      {
+        id: 'confirm',
+        label: `Run ${title}`,
+        sublabel: 'Press Enter to confirm',
+        icon: 'script',
+        actionLabel: 'Confirm',
+      },
       { id: 'cancel', label: 'Cancel', icon: 'x', actionLabel: 'Cancel' },
     ],
     onSelect: async item => {
@@ -98,16 +104,17 @@ export function scriptsToCommands(scripts: ScriptInfo[]): Command[] {
           id: `folder-step:${folderName}`,
           label: folderName,
           placeholder: `Search ${folderName}...`,
-          load: async (_cfg): Promise<PaletteItem[]> => folderScripts.map(s => ({
-            id: `script:${s.path}`,
-            label: scriptTitle(s),
-            icon: scriptIcon(s),
-            sublabel: s.metadata?.description ?? undefined,
-            keywords: s.metadata?.keywords,
-            accessories: scriptAccessories(s),
-            liveOutputKey: inlineRefreshKey(s),
-            data: s.path,
-          })),
+          load: async (_cfg): Promise<PaletteItem[]> =>
+            folderScripts.map(s => ({
+              id: `script:${s.path}`,
+              label: scriptTitle(s),
+              icon: scriptIcon(s),
+              sublabel: s.metadata?.description ?? undefined,
+              keywords: s.metadata?.keywords,
+              accessories: scriptAccessories(s),
+              liveOutputKey: inlineRefreshKey(s),
+              data: s.path,
+            })),
           onSelect: async (item, _cfg) => {
             const s = folderScripts.find(fs => fs.path === (item.data as string))
             if (s?.metadata?.needs_confirmation) {
@@ -136,7 +143,12 @@ export function scriptsToCommands(scripts: ScriptInfo[]): Command[] {
       if (script.metadata?.needs_confirmation) {
         commands.push({ ...base, createRootStep: () => scriptConfirmStep(script) })
       } else {
-        commands.push({ ...base, action: async () => { await runScript(script.path) } })
+        commands.push({
+          ...base,
+          action: async () => {
+            await runScript(script.path)
+          },
+        })
       }
     }
   }

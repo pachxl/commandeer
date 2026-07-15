@@ -45,7 +45,11 @@ fn decode_file_url(url: &str) -> Option<String> {
     } else {
         format!("\\\\{}", s.replace('/', "\\"))
     };
-    if path.is_empty() { None } else { Some(path) }
+    if path.is_empty() {
+        None
+    } else {
+        Some(path)
+    }
 }
 
 /// Find the Explorer window whose HWND matches `target` and return its
@@ -64,8 +68,12 @@ fn location_for_hwnd(target: isize) -> Option<String> {
         let shell: IShellWindows = CoCreateInstance(&ShellWindows, None, CLSCTX_ALL).ok()?;
         let count = shell.Count().unwrap_or(0);
         for i in 0..count {
-            let Ok(disp) = shell.Item(&VARIANT::from(i)) else { continue };
-            let Ok(browser) = disp.cast::<IWebBrowser2>() else { continue };
+            let Ok(disp) = shell.Item(&VARIANT::from(i)) else {
+                continue;
+            };
+            let Ok(browser) = disp.cast::<IWebBrowser2>() else {
+                continue;
+            };
             let Ok(hwnd) = browser.HWND() else { continue };
             if hwnd.0 != target {
                 continue;
@@ -165,7 +173,11 @@ fn finder_front_window_path() -> Option<String> {
         return None;
     }
     let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if path.is_empty() { None } else { Some(path) }
+    if path.is_empty() {
+        None
+    } else {
+        Some(path)
+    }
 }
 
 /// Folder open in the File Explorer window that was focused when the palette

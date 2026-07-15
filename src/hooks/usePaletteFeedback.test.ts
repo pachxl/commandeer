@@ -28,11 +28,17 @@ describe('usePaletteFeedback lifecycle', () => {
     let first!: Promise<boolean>
     let second!: Promise<boolean>
 
-    act(() => { first = result.current.requestConfirm({ message: 'First' }) })
-    act(() => { second = result.current.requestConfirm({ message: 'Second' }) })
+    act(() => {
+      first = result.current.requestConfirm({ message: 'First' })
+    })
+    act(() => {
+      second = result.current.requestConfirm({ message: 'Second' })
+    })
 
     await expect(first).resolves.toBe(false)
-    act(() => { result.current.resolveConfirm(true) })
+    act(() => {
+      result.current.resolveConfirm(true)
+    })
     await expect(second).resolves.toBe(true)
   })
 
@@ -40,8 +46,12 @@ describe('usePaletteFeedback lifecycle', () => {
     const { result } = renderHook(() => usePaletteFeedback(dispatch))
     let pending!: Promise<boolean>
 
-    act(() => { pending = result.current.requestConfirm({ message: 'Delete it?' }) })
-    act(() => { result.current.resetFeedback() })
+    act(() => {
+      pending = result.current.requestConfirm({ message: 'Delete it?' })
+    })
+    act(() => {
+      result.current.resetFeedback()
+    })
 
     await expect(pending).resolves.toBe(false)
     expect(result.current.confirmReq).toBeNull()
@@ -51,9 +61,15 @@ describe('usePaletteFeedback lifecycle', () => {
     vi.useFakeTimers()
     const { result } = renderHook(() => usePaletteFeedback(dispatch))
 
-    act(() => { result.current.showHud('Copied') })
-    act(() => { result.current.resetFeedback() })
-    act(() => { vi.advanceTimersByTime(1000) })
+    act(() => {
+      result.current.showHud('Copied')
+    })
+    act(() => {
+      result.current.resetFeedback()
+    })
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
 
     expect(hide).not.toHaveBeenCalled()
     expect(dispatch).not.toHaveBeenCalledWith({ type: 'RESET' })

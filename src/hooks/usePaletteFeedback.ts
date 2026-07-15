@@ -66,16 +66,19 @@ export function usePaletteFeedback(dispatch: Dispatch<PaletteAction>): PaletteFe
 
   // Show the HUD, then dismiss the launcher once it's been seen. Replaces the
   // action body so it reads as a single floating confirmation pill.
-  const showHud = useCallback((message: string, icon?: string) => {
-    if (hudTimerRef.current !== null) window.clearTimeout(hudTimerRef.current)
-    setHud({ message, icon })
-    hudTimerRef.current = window.setTimeout(async () => {
-      hudTimerRef.current = null
-      setHud(null)
-      dispatch({ type: 'RESET' })
-      await getCurrentWindow().hide()
-    }, 1000)
-  }, [dispatch])
+  const showHud = useCallback(
+    (message: string, icon?: string) => {
+      if (hudTimerRef.current !== null) window.clearTimeout(hudTimerRef.current)
+      setHud({ message, icon })
+      hudTimerRef.current = window.setTimeout(async () => {
+        hudTimerRef.current = null
+        setHud(null)
+        dispatch({ type: 'RESET' })
+        await getCurrentWindow().hide()
+      }, 1000)
+    },
+    [dispatch],
+  )
 
   // Ask for confirmation. A remembered key resolves immediately; otherwise the
   // returned promise settles when the user answers via ConfirmOverlay.
@@ -135,10 +138,17 @@ export function usePaletteFeedback(dispatch: Dispatch<PaletteAction>): PaletteFe
   useEffect(() => resetFeedback, [resetFeedback])
 
   return {
-    toast, toasts,
-    hud, showHud,
-    requestConfirm, resolveConfirm,
-    confirmReq, confirmRemember, setConfirmRemember, confirmFocus, setConfirmFocus,
+    toast,
+    toasts,
+    hud,
+    showHud,
+    requestConfirm,
+    resolveConfirm,
+    confirmReq,
+    confirmRemember,
+    setConfirmRemember,
+    confirmFocus,
+    setConfirmFocus,
     resetFeedback,
   }
 }
