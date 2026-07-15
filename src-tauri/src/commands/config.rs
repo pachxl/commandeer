@@ -86,7 +86,7 @@ pub struct AppConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub palette_scale: Option<f64>,
     /// UI style preset ("Default" or "Onix"). Controls layout, spacing, fonts,
-    /// and (for Onix) a Raycast/Vicinae-inspired color palette.
+    /// and component treatment; the separate theme setting owns all colors.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui_style: Option<String>,
 }

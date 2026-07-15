@@ -133,8 +133,8 @@ export default function App() {
         // Palette always see the same, current config.
         Object.assign(configRef.current, cfg)
         if (!disposed) setConfig(configRef.current)
-        // Apply theme first, then the UI style so structural overrides (and the
-        // Onix colorway) take precedence over the theme variables.
+        // Apply theme first, then the UI style so structural variables win
+        // while all color variables continue to come from the theme.
         applyThemeByName(cfg.theme)
           .then(() => applyStyle(cfg.ui_style))
           .catch(console.error)

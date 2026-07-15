@@ -1,6 +1,6 @@
-// UI style presets: structural skins (spacing, fonts, radii, and for Onix a
-// Raycast/Vicinae-inspired color palette) applied as CSS variables on :root.
-// Themes still own the base colorway; styles layer structural overrides on top.
+// UI style presets: structural skins (spacing, fonts, radii, and component
+// treatment) applied as CSS variables on :root. Themes exclusively own color;
+// styles reference theme variables instead of replacing them.
 
 export interface UIStyle {
   name: string
@@ -136,34 +136,21 @@ const defaultStyle: UIStyle = {
   variables: DEFAULT_VARIABLES,
 }
 
-// Raycast/Vicinae-inspired skin: darker, more opaque panels, warm gold accent,
-// generous spacing, larger icons, rounded/inset list selections, and Inter/SF
-// typography. Functionality is unchanged — only the visual treatment differs.
+// Raycast/Vicinae-inspired skin: generous spacing, larger icons, rounded/inset
+// list selections, and Inter/SF typography. Its surfaces and states derive from
+// the selected theme, so changing styles never changes the user's colorway.
 const onixStyle: UIStyle = {
   name: 'Onix',
   variables: {
     ...DEFAULT_VARIABLES,
 
-    // Colorway: Vicinae Inkwell with the warm-gold accent
-    '--bg': 'rgba(15, 16, 20, 0.96)',
-    '--bg-tab': 'rgba(21, 22, 27, 0.98)',
-    '--bg-hover': 'rgba(55, 57, 67, 0.45)',
-    '--bg-select': '#272831',
-    '--bg-select-hover': 'rgba(55, 57, 67, 0.65)',
-    '--bg-elevated': 'rgba(21, 22, 27, 0.98)',
-    '--border': 'rgba(55, 56, 66, 0.8)',
-    '--border-strong': 'rgba(75, 76, 88, 0.9)',
-    '--text': '#e7e5e4',
-    '--text-dim': '#7a7a7a',
-    '--accent': '#b8944e',
-
-    // Layered window treatment: quiet ink surface, one-pixel rim, and inset
+    // Layered window treatment: theme surface, one-pixel rim, and inset
     // highlights that remain visible even though the native window clips any
     // exterior CSS shadow.
-    '--palette-border': 'rgba(72, 73, 84, 0.72)',
+    '--palette-border': 'var(--border-strong)',
     '--palette-shadow': 'inset 0 1px 0 rgba(255,255,255,0.035), inset 0 -1px 0 rgba(0,0,0,0.30)',
-    '--divider': 'rgba(55, 56, 66, 0.68)',
-    '--surface-muted': 'rgba(21, 22, 27, 0.76)',
+    '--divider': 'var(--border)',
+    '--surface-muted': 'var(--bg-tab)',
     '--detail-bg': 'var(--surface-muted)',
     '--form-field-bg': 'var(--surface-muted)',
 
@@ -176,10 +163,10 @@ const onixStyle: UIStyle = {
     '--row-gap': '10px',
     '--row-radius': '10px',
     '--row-inset': '6px',
-    '--row-selected-bg': '#272831',
-    '--row-selected-fg': '#e7e5e4',
-    '--row-selected-sublabel-fg': '#7a7a7a',
-    '--row-hover-bg': 'rgba(55, 57, 67, 0.45)',
+    '--row-selected-bg': 'var(--bg-select)',
+    '--row-selected-fg': 'var(--text)',
+    '--row-selected-sublabel-fg': 'var(--text-dim)',
+    '--row-hover-bg': 'var(--bg-hover)',
     '--row-active-indicator-bg': '#3A9C61',
     '--row-selected-shadow': 'inset 0 0 0 1px rgba(255,255,255,0.025), 0 1px 2px rgba(0,0,0,0.16)',
     '--row-transition': 'background-color 100ms ease, box-shadow 100ms ease',
@@ -194,8 +181,8 @@ const onixStyle: UIStyle = {
     '--accessory-font-size': '11px',
     '--accessory-radius': '6px',
     '--accessory-padding': '2px 7px',
-    '--accessory-bg': 'rgba(255,255,255,0.055)',
-    '--accessory-border': 'rgba(255,255,255,0.045)',
+    '--accessory-bg': 'var(--bg-hover)',
+    '--accessory-border': 'var(--border)',
     '--accessory-border-width': '1px',
     '--accessory-font': 'var(--font)',
 
@@ -215,9 +202,9 @@ const onixStyle: UIStyle = {
     '--footer-font-size': '12px',
     '--footer-button-radius': '6px',
     '--footer-button-padding': '4px 10px',
-    '--footer-bg': 'rgba(21, 22, 27, 0.82)',
-    '--footer-hover-bg': 'rgba(255,255,255,0.055)',
-    '--footer-primary-fg': '#d8d5d2',
+    '--footer-bg': 'var(--bg-tab)',
+    '--footer-hover-bg': 'var(--bg-hover)',
+    '--footer-primary-fg': 'var(--text)',
     '--footer-font': 'var(--font)',
     '--footer-primary-left-display': 'none',
     '--footer-primary-right-display': 'inline-flex',
@@ -226,9 +213,9 @@ const onixStyle: UIStyle = {
     '--kbd-font-size': '11px',
     '--kbd-padding': '2px 6px',
     '--kbd-radius': '4px',
-    '--kbd-bg': 'rgba(255,255,255,0.07)',
-    '--kbd-border': 'rgba(255,255,255,0.075)',
-    '--kbd-fg': '#aaa7a5',
+    '--kbd-bg': 'var(--bg-hover)',
+    '--kbd-border': 'var(--border)',
+    '--kbd-fg': 'var(--text-dim)',
     '--kbd-shadow': 'inset 0 -1px 0 rgba(0,0,0,0.32)',
 
     // Action panel: wider, more breathable
@@ -236,12 +223,12 @@ const onixStyle: UIStyle = {
     '--action-panel-padding': '8px 8px',
     '--action-row-padding': '7px 10px',
     '--action-row-radius': '10px',
-    '--action-row-selected-bg': '#272831',
-    '--action-row-selected-fg': '#e7e5e4',
+    '--action-row-selected-bg': 'var(--bg-select)',
+    '--action-row-selected-fg': 'var(--text)',
     '--action-icon-size': '18px',
     '--action-font-size': '13px',
-    '--action-kbd-bg': 'rgba(255,255,255,0.08)',
-    '--action-kbd-selected-bg': 'rgba(255,255,255,0.10)',
+    '--action-kbd-bg': 'var(--bg-hover)',
+    '--action-kbd-selected-bg': 'var(--bg-select-hover)',
     '--action-panel-radius': '12px',
     '--action-panel-shadow': '0 16px 48px rgba(0,0,0,0.48), 0 2px 8px rgba(0,0,0,0.32)',
 
@@ -254,11 +241,11 @@ const onixStyle: UIStyle = {
     '--grid-icon-font-size': '24px',
     '--grid-label-font-size': '12px',
     '--grid-sublabel-font-size': '10px',
-    '--grid-cell-bg': '#1b1c22',
-    '--grid-cell-selected-bg': '#272831',
-    '--grid-cell-border': 'rgba(55,56,66,0.5)',
-    '--grid-cell-selected-border': 'rgba(184,148,78,0.82)',
-    '--grid-cell-selected-fg': '#e7e5e4',
+    '--grid-cell-bg': 'var(--bg-tab)',
+    '--grid-cell-selected-bg': 'var(--bg-select)',
+    '--grid-cell-border': 'var(--border)',
+    '--grid-cell-selected-border': 'var(--accent)',
+    '--grid-cell-selected-fg': 'var(--text)',
 
     // Detail pane
     '--detail-width': '35%',

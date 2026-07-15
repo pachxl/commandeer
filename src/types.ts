@@ -48,7 +48,7 @@ export interface AppConfig {
   // 0–100% onto 0.5×–1.5× with 50% = 1.0×.
   palette_scale?: number
   // UI style preset ('Default' or 'Onix'). Controls layout, spacing, fonts, and
-  // (for Onix) a Raycast/Vicinae-inspired color palette.
+  // component treatment; the separate theme setting owns all colors.
   ui_style?: string
 }
 
