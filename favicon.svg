@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="58 58 396 396" width="512" height="512">
+  <!-- C bracket with angled mouth -->
+  <path fill="#3D5AFE" d="
+    M426 112
+    L174 112
+    A88 88 0 0 0 86 200
+    L86 312
+    A88 88 0 0 0 174 400
+    L426 400
+    L356 354
+    L174 354
+    A42 42 0 0 1 132 312
+    L132 200
+    A42 42 0 0 1 174 158
+    L356 158
+    Z"/>
+  <!-- prompt chevron -->
+  <path fill="none" stroke="#E9F2FF" stroke-width="30" d="M211 210 L271 256 L211 302"/>
+  <!-- prompt underscore -->
+  <rect x="292" y="291" width="90" height="26" fill="#E9F2FF"/>
+</svg>
