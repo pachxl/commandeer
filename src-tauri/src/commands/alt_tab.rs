@@ -439,8 +439,9 @@ mod platform {
     use windows::Win32::Graphics::Gdi::{
         BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
         FillRect, GetMonitorInfoW, InvalidateRect, MonitorFromPoint, MonitorFromWindow, RoundRect,
-        SelectObject, SetBkMode, SetTextColor, HGDIOBJ, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-        PAINTSTRUCT, PS_SOLID, TRANSPARENT, DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER,
+        SelectObject, SetBkMode, SetTextColor, ValidateRect, HGDIOBJ, MONITORINFO,
+        MONITOR_DEFAULTTONEAREST, PAINTSTRUCT, PS_SOLID, TRANSPARENT, DT_END_ELLIPSIS, DT_NOPREFIX,
+        DT_SINGLELINE, DT_VCENTER,
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::System::Threading::{
@@ -468,7 +469,7 @@ mod platform {
         IDC_ARROW, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN, LLKHF_INJECTED, LLKHF_UP, MSG, SC_CLOSE,
         SMTO_ABORTIFHUNG, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE,
         WH_KEYBOARD_LL, WM_APP, WM_DESTROY, WM_DISPLAYCHANGE, WM_GETICON, WM_LBUTTONUP,
-        WM_MOUSEMOVE, WM_PAINT, WM_QUIT, WM_SYSCOMMAND, WM_TIMER, WNDCLASSW, WS_CAPTION,
+        WM_MBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_QUIT, WM_SYSCOMMAND, WM_TIMER, WNDCLASSW, WS_CAPTION,
         WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
         WS_THICKFRAME,
     };
@@ -933,6 +934,15 @@ mod platform {
                 });
                 LRESULT(0)
             }
+            WM_MBUTTONUP => {
+                let (x, y) = point_from_lparam(lparam);
+                SWITCHER.with(|slot| {
+                    if let Some(switcher) = slot.borrow_mut().as_mut() {
+                        switcher.middle_click(x, y);
+                    }
+                });
+                LRESULT(0)
+            }
             WM_TIMER => {
                 SWITCHER.with(|slot| {
                     if let Some(switcher) = slot.borrow_mut().as_mut() {
@@ -976,6 +986,7 @@ mod platform {
         /// answered via WM_GETICON / the window class belong to the target.
         icon_owned: bool,
         thumbnail: Option<isize>,
+        thumbnail_rect: RECT,
         card: RECT,
         close: RECT,
     }
@@ -1100,13 +1111,35 @@ mod platform {
         }
 
         unsafe fn set_selected(&mut self, selected: usize) {
+            let previous = self.selected;
             self.selected = selected.min(self.candidates.len().saturating_sub(1));
             let page = self.selected / self.layout.capacity;
             if page != self.page {
                 self.page = page;
                 self.position_and_register();
-            } else {
-                let _ = InvalidateRect(self.hwnd, None, false);
+            } else if previous != self.selected {
+                self.invalidate_selection_card(previous);
+                self.invalidate_selection_card(self.selected);
+            }
+        }
+
+        unsafe fn invalidate_selection_card(&self, index: usize) {
+            let Some(candidate) = self.candidates.get(index) else {
+                return;
+            };
+            let _ = InvalidateRect(
+                self.hwnd,
+                Some(&candidate.card as *const RECT),
+                false,
+            );
+            if candidate.thumbnail.is_some() {
+                // Remove the live thumbnail from the GDI update region. DWM
+                // composites it separately, so painting underneath it would
+                // briefly cover the preview until the next compositor pass.
+                let _ = ValidateRect(
+                    self.hwnd,
+                    Some(&candidate.thumbnail_rect as *const RECT),
+                );
             }
         }
 
@@ -1170,6 +1203,7 @@ mod platform {
                     };
                     if DwmUpdateThumbnailProperties(thumbnail, &properties).is_ok() {
                         self.candidates[absolute].thumbnail = Some(thumbnail);
+                        self.candidates[absolute].thumbnail_rect = destination;
                     } else {
                         let _ = DwmUnregisterThumbnail(thumbnail);
                     }
@@ -1185,14 +1219,14 @@ mod platform {
                 }
                 candidate.card = RECT::default();
                 candidate.close = RECT::default();
+                candidate.thumbnail_rect = RECT::default();
             }
         }
 
         unsafe fn hover(&mut self, x: i32, y: i32) {
             if let Some(index) = self.hit_card(x, y) {
                 if index != self.selected {
-                    self.selected = index;
-                    let _ = InvalidateRect(self.hwnd, None, false);
+                    self.set_selected(index);
                 }
             }
         }
@@ -1201,20 +1235,33 @@ mod platform {
             let Some(index) = self.hit_card(x, y) else {
                 return;
             };
-            self.selected = index;
+            self.set_selected(index);
             if contains(self.candidates[index].close, x, y) {
-                // A polite close request; the prune timer removes the card
-                // once (and only if) the window actually goes away.
-                let _ = PostMessageW(
-                    self.candidates[index].hwnd,
-                    WM_SYSCOMMAND,
-                    WPARAM(SC_CLOSE as usize),
-                    LPARAM(0),
-                );
+                self.request_close(index);
             } else {
                 self.commit();
                 KEYS.with(|keys| keys.borrow_mut().reset_session());
             }
+        }
+
+        unsafe fn middle_click(&mut self, x: i32, y: i32) {
+            if let Some(index) = self.hit_card(x, y) {
+                self.request_close(index);
+            }
+        }
+
+        unsafe fn request_close(&self, index: usize) {
+            let Some(candidate) = self.candidates.get(index) else {
+                return;
+            };
+            // A polite close request; the prune timer removes the card once
+            // (and only if) the target window actually goes away.
+            let _ = PostMessageW(
+                candidate.hwnd,
+                WM_SYSCOMMAND,
+                WPARAM(SC_CLOSE as usize),
+                LPARAM(0),
+            );
         }
 
         fn hit_card(&self, x: i32, y: i32) -> Option<usize> {
@@ -1505,6 +1552,7 @@ mod platform {
             icon,
             icon_owned,
             thumbnail: None,
+            thumbnail_rect: RECT::default(),
             card: RECT::default(),
             close: RECT::default(),
         });
