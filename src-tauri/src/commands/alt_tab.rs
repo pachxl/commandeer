@@ -82,6 +82,9 @@ enum SessionEvent {
 /// The hook's view of the outside world; implemented over Win32 in `platform`
 /// and by a recorder in the unit tests.
 trait HookHost {
+    /// True when the foreground window is a fullscreen/borderless game. The
+    /// custom session stays completely inactive and Windows handles Alt+Tab.
+    fn fullscreen_foreground(&mut self) -> bool;
     /// Deliver an event to the overlay thread. `false` means delivery failed
     /// and the keystroke must fall through to Windows.
     fn post(&mut self, event: SessionEvent) -> bool;
@@ -195,6 +198,9 @@ impl HookState {
                     return true;
                 }
                 if self.alt() || alt_flag {
+                    if host.fullscreen_foreground() {
+                        return false;
+                    }
                     let sticky = self.ctrl();
                     if !host.post(SessionEvent::Start {
                         direction: self.direction(),
@@ -430,18 +436,18 @@ mod platform {
         CallNextHookEx, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyWindow,
         DispatchMessageW, DrawIconEx, EnumWindows, FlashWindowEx, GetAncestor, GetClassLongPtrW,
         GetCursorPos, GetDesktopWindow, GetForegroundWindow, GetLastActivePopup, GetMessageW,
-        GetShellWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
-        IsWindowVisible, KillTimer, LoadCursorW, PostMessageW,
+        GetShellWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
+        IsWindow, IsWindowVisible, IsZoomed, KillTimer, LoadCursorW, PostMessageW,
         PeekMessageW, PostThreadMessageW, RegisterClassW, SendMessageTimeoutW, SetForegroundWindow,
         SetTimer, SetWindowPos, SetWindowsHookExW, ShowWindow, TranslateMessage,
         UnhookWindowsHookEx, CS_HREDRAW, CS_VREDRAW, DI_NORMAL, FLASHWINFO, FLASHW_TRAY,
-        GA_ROOTOWNER, GCLP_HICON, GCLP_HICONSM, GWL_EXSTYLE, HHOOK, HICON, HWND_TOPMOST,
+        GA_ROOTOWNER, GCLP_HICON, GCLP_HICONSM, GWL_EXSTYLE, GWL_STYLE, HHOOK, HICON, HWND_TOPMOST,
         ICON_BIG, ICON_SMALL, ICON_SMALL2, IDC_ARROW, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN,
         LLKHF_INJECTED, LLKHF_UP, MSG, PM_NOREMOVE, SC_CLOSE, SMTO_ABORTIFHUNG, SWP_NOACTIVATE,
         SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, WH_KEYBOARD_LL, WM_APP, WM_DESTROY,
         WM_DISPLAYCHANGE, WM_GETICON, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_QUIT,
-        WM_SYSCOMMAND, WM_TIMER, WNDCLASSW, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-        WS_POPUP,
+        WM_SYSCOMMAND, WM_TIMER, WNDCLASSW, WS_CAPTION, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+        WS_EX_TOPMOST, WS_POPUP, WS_THICKFRAME,
     };
 
     const MSG_START: u32 = WM_APP + 1;
@@ -766,6 +772,10 @@ mod platform {
     struct Win32Host;
 
     impl HookHost for Win32Host {
+        fn fullscreen_foreground(&mut self) -> bool {
+            unsafe { fullscreen_game_foreground() }
+        }
+
         fn post(&mut self, event: SessionEvent) -> bool {
             let hwnd = HWND(OVERLAY.load(Ordering::Acquire) as *mut _);
             if hwnd.0.is_null() {
@@ -808,6 +818,47 @@ mod platform {
             }
             posted
         }
+    }
+
+    /// Match the conservative fullscreen-game shape used by window_drag: a
+    /// non-maximized, borderless window covering its entire monitor. Checking
+    /// the foreground window (not the cursor monitor) is essential when a game
+    /// runs on monitor 1 while the pointer happens to be on monitor 2.
+    unsafe fn fullscreen_game_foreground() -> bool {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() || IsZoomed(hwnd).as_bool() {
+            return false;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == GetCurrentProcessId() {
+            return false;
+        }
+        let mut rect = RECT::default();
+        if GetWindowRect(hwnd, &mut rect).is_err() {
+            return false;
+        }
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return false;
+        }
+        const TOLERANCE: i32 = 2;
+        let bounds = info.rcMonitor;
+        let covers_monitor = rect.left <= bounds.left + TOLERANCE
+            && rect.top <= bounds.top + TOLERANCE
+            && rect.right >= bounds.right - TOLERANCE
+            && rect.bottom >= bounds.bottom - TOLERANCE;
+        if !covers_monitor {
+            return false;
+        }
+        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+        let has_caption = style & WS_CAPTION.0 == WS_CAPTION.0;
+        let has_resize_frame = style & WS_THICKFRAME.0 != 0;
+        !(has_caption || has_resize_frame)
     }
 
     /// Keystroke apps see between Alt-down and Alt-up so the swallowed Tab
@@ -1696,6 +1747,7 @@ mod tests {
     use super::*;
 
     struct Recorder {
+        fullscreen: bool,
         post_ok: bool,
         events: Vec<SessionEvent>,
     }
@@ -1703,6 +1755,7 @@ mod tests {
     impl Recorder {
         fn new() -> Self {
             Self {
+                fullscreen: false,
                 post_ok: true,
                 events: Vec::new(),
             }
@@ -1710,6 +1763,10 @@ mod tests {
     }
 
     impl HookHost for Recorder {
+        fn fullscreen_foreground(&mut self) -> bool {
+            self.fullscreen
+        }
+
         fn post(&mut self, event: SessionEvent) -> bool {
             if self.post_ok {
                 self.events.push(event);
@@ -1891,6 +1948,17 @@ mod tests {
         // Alt release afterwards passes through untouched.
         assert!(!key(&mut state, &mut host, HookKey::LeftAlt, false));
         assert!(host.events.is_empty());
+    }
+
+    #[test]
+    fn fullscreen_foreground_uses_only_the_native_switcher() {
+        let mut state = HookState::default();
+        let mut host = Recorder::new();
+        host.fullscreen = true;
+        key(&mut state, &mut host, HookKey::LeftAlt, true);
+        assert!(!key(&mut state, &mut host, HookKey::Tab, true));
+        assert!(host.events.is_empty());
+        assert!(!state.session);
     }
 
     #[test]
