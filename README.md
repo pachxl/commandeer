@@ -1,17 +1,20 @@
 # Commandeer
 
-this was made with like 10 different models (gpt 5.6 sol, fable 5, opus 4.7 and 4.8, kimi 2.6 and 2.7, deepseek-v4-pro *maybe*). we have not looked at a single line of code nor do we understand how it works at all which is always good.
+this was made with like 10 different models (gpt 5.6 sol, fable 5, opus 4.7 and 4.8, kimi 2.6 and 2.7, deepseek-v4-pro *maybe*, some cursor stuff too idk).
 
-basically its a command palette originally made for windows, with some support for linux, and even less support for mac (just use spotlight). it has some cool window manager stuff for windows that lets you hold alt and right/left click to navigate. it has a weird alt+tab replacement for windows which i think sucks but i still use it
+we have not looked at a single line of code nor do we understand how it works at all which is always good.
 
-press ctrl+space to open it, or if "game mode" is enabled press alt+space (this was because i couldnt crouch and jump on cs)
+basically its a command palette originally made for windows, with some support for linux, and even less support for mac (just use spotlight). it has some cool window manager stuff for windows that lets you hold alt and right/left click to move, resize and snap windows. it has a weird alt+tab replacement for windows which i think sucks but i still use it cause the windows one sucks even more
 
+press ctrl+space to open it, or if "game mode" is enabled press alt+space (this was because i couldnt crouch and jump on cs without it opening)
 
 oh it also has a quick access "commands" folder where you can put shortcuts and scripts to run directly from here, and you can add icons to them by just putting in a png with the same name as the script or shortcut.
 
-and it has a screenshot tool but i forgot what the default key is (most of the keybinds are configurable through the settings page)
+and it has a screenshot tool but i forgot what the default key is (most of the keybinds are configurable through the settings page) it might be insert or prntsc?
 
-the rest of this readme is written by sol so whatever
+## Contributing
+if you have any ideas just add them and make a pr or do it in ur own fork who cares
+
 
 The project is under active development. Platform integrations differ where the operating systems require it, especially for global shortcuts, window management, screenshots, and application discovery.
 
