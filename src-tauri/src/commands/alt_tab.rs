@@ -1,10 +1,10 @@
 //! Windows-only per-monitor Alt+Tab replacement.
 //!
-//! A `WH_KEYBOARD_LL` hook on its own message-pump thread intercepts only an
-//! active Alt+Tab session and posts tiny messages to a separate native overlay
-//! thread. Window enumeration, DWM thumbnail registration, painting, and
-//! foreground activation can therefore never delay the hook pump: Windows
-//! silently removes low-level hooks that stop responding promptly.
+//! A `WH_KEYBOARD_LL` hook intercepts only an active Alt+Tab session and posts
+//! tiny messages to a dedicated native overlay thread. Window enumeration,
+//! DWM thumbnail registration, painting, and foreground activation never run
+//! inside the hook callback: a slow low-level hook can stall input and Windows
+//! may silently remove it.
 //!
 //! The keyboard/session logic lives in [`HookState`], platform-independent and
 //! unit-tested; the platform module only maps Win32 events in and out of it.
@@ -82,8 +82,8 @@ enum SessionEvent {
 /// The hook's view of the outside world; implemented over Win32 in `platform`
 /// and by a recorder in the unit tests.
 trait HookHost {
-    /// True when the foreground window is a fullscreen/borderless game. The
-    /// custom session stays completely inactive and Windows handles Alt+Tab.
+    /// True when the foreground window is (borderless-)fullscreen — the
+    /// shortcut then passes through to the native switcher.
     fn fullscreen_foreground(&mut self) -> bool;
     /// Deliver an event to the overlay thread. `false` means delivery failed
     /// and the keystroke must fall through to Windows.
@@ -393,8 +393,8 @@ fn grid_layout(count: usize, work_w: i32, work_h: i32, dpi: u32) -> GridLayout {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::{
-        cycled_index, grid_layout, initial_selection, scaled, selection_after_prune, AltTabTheme,
-        Direction, GridLayout, GridMove, HookHost, HookKey, HookState, SessionEvent,
+        cycled_index, grid_layout, initial_selection, selection_after_prune, AltTabTheme, Direction,
+        GridLayout, GridMove, HookHost, HookKey, HookState, SessionEvent,
     };
     use std::cell::RefCell;
     use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
@@ -422,8 +422,8 @@ mod platform {
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::System::Threading::{
-        AttachThreadInput, GetCurrentProcessId, GetCurrentThreadId, OpenProcess,
-        QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+        GetCurrentProcessId, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
+        PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
     };
     use windows::Win32::UI::HiDpi::GetDpiForWindow;
     use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -438,16 +438,16 @@ mod platform {
         GetCursorPos, GetDesktopWindow, GetForegroundWindow, GetLastActivePopup, GetMessageW,
         GetShellWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
         IsWindow, IsWindowVisible, IsZoomed, KillTimer, LoadCursorW, PostMessageW,
-        PeekMessageW, PostThreadMessageW, RegisterClassW, SendMessageTimeoutW, SetForegroundWindow,
-        SetTimer, SetWindowPos, SetWindowsHookExW, ShowWindow, TranslateMessage,
-        UnhookWindowsHookEx, CS_HREDRAW, CS_VREDRAW, DI_NORMAL, FLASHWINFO, FLASHW_TRAY,
-        GA_ROOTOWNER, GCLP_HICON, GCLP_HICONSM, GWL_EXSTYLE, GWL_STYLE, HHOOK, HICON, HWND_TOPMOST,
-        ICON_BIG, ICON_SMALL, ICON_SMALL2, IDC_ARROW, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN,
-        LLKHF_INJECTED, LLKHF_UP, MSG, PM_NOREMOVE, SC_CLOSE, SMTO_ABORTIFHUNG, SWP_NOACTIVATE,
-        SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, WH_KEYBOARD_LL, WM_APP, WM_DESTROY,
-        WM_DISPLAYCHANGE, WM_GETICON, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_QUIT,
-        WM_SYSCOMMAND, WM_TIMER, WNDCLASSW, WS_CAPTION, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
-        WS_EX_TOPMOST, WS_POPUP, WS_THICKFRAME,
+        PostThreadMessageW, RegisterClassW, SendMessageTimeoutW, SetTimer, SetWindowPos,
+        SetWindowsHookExW, ShowWindow, TranslateMessage, UnhookWindowsHookEx, CS_HREDRAW,
+        CS_VREDRAW, DI_NORMAL, FLASHWINFO, FLASHW_TRAY, GA_ROOTOWNER, GCLP_HICON, GCLP_HICONSM,
+        GWL_EXSTYLE, GWL_STYLE, HHOOK, HICON, HWND_TOPMOST, ICON_BIG, ICON_SMALL, ICON_SMALL2,
+        IDC_ARROW, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN, LLKHF_INJECTED, LLKHF_UP, MSG, SC_CLOSE,
+        SMTO_ABORTIFHUNG, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE,
+        WH_KEYBOARD_LL, WM_APP, WM_DESTROY, WM_DISPLAYCHANGE, WM_GETICON, WM_LBUTTONUP,
+        WM_MOUSEMOVE, WM_PAINT, WM_QUIT, WM_SYSCOMMAND, WM_TIMER, WNDCLASSW, WS_CAPTION,
+        WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+        WS_THICKFRAME,
     };
 
     const MSG_START: u32 = WM_APP + 1;
@@ -456,16 +456,11 @@ mod platform {
     const MSG_COMMIT: u32 = WM_APP + 4;
     const MSG_CANCEL: u32 = WM_APP + 5;
     const MSG_STICKY: u32 = WM_APP + 6;
-    const MSG_HOOK_RESET: u32 = WM_APP + 7;
     const PRUNE_TIMER: usize = 1;
 
     static READY: AtomicBool = AtomicBool::new(false);
-    /// The native overlay is actually visible. This is authoritative for Tab
-    /// interception even if focus transfer makes the logical key session lag.
-    static OVERLAY_ACTIVE: AtomicBool = AtomicBool::new(false);
     static OVERLAY: AtomicIsize = AtomicIsize::new(0);
-    static OVERLAY_THREAD_ID: AtomicU32 = AtomicU32::new(0);
-    static HOOK_THREAD_ID: AtomicU32 = AtomicU32::new(0);
+    static THREAD_ID: AtomicU32 = AtomicU32::new(0);
     // Tokyo Night defaults are available before the webview sends the saved
     // theme during startup. COLORREF stores bytes as 0x00BBGGRR.
     static THEME_BACKGROUND: AtomicU32 = AtomicU32::new(colorref(26, 27, 38));
@@ -477,8 +472,7 @@ mod platform {
     static THEME_DARK: AtomicBool = AtomicBool::new(true);
 
     struct Service {
-        overlay_thread: JoinHandle<()>,
-        hook_thread: JoinHandle<()>,
+        thread: JoinHandle<()>,
     }
 
     fn service() -> &'static Mutex<Option<Service>> {
@@ -497,59 +491,32 @@ mod platform {
             return Ok(());
         }
 
-        let (overlay_tx, overlay_rx) = mpsc::sync_channel(1);
-        let overlay_thread = thread::Builder::new()
-            .name("alt-tab-overlay".into())
-            .spawn(move || overlay_thread(overlay_tx))
+        let (tx, rx) = mpsc::sync_channel(1);
+        let thread = thread::Builder::new()
+            .name("per-monitor-alt-tab".into())
+            .spawn(move || service_thread(tx))
             .map_err(|e| e.to_string())?;
-        match overlay_rx.recv_timeout(Duration::from_secs(2)) {
-            Ok(Ok(())) => {}
+
+        match rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(Ok(())) => {
+                *guard = Some(Service { thread });
+                Ok(())
+            }
             Ok(Err(e)) => {
-                let _ = overlay_thread.join();
-                return Err(e);
+                let _ = thread.join();
+                Err(e)
             }
             Err(_) => {
-                stop_thread(OVERLAY_THREAD_ID.load(Ordering::Acquire));
-                let _ = overlay_thread.join();
-                return Err("Alt+Tab overlay timed out during startup".into());
+                let tid = THREAD_ID.load(Ordering::Acquire);
+                if tid != 0 {
+                    unsafe {
+                        let _ = PostThreadMessageW(tid, WM_QUIT, WPARAM(0), LPARAM(0));
+                    }
+                }
+                let _ = thread.join();
+                Err("Alt+Tab service timed out during startup".into())
             }
         }
-
-        let (hook_tx, hook_rx) = mpsc::sync_channel(1);
-        let hook_thread = match thread::Builder::new()
-            .name("alt-tab-keyboard-hook".into())
-            .spawn(move || hook_thread(hook_tx))
-        {
-            Ok(thread) => thread,
-            Err(e) => {
-                stop_thread(OVERLAY_THREAD_ID.load(Ordering::Acquire));
-                let _ = overlay_thread.join();
-                return Err(e.to_string());
-            }
-        };
-        match hook_rx.recv_timeout(Duration::from_secs(2)) {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => {
-                stop_thread(OVERLAY_THREAD_ID.load(Ordering::Acquire));
-                let _ = hook_thread.join();
-                let _ = overlay_thread.join();
-                return Err(e);
-            }
-            Err(_) => {
-                stop_thread(HOOK_THREAD_ID.load(Ordering::Acquire));
-                stop_thread(OVERLAY_THREAD_ID.load(Ordering::Acquire));
-                let _ = hook_thread.join();
-                let _ = overlay_thread.join();
-                return Err("Alt+Tab keyboard hook timed out during startup".into());
-            }
-        }
-
-        READY.store(true, Ordering::Release);
-        *guard = Some(Service {
-            overlay_thread,
-            hook_thread,
-        });
-        Ok(())
     }
 
     pub fn set_theme(theme: AltTabTheme) {
@@ -582,38 +549,25 @@ mod platform {
         let Some(service) = item else {
             return Ok(());
         };
-        stop_thread(HOOK_THREAD_ID.load(Ordering::Acquire));
-        stop_thread(OVERLAY_THREAD_ID.load(Ordering::Acquire));
-        let hook_result = service.hook_thread.join();
-        let overlay_result = service.overlay_thread.join();
-        hook_result
-            .and(overlay_result)
+        let tid = THREAD_ID.load(Ordering::Acquire);
+        if tid != 0 {
+            unsafe {
+                let _ = PostThreadMessageW(tid, WM_QUIT, WPARAM(0), LPARAM(0));
+            }
+        }
+        service
+            .thread
+            .join()
             .map_err(|_| "Alt+Tab service thread panicked".to_string())
     }
 
-    fn stop_thread(thread_id: u32) {
-        if thread_id != 0 {
-            unsafe {
-                let _ = PostThreadMessageW(thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
-            }
-        }
-    }
-
-    fn reset_hook_session() {
-        let thread_id = HOOK_THREAD_ID.load(Ordering::Acquire);
-        if thread_id != 0 {
-            unsafe {
-                let _ = PostThreadMessageW(thread_id, MSG_HOOK_RESET, WPARAM(0), LPARAM(0));
-            }
-        }
-    }
-
-    fn overlay_thread(started: mpsc::SyncSender<Result<(), String>>) {
-        OVERLAY_THREAD_ID.store(unsafe { GetCurrentThreadId() }, Ordering::Release);
-        let result = unsafe { initialize_overlay() };
+    fn service_thread(started: mpsc::SyncSender<Result<(), String>>) {
+        THREAD_ID.store(unsafe { GetCurrentThreadId() }, Ordering::Release);
+        let result = unsafe { initialize_service() };
         match result {
-            Ok(hwnd) => {
+            Ok((hwnd, hook)) => {
                 OVERLAY.store(hwnd.0 as isize, Ordering::Release);
+                READY.store(true, Ordering::Release);
                 let _ = started.send(Ok(()));
 
                 unsafe {
@@ -628,6 +582,7 @@ mod platform {
                             switcher.hide();
                         }
                     });
+                    let _ = UnhookWindowsHookEx(hook);
                     let _ = KillTimer(hwnd, PRUNE_TIMER);
                     let _ = DestroyWindow(hwnd);
                 }
@@ -636,45 +591,12 @@ mod platform {
                 let _ = started.send(Err(e));
             }
         }
-        OVERLAY_ACTIVE.store(false, Ordering::Release);
-        OVERLAY.store(0, Ordering::Release);
-        OVERLAY_THREAD_ID.store(0, Ordering::Release);
-    }
-
-    fn hook_thread(started: mpsc::SyncSender<Result<(), String>>) {
-        HOOK_THREAD_ID.store(unsafe { GetCurrentThreadId() }, Ordering::Release);
-        unsafe {
-            // Force creation of this thread's message queue before announcing
-            // readiness, so reset/quit thread messages can never race startup.
-            let mut queued = MSG::default();
-            let _ = PeekMessageW(&mut queued, None, 0, 0, PM_NOREMOVE);
-        }
-        let result = unsafe { install_keyboard_hook() };
-        match result {
-            Ok(hook) => {
-                let _ = started.send(Ok(()));
-                unsafe {
-                    let mut msg = MSG::default();
-                    while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
-                        if msg.message == MSG_HOOK_RESET {
-                            KEYS.with(|keys| keys.borrow_mut().reset_session());
-                            continue;
-                        }
-                        let _ = TranslateMessage(&msg);
-                        DispatchMessageW(&msg);
-                    }
-                    let _ = UnhookWindowsHookEx(hook);
-                }
-            }
-            Err(e) => {
-                let _ = started.send(Err(e));
-            }
-        }
         READY.store(false, Ordering::Release);
-        HOOK_THREAD_ID.store(0, Ordering::Release);
+        OVERLAY.store(0, Ordering::Release);
+        THREAD_ID.store(0, Ordering::Release);
     }
 
-    unsafe fn initialize_overlay() -> Result<HWND, String> {
+    unsafe fn initialize_service() -> Result<(HWND, HHOOK), String> {
         let module = GetModuleHandleW(None).map_err(|e| e.to_string())?;
         let instance = HINSTANCE(module.0);
         let class = w!("CommandeerPerMonitorAltTab");
@@ -688,7 +610,7 @@ mod platform {
         };
         RegisterClassW(&wc);
         let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class,
             w!("Task Switching"),
             WS_POPUP,
@@ -706,18 +628,15 @@ mod platform {
         apply_dwm_style(hwnd);
         SWITCHER.with(|slot| *slot.borrow_mut() = Some(Switcher::new(hwnd)));
         SetTimer(hwnd, PRUNE_TIMER, 150, None);
-        Ok(hwnd)
-    }
 
-    unsafe fn install_keyboard_hook() -> Result<HHOOK, String> {
-        let module = GetModuleHandleW(None).map_err(|e| e.to_string())?;
-        SetWindowsHookExW(
+        let hook = SetWindowsHookExW(
             WH_KEYBOARD_LL,
             Some(keyboard_proc),
             HINSTANCE(module.0),
             0,
         )
-        .map_err(|e| format!("could not install Alt+Tab keyboard hook: {e}"))
+        .map_err(|e| format!("could not install Alt+Tab keyboard hook: {e}"))?;
+        Ok((hwnd, hook))
     }
 
     unsafe fn apply_dwm_style(hwnd: HWND) {
@@ -773,7 +692,7 @@ mod platform {
 
     impl HookHost for Win32Host {
         fn fullscreen_foreground(&mut self) -> bool {
-            unsafe { fullscreen_game_foreground() }
+            unsafe { native_fullscreen_fallback() }
         }
 
         fn post(&mut self, event: SessionEvent) -> bool {
@@ -820,47 +739,6 @@ mod platform {
         }
     }
 
-    /// Match the conservative fullscreen-game shape used by window_drag: a
-    /// non-maximized, borderless window covering its entire monitor. Checking
-    /// the foreground window (not the cursor monitor) is essential when a game
-    /// runs on monitor 1 while the pointer happens to be on monitor 2.
-    unsafe fn fullscreen_game_foreground() -> bool {
-        let hwnd = GetForegroundWindow();
-        if hwnd.0.is_null() || IsZoomed(hwnd).as_bool() {
-            return false;
-        }
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(hwnd, Some(&mut pid));
-        if pid == GetCurrentProcessId() {
-            return false;
-        }
-        let mut rect = RECT::default();
-        if GetWindowRect(hwnd, &mut rect).is_err() {
-            return false;
-        }
-        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-        let mut info = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
-            return false;
-        }
-        const TOLERANCE: i32 = 2;
-        let bounds = info.rcMonitor;
-        let covers_monitor = rect.left <= bounds.left + TOLERANCE
-            && rect.top <= bounds.top + TOLERANCE
-            && rect.right >= bounds.right - TOLERANCE
-            && rect.bottom >= bounds.bottom - TOLERANCE;
-        if !covers_monitor {
-            return false;
-        }
-        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-        let has_caption = style & WS_CAPTION.0 == WS_CAPTION.0;
-        let has_resize_frame = style & WS_THICKFRAME.0 != 0;
-        !(has_caption || has_resize_frame)
-    }
-
     /// Keystroke apps see between Alt-down and Alt-up so the swallowed Tab
     /// doesn't leave a menu-activating "lone Alt". 0xFF is an unassigned VK.
     unsafe fn inject_mask_key() {
@@ -890,17 +768,6 @@ mod platform {
                 let down = info.flags.0 & LLKHF_UP.0 == 0;
                 let alt_flag = info.flags.0 & LLKHF_ALTDOWN.0 != 0;
                 let key = hook_key(info.vkCode as u16);
-                // Once our overlay is visibly handling the session, Windows
-                // must never see another physical Tab from it. Focus transfer
-                // can race or reset the logical HookState in some fullscreen
-                // games, so visible UI is the stronger source of truth here.
-                if key == HookKey::Tab && OVERLAY_ACTIVE.load(Ordering::Acquire) {
-                    if down {
-                        let direction = KEYS.with(|keys| keys.borrow().direction());
-                        let _ = Win32Host.post(SessionEvent::Cycle { direction });
-                    }
-                    return LRESULT(1);
-                }
                 let swallow = KEYS.with(|keys| {
                     keys.borrow_mut().on_key(key, down, alt_flag, &mut Win32Host)
                 });
@@ -910,6 +777,40 @@ mod platform {
             }
         }
         CallNextHookEx(HHOOK::default(), code, wparam, lparam)
+    }
+
+    unsafe fn native_fullscreen_fallback() -> bool {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() || IsZoomed(hwnd).as_bool() {
+            return false;
+        }
+        // Tauri's transparent, undecorated palette can occasionally be
+        // reported with monitor-sized extended bounds while it is visible.
+        // It is our UI, never a game that should opt into native Alt+Tab.
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == GetCurrentProcessId() {
+            return false;
+        }
+        let mut rect = RECT::default();
+        if GetWindowRect(hwnd, &mut rect).is_err() {
+            return false;
+        }
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return false;
+        }
+        let m = info.rcMonitor;
+        let covers = rect.left <= m.left + 2
+            && rect.top <= m.top + 2
+            && rect.right >= m.right - 2
+            && rect.bottom >= m.bottom - 2;
+        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+        covers && style & WS_CAPTION.0 != WS_CAPTION.0 && style & WS_THICKFRAME.0 == 0
     }
 
     unsafe extern "system" fn overlay_proc(
@@ -1009,7 +910,6 @@ mod platform {
                         switcher.cancel();
                     }
                 });
-                reset_hook_session();
                 LRESULT(0)
             }
             WM_PAINT => {
@@ -1122,13 +1022,7 @@ mod platform {
             self.page = self.selected / self.layout.capacity;
             self.position_and_register();
             self.visible = true;
-            OVERLAY_ACTIVE.store(true, Ordering::Release);
             let _ = ShowWindow(self.hwnd, SW_SHOWNOACTIVATE);
-            // Temporarily take foreground focus from the selected app. Games
-            // commonly confine or continuously recenter the cursor only while
-            // foreground, so this releases their mouse lock for the switcher.
-            // commit/cancel below always hand focus to a real app again.
-            focus_overlay(self.hwnd);
         }
 
         unsafe fn relayout(&mut self) {
@@ -1284,7 +1178,7 @@ mod platform {
                 );
             } else {
                 self.commit();
-                reset_hook_session();
+                KEYS.with(|keys| keys.borrow_mut().reset_session());
             }
         }
 
@@ -1313,16 +1207,11 @@ mod platform {
         }
 
         unsafe fn cancel(&mut self) {
-            let original = self.original;
             self.hide();
-            if !original.0.is_null() && IsWindow(original).as_bool() {
-                crate::commands::paste::force_foreground(original);
-            }
         }
 
         unsafe fn hide(&mut self) {
             self.visible = false;
-            OVERLAY_ACTIVE.store(false, Ordering::Release);
             self.sticky = false;
             self.unregister_thumbnails();
             for candidate in &mut self.candidates {
@@ -1345,8 +1234,8 @@ mod platform {
                 return;
             }
             let Some(selected) = selection_after_prune(self.selected, &alive) else {
-                self.cancel();
-                reset_hook_session();
+                self.hide();
+                KEYS.with(|keys| keys.borrow_mut().reset_session());
                 return;
             };
             self.unregister_thumbnails();
@@ -1382,9 +1271,8 @@ mod platform {
                 .encode_utf16()
                 .chain(std::iter::once(0))
                 .collect();
-            let dpi = GetDpiForWindow(self.hwnd).max(96);
             let font = CreateFontW(
-                -scaled(14, dpi),
+                -((14 * GetDpiForWindow(self.hwnd).max(96) as i32) / 96),
                 0,
                 0,
                 0,
@@ -1430,12 +1318,7 @@ mod platform {
                 let _ = DeleteObject(brush);
                 let _ = DeleteObject(pen);
 
-                // Match the palette's compact icon treatment and scale with
-                // monitor DPI. The lookup below prefers a large HICON, so
-                // this normally downsizes instead of enlarging a 16 px bitmap.
-                let icon_size = scaled(20, dpi)
-                    .min(self.layout.title_h - scaled(14, dpi))
-                    .max(scaled(16, dpi));
+                let icon_size = (self.layout.title_h - 14).clamp(16, 28);
                 if !candidate.icon.is_invalid() {
                     let _ = DrawIconEx(
                         dc,
@@ -1484,28 +1367,6 @@ mod platform {
 
     fn contains(rect: RECT, x: i32, y: i32) -> bool {
         x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
-    }
-
-    /// Focus our own overlay even when the fullscreen foreground process owns
-    /// Windows' foreground lock. The general app-activation helper attaches to
-    /// the target thread; here the target is this thread, so we instead attach
-    /// to the current foreground thread before retrying.
-    unsafe fn focus_overlay(hwnd: HWND) {
-        if SetForegroundWindow(hwnd).as_bool() {
-            return;
-        }
-        let foreground = GetForegroundWindow();
-        if foreground.0.is_null() {
-            return;
-        }
-        let foreground_thread = GetWindowThreadProcessId(foreground, None);
-        let our_thread = GetCurrentThreadId();
-        if foreground_thread == 0 || foreground_thread == our_thread {
-            return;
-        }
-        let _ = AttachThreadInput(our_thread, foreground_thread, true);
-        let _ = SetForegroundWindow(hwnd);
-        let _ = AttachThreadInput(our_thread, foreground_thread, false);
     }
 
     fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
@@ -1668,9 +1529,7 @@ mod platform {
     }
 
     unsafe fn window_icon(hwnd: HWND) -> (HICON, bool) {
-        // Prefer the large window icon: asking for ICON_SMALL first returned a
-        // 16 px bitmap that DrawIconEx then enlarged in the title strip.
-        for kind in [ICON_BIG, ICON_SMALL2, ICON_SMALL] {
+        for kind in [ICON_SMALL2, ICON_SMALL, ICON_BIG] {
             let mut result = 0usize;
             let _ = SendMessageTimeoutW(
                 hwnd,
@@ -1685,11 +1544,11 @@ mod platform {
                 return (HICON(result as *mut _), false);
             }
         }
-        let large = GetClassLongPtrW(hwnd, GCLP_HICON);
-        let class_icon = if large != 0 {
-            large
+        let small = GetClassLongPtrW(hwnd, GCLP_HICONSM);
+        let class_icon = if small != 0 {
+            small
         } else {
-            GetClassLongPtrW(hwnd, GCLP_HICONSM)
+            GetClassLongPtrW(hwnd, GCLP_HICON)
         };
         if class_icon != 0 {
             return (HICON(class_icon as *mut _), false);
@@ -1720,9 +1579,7 @@ mod platform {
             return None;
         }
         let mut icon = HICON::default();
-        // Extract the large executable icon and downscale it cleanly at draw
-        // time instead of requesting the small slot and scaling it upward.
-        let extracted = ExtractIconExW(PCWSTR(path.as_ptr()), 0, Some(&mut icon), None, 1);
+        let extracted = ExtractIconExW(PCWSTR(path.as_ptr()), 0, None, Some(&mut icon), 1);
         (extracted >= 1 && !icon.is_invalid()).then_some(icon)
     }
 }
@@ -1766,7 +1623,6 @@ mod tests {
         fn fullscreen_foreground(&mut self) -> bool {
             self.fullscreen
         }
-
         fn post(&mut self, event: SessionEvent) -> bool {
             if self.post_ok {
                 self.events.push(event);
@@ -1938,6 +1794,17 @@ mod tests {
     }
 
     #[test]
+    fn fullscreen_foreground_passes_through() {
+        let mut state = HookState::default();
+        let mut host = Recorder::new();
+        host.fullscreen = true;
+        key(&mut state, &mut host, HookKey::LeftAlt, true);
+        assert!(!key(&mut state, &mut host, HookKey::Tab, true));
+        assert!(host.events.is_empty());
+        assert!(!state.session);
+    }
+
+    #[test]
     fn failed_post_passes_through_and_starts_no_session() {
         let mut state = HookState::default();
         let mut host = Recorder::new();
@@ -1948,17 +1815,6 @@ mod tests {
         // Alt release afterwards passes through untouched.
         assert!(!key(&mut state, &mut host, HookKey::LeftAlt, false));
         assert!(host.events.is_empty());
-    }
-
-    #[test]
-    fn fullscreen_foreground_uses_only_the_native_switcher() {
-        let mut state = HookState::default();
-        let mut host = Recorder::new();
-        host.fullscreen = true;
-        key(&mut state, &mut host, HookKey::LeftAlt, true);
-        assert!(!key(&mut state, &mut host, HookKey::Tab, true));
-        assert!(host.events.is_empty());
-        assert!(!state.session);
     }
 
     #[test]
