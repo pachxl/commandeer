@@ -52,12 +52,12 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover, t
         top: 0,
         right: 0,
         bottom: 0,
-        width: 240,
+        width: 'var(--action-panel-width)',
         background: 'var(--bg-elevated)',
         borderLeft: '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',
-        padding: '8px 6px',
+        padding: 'var(--action-panel-padding)',
         overflowY: 'auto',
         zIndex: 10,
       }}
@@ -69,7 +69,7 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover, t
           alignItems: 'center',
           gap: 4,
           padding: '2px 8px 8px',
-          fontSize: 10,
+          fontSize: 'var(--accessory-font-size)',
           fontFamily: 'var(--font-ui)',
           color: 'var(--text-dim)',
           textTransform: 'uppercase',
@@ -91,24 +91,24 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover, t
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              padding: '5px 8px',
-              borderRadius: 5,
+              padding: 'var(--action-row-padding)',
+              borderRadius: 'var(--action-row-radius)',
               cursor: 'pointer',
-              background: selected ? 'var(--accent)' : 'transparent',
+              background: selected ? 'var(--action-row-selected-bg)' : 'transparent',
               userSelect: 'none',
             }}
           >
             {item.icon && hasIcon(item.icon) && (
               <div
-                style={{ width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: selected ? '#ffffff' : 'var(--text-dim)' }}
-                dangerouslySetInnerHTML={{ __html: getIconSvg(item.icon, selected ? '#ffffff' : 'var(--text-dim)') ?? '' }}
+                style={{ width: 'var(--action-icon-size)', height: 'var(--action-icon-size)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: selected ? 'var(--action-row-selected-fg)' : 'var(--text-dim)' }}
+                dangerouslySetInnerHTML={{ __html: getIconSvg(item.icon, selected ? 'var(--action-row-selected-fg)' : 'var(--text-dim)') ?? '' }}
               />
             )}
             <span style={{
               flex: 1,
-              fontSize: 12,
+              fontSize: 'var(--action-font-size)',
               fontFamily: 'var(--font)',
-              color: selected ? '#ffffff' : 'var(--text)',
+              color: selected ? 'var(--action-row-selected-fg)' : 'var(--text)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -118,12 +118,12 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover, t
             {item.shortcut && (
               <kbd style={{
                 fontFamily: 'var(--font-ui)',
-                fontSize: 10,
-                padding: '1px 5px',
-                borderRadius: 3,
-                background: selected ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.06)',
+                fontSize: 'var(--kbd-font-size)',
+                padding: 'var(--kbd-padding)',
+                borderRadius: 'var(--kbd-radius)',
+                background: selected ? 'rgba(255,255,255,0.18)' : 'var(--action-kbd-bg)',
                 border: '1px solid var(--border)',
-                color: selected ? '#ffffff' : 'var(--text-dim)',
+                color: selected ? 'var(--action-row-selected-fg)' : 'var(--text-dim)',
                 flexShrink: 0,
               }}>
                 {item.shortcut}
@@ -131,9 +131,9 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover, t
             )}
             {item.submenu && (
               <span style={{
-                fontSize: 13,
+                fontSize: 'var(--action-font-size)',
                 lineHeight: '14px',
-                color: selected ? '#ffffff' : 'var(--text-dim)',
+                color: selected ? 'var(--action-row-selected-fg)' : 'var(--text-dim)',
                 flexShrink: 0,
               }}>
                 ›

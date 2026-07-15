@@ -3,8 +3,8 @@
 // ICONS and reference them by name in a Command/PaletteItem `icon` field.
 interface IconProps {
   name: string
-  width?: number
-  height?: number
+  width?: number | string
+  height?: number | string
   color?: string
 }
 
@@ -56,6 +56,7 @@ const ICONS: Record<string, (color?: string, size?: number) => string> = {
   volume: icon('0 0 24 24', '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>'),
   x: icon('0 0 24 24', '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
   scale: icon('0 0 24 24', '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>'),
+  layout: icon('0 0 24 24', '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" x2="21" y1="9" y2="9"/><line x1="9" x2="9" y1="21" y2="9"/>'),
 }
 
 export function getIconSvg(name: string, color?: string, size?: number): string | null {

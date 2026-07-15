@@ -18,11 +18,75 @@
   --accent:     #7aa2f7;
   --font:       'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
   --font-ui:    'JetBrains Mono', 'Fira Code', Consolas, monospace;
+
+  /* Structural style variables (overridden by the active UI style preset). */
+  --row-padding: 4px 10px;
+  --row-gap: 8px;
+  --row-radius: 5px;
+  --row-inset: 0px;
+  --row-selected-bg: var(--accent);
+  --row-selected-fg: #ffffff;
+  --row-selected-sublabel-fg: rgba(255,255,255,0.78);
+  --row-hover-bg: var(--bg-hover);
+  --row-active-indicator-bg: #30d158;
+  --icon-size: 18px;
+  --icon-font-size: 14px;
+  --label-font-size: 13px;
+  --sublabel-font-size: 11px;
+  --accessory-font-size: 10px;
+  --accessory-radius: 3px;
+  --accessory-padding: 1px 5px;
+  --search-padding: 8px 14px;
+  --search-height: auto;
+  --search-font-size: 15px;
+  --search-icon-size: 16px;
+  --preview-label-font-size: 15px;
+  --preview-sublabel-font-size: 11px;
+  --footer-padding: 4px 10px;
+  --footer-height: 26px;
+  --footer-font-size: 11px;
+  --footer-button-radius: 4px;
+  --footer-button-padding: 2px 8px;
+  --kbd-font-size: 10px;
+  --kbd-padding: 1px 5px;
+  --kbd-radius: 3px;
+  --action-panel-width: 240px;
+  --action-panel-padding: 8px 6px;
+  --action-row-padding: 5px 8px;
+  --action-row-radius: 5px;
+  --action-row-selected-bg: var(--accent);
+  --action-row-selected-fg: #ffffff;
+  --action-icon-size: 14px;
+  --action-font-size: 12px;
+  --action-kbd-bg: rgba(255,255,255,0.06);
+  --grid-padding: 8px 6px;
+  --grid-gap: 6px;
+  --grid-cell-radius: 6px;
+  --grid-cell-padding: 8px 4px;
+  --grid-icon-size: 28px;
+  --grid-icon-font-size: 20px;
+  --grid-label-font-size: 11px;
+  --grid-sublabel-font-size: 9px;
+  --detail-width: 40%;
+  --detail-padding: 10px 12px;
+  --detail-radius: 4px;
+  --form-padding: 8px 12px;
+  --form-field-radius: 6px;
+  --breadcrumb-font-size: 11px;
+  --results-list-padding: 4px 6px;
 }
 
 @keyframes spin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
+}
+
+/* Onix (Raycast/Vicinae) skin: inset rounded rows and hover feedback. */
+[data-style="onix"] [data-list-index] {
+  margin: 0 var(--row-inset);
+}
+[data-style="onix"] [data-list-index]:not([data-selected]):hover {
+  background: var(--row-hover-bg) !important;
 }
 
 html, body, #root {

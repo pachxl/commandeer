@@ -111,10 +111,10 @@ export default function DetailPane({ item }: DetailPaneProps) {
   return (
     <div
       style={{
-        width: '40%',
+        width: 'var(--detail-width)',
         flexShrink: 0,
         borderLeft: '1px solid var(--border)',
-        padding: '10px 12px',
+        padding: 'var(--detail-padding)',
         overflowY: 'auto',
         display: 'flex',
         flexDirection: 'column',
@@ -130,7 +130,7 @@ export default function DetailPane({ item }: DetailPaneProps) {
             maxWidth: '100%',
             maxHeight: 140,
             objectFit: 'contain',
-            borderRadius: 4,
+            borderRadius: 'var(--detail-radius)',
             alignSelf: 'center',
           }}
         />
@@ -146,7 +146,7 @@ export default function DetailPane({ item }: DetailPaneProps) {
               style={{
                 width: 40,
                 height: 40,
-                borderRadius: 4,
+                borderRadius: 'var(--detail-radius)',
                 background: item.color,
                 border: '1px solid var(--border)',
               }}
@@ -199,7 +199,7 @@ export default function DetailPane({ item }: DetailPaneProps) {
             style={{
               margin: 0,
               padding: 8,
-              borderRadius: 4,
+              borderRadius: 'var(--detail-radius)',
               background: 'rgba(255,255,255,0.04)',
               border: '1px solid var(--border)',
               color: 'var(--text)',

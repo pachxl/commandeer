@@ -66,10 +66,10 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
         flex: 1,
         minHeight: 0,
         overflowY: 'auto',
-        padding: '8px 6px',
+        padding: 'var(--grid-padding)',
         display: 'grid',
         gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-        gap: 6,
+        gap: 'var(--grid-gap)',
         alignContent: 'start',
         scrollbarWidth: 'thin',
         scrollbarColor: 'var(--border-strong) transparent',
@@ -100,8 +100,8 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
               alignItems: 'center',
               justifyContent: 'center',
               gap: 6,
-              padding: '8px 4px',
-              borderRadius: 6,
+              padding: 'var(--grid-cell-padding)',
+              borderRadius: 'var(--grid-cell-radius)',
               cursor: 'pointer',
               background: selected ? 'var(--accent)' : 'transparent',
               border: `1px solid ${selected ? 'var(--accent)' : 'transparent'}`,
@@ -111,17 +111,17 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
           >
             {hasIconValue && (
               <div style={{
-                width: 28,
-                height: 28,
+                width: 'var(--grid-icon-size)',
+                height: 'var(--grid-icon-size)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
-                fontSize: 20,
+                fontSize: 'var(--grid-icon-font-size)',
                 color: selected ? '#ffffff' : 'var(--text)',
               }}>
                 {isDataUrl
-                  ? <img src={item.icon} width={28} height={28} style={{ objectFit: 'contain' }} />
+                  ? <img src={item.icon} width="100%" height="100%" style={{ objectFit: 'contain' }} />
                   : isNamedIcon
                     ? <div dangerouslySetInnerHTML={{ __html: getIconSvg(item.icon, selected ? '#ffffff' : 'var(--text)') ?? '' }} style={{ display: 'flex' }} />
                     : item.icon
@@ -129,7 +129,7 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
               </div>
             )}
             <span style={{
-              fontSize: 11,
+              fontSize: 'var(--grid-label-font-size)',
               fontFamily: item.fontFamily ? `"${item.fontFamily}", var(--font)` : 'var(--font)',
               color: selected ? '#ffffff' : 'var(--text)',
               fontWeight: 400,
@@ -148,7 +148,7 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
             </span>
             {item.sublabel && (
               <span style={{
-                fontSize: 9,
+                fontSize: 'var(--grid-sublabel-font-size)',
                 fontFamily: 'var(--font-ui)',
                 color: selected ? 'rgba(255,255,255,0.78)' : 'var(--text-dim)',
                 textAlign: 'center',

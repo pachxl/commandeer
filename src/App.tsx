@@ -10,6 +10,7 @@ import { killProcessCommand } from './providers/processes'
 import { toolsFolderCommand, virtualFolderCommand } from './providers/tools'
 import { appEvents } from './lib/appEvents'
 import { applyThemeByName } from './lib/themes'
+import { applyStyle } from './lib/styles'
 import { onCommandHotkey, readConfig, setGameMode, setWindowTransparency, type ScriptInfo } from './lib/tauri'
 import type { AppConfig, Command } from './types'
 import Palette, { type InlineScript } from './components/Palette'
@@ -131,7 +132,11 @@ export default function App() {
         // Palette always see the same, current config.
         Object.assign(configRef.current, cfg)
         if (!disposed) setConfig(configRef.current)
-        applyThemeByName(cfg.theme).catch(console.error)
+        // Apply theme first, then the UI style so structural overrides (and the
+        // Onix colorway) take precedence over the theme variables.
+        applyThemeByName(cfg.theme)
+          .then(() => applyStyle(cfg.ui_style))
+          .catch(console.error)
         if (cfg.transparency !== undefined) {
           setWindowTransparency(cfg.transparency).catch(console.error)
         }

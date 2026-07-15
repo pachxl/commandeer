@@ -26,17 +26,18 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
         display: 'flex',
         alignItems: 'center',
         gap: 10,
-        padding: '8px 14px',
+        padding: 'var(--search-padding)',
+        height: 'var(--search-height)',
         borderBottom: '1px solid var(--border)',
       }}>
         {loading ? (
-          <svg width="16" height="16" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0, color: 'var(--text-dim)' }}>
+          <svg viewBox="0 0 14 14" fill="none" style={{ width: 'var(--search-icon-size)', height: 'var(--search-icon-size)', flexShrink: 0, color: 'var(--text-dim)' }}>
             <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5"
               strokeDasharray="16" strokeLinecap="round"
               style={{ animation: 'spin 0.7s linear infinite', transformOrigin: 'center' }} />
           </svg>
         ) : (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, color: 'var(--text-dim)' }}>
+          <svg viewBox="0 0 24 24" fill="none" style={{ width: 'var(--search-icon-size)', height: 'var(--search-icon-size)', flexShrink: 0, color: 'var(--text-dim)' }}>
             <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="2" />
             <path d="M15.5 15.5L20 20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
@@ -54,7 +55,7 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
             border: 'none',
             outline: 'none',
             color: 'var(--text)',
-            fontSize: 15,
+            fontSize: 'var(--search-font-size)',
             fontWeight: 400,
             fontFamily: 'var(--font)',
             caretColor: 'var(--accent)',
@@ -79,7 +80,7 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
           >
             <span style={{
               color: 'var(--text)',
-              fontSize: 15,
+              fontSize: 'var(--preview-label-font-size)',
               fontWeight: 500,
               lineHeight: '20px',
               whiteSpace: 'nowrap',
@@ -92,7 +93,7 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
             {preview.sublabel && (
               <span style={{
                 color: 'var(--text-dim)',
-                fontSize: 11,
+                fontSize: 'var(--preview-sublabel-font-size)',
                 lineHeight: '14px',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
@@ -119,10 +120,11 @@ export const SliderInput = ({ value, min, max, step, icon = 'eye', onChange }: S
       display: 'flex',
       alignItems: 'center',
       gap: 10,
-      padding: '8px 14px',
+      padding: 'var(--search-padding)',
+      height: 'var(--search-height)',
       borderBottom: '1px solid var(--border)',
     }}>
-      <Icon name={icon} width={16} height={16} color="var(--text-dim)" />
+      <Icon name={icon} width="var(--search-icon-size)" height="var(--search-icon-size)" color="var(--text-dim)" />
       <div style={{ flex: 1, height: 4, position: 'relative' }}>
         <div style={{
           position: 'absolute',

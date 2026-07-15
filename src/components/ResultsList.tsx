@@ -54,7 +54,7 @@ export default function ResultsList({ items, selectedIndex, onSelect, onHover }:
       style={{
         maxHeight: 360,
         overflowY: 'auto',
-        padding: '4px 6px',
+        padding: 'var(--results-list-padding)',
         scrollbarWidth: 'thin',
         scrollbarColor: 'var(--border-strong) transparent',
       }}

@@ -46,7 +46,7 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
         flex: 1,
         minHeight: 0,
         overflowY: 'auto',
-        padding: '8px 12px',
+        padding: 'var(--form-padding)',
         display: 'flex',
         flexDirection: 'column',
         gap: 12,
@@ -78,7 +78,7 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
                 style={{
                   background: 'var(--bg-elevated)',
                   border: `1px solid ${focused ? 'var(--accent)' : 'var(--border)'}`,
-                  borderRadius: 6,
+                  borderRadius: 'var(--form-field-radius)',
                   padding: '6px 10px',
                   color: 'var(--text)',
                   fontSize: 14,
@@ -98,7 +98,7 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
                 style={{
                   background: 'var(--bg-elevated)',
                   border: `1px solid ${focused ? 'var(--accent)' : 'var(--border)'}`,
-                  borderRadius: 6,
+                  borderRadius: 'var(--form-field-radius)',
                   padding: '6px 10px',
                   color: 'var(--text)',
                   fontSize: 14,
@@ -142,7 +142,7 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
         style={{
           marginTop: 4,
           padding: '8px 12px',
-          borderRadius: 6,
+          borderRadius: 'var(--form-field-radius)',
           border: `1px solid ${focusedIndex === fields.length ? 'var(--accent)' : 'var(--border)'}`,
           background: focusedIndex === fields.length ? 'var(--accent)' : 'var(--bg-elevated)',
           color: focusedIndex === fields.length ? '#ffffff' : 'var(--text)',

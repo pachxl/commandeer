@@ -14,9 +14,9 @@ export default function StepBreadcrumb({ steps }: StepBreadcrumbProps) {
     }}>
       {steps.map((step, i) => (
         <span key={step.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          {i > 0 && <span style={{ color: 'var(--text-subtle)', fontSize: 11 }}>›</span>}
+          {i > 0 && <span style={{ color: 'var(--text-dim)', fontSize: 'var(--breadcrumb-font-size)' }}>›</span>}
           <span style={{
-            fontSize: 11,
+            fontSize: 'var(--breadcrumb-font-size)',
             color: i === steps.length - 1 ? 'var(--accent)' : 'var(--text-dim)',
           }}>
             {step.label}

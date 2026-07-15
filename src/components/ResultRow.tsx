@@ -71,24 +71,25 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
     const isDataUrl = displayIcon.startsWith('data:')
     const isNamedIcon = hasIcon(displayIcon)
     const hasIconValue = displayIcon.length > 0
-    const bg = selected ? 'var(--accent)' : 'transparent'
-    const fg = selected ? '#ffffff' : 'var(--text)'
-    const subFg = selected ? 'rgba(255,255,255,0.78)' : 'var(--text-dim)'
+    const bg = selected ? 'var(--row-selected-bg)' : 'transparent'
+    const fg = selected ? 'var(--row-selected-fg)' : 'var(--text)'
+    const subFg = selected ? 'var(--row-selected-sublabel-fg)' : 'var(--text-dim)'
     // An explicit item color overrides the theme icon tint (e.g. the Claude
     // orange or game-mode green in Settings)
-    const iconColor = item.iconColor ?? item.color ?? (selected ? '#ffffff' : subFg)
+    const iconColor = item.iconColor ?? item.color ?? (selected ? 'var(--row-selected-fg)' : subFg)
 
     return (
       <div
         ref={ref}
         data-list-index={index}
+        data-selected={selected || undefined}
         onClick={onSelect}
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
-          padding: '4px 10px',
-          borderRadius: 5,
+          gap: 'var(--row-gap)',
+          padding: 'var(--row-padding)',
+          borderRadius: 'var(--row-radius)',
           cursor: 'pointer',
           background: bg,
           userSelect: 'none',
@@ -96,17 +97,17 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
       >
         {hasIconValue && (
           <div style={{
-            width: 18,
-            height: 18,
+            width: 'var(--icon-size)',
+            height: 'var(--icon-size)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0,
-            fontSize: 14,
+            fontSize: 'var(--icon-font-size)',
             color: iconColor,
           }}>
             {isDataUrl
-              ? <img src={displayIcon} width={18} height={18} style={{ objectFit: 'contain' }} />
+              ? <img src={displayIcon} width="100%" height="100%" style={{ objectFit: 'contain' }} />
               : isNamedIcon
                 ? <div dangerouslySetInnerHTML={{ __html: getIconSvg(displayIcon, iconColor, 16) ?? '' }} style={{ display: 'flex' }} />
                 : displayIcon
@@ -124,7 +125,7 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
               height: 6,
               borderRadius: '50%',
               flexShrink: 0,
-              background: selected ? '#ffffff' : '#30d158',
+              background: selected ? 'var(--row-selected-fg)' : 'var(--row-active-indicator-bg)',
               boxShadow: selected ? 'none' : '0 0 4px rgba(48,209,88,0.9)',
             }}
           />
@@ -132,21 +133,21 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
 
         <span style={{
           flex: 1,
-          fontSize: 13,
+          fontSize: 'var(--label-font-size)',
           fontFamily: 'var(--font)',
           color: fg,
           fontWeight: 400,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
-          lineHeight: '18px',
+          lineHeight: '1.3',
         }}>
           {item.label}
         </span>
 
         {item.sublabel && (
           <span style={{
-            fontSize: 11,
+            fontSize: 'var(--sublabel-font-size)',
             fontFamily: 'var(--font-ui)',
             color: subFg,
             whiteSpace: 'nowrap',
@@ -170,12 +171,12 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 4,
-                  fontSize: 10,
+                  fontSize: 'var(--accessory-font-size)',
                   fontFamily: 'var(--font-ui)',
                   color: acc.color ?? subFg,
                   background: 'rgba(255,255,255,0.06)',
-                  padding: '1px 5px',
-                  borderRadius: 3,
+                  padding: 'var(--accessory-padding)',
+                  borderRadius: 'var(--accessory-radius)',
                   whiteSpace: 'nowrap',
                 }}
               >
@@ -195,10 +196,10 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
 
         {item.isFolder && (
           <span style={{
-            fontSize: 13,
+            fontSize: 'var(--label-font-size)',
             color: subFg,
             flexShrink: 0,
-            lineHeight: '18px',
+            lineHeight: '1.3',
           }}>
             ›
           </span>

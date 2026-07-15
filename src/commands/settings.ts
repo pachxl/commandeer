@@ -2,6 +2,7 @@ import type { AppConfig, Command, PaletteItem, Step, StepResult } from '../types
 import { dataDir, getAutostart, openPath, setAutostart, setGlobalHotkey, setPerMonitorAltTab, setScreenshotHotkey, setWindowDrag, setWindowTransparency, writeConfig } from '../lib/tauri'
 import { appEvents } from '../lib/appEvents'
 import { applyTheme, applyThemeByName, getAllThemes, type Theme } from '../lib/themes'
+import { applyStyle, getAllStyles, getStyleName, type UIStyle } from '../lib/styles'
 
 // The screenshot hotkey is a global shortcut on Windows and macOS; on Linux
 // the trigger is a managed COSMIC binding, so we hide the setting there.
@@ -28,6 +29,14 @@ function settingsStep(config: AppConfig): Step {
     label: 'Settings',
     placeholder: 'Select a setting...',
     load: async (): Promise<PaletteItem[]> => [
+      {
+        id: 'settings:choose-style',
+        label: 'Choose Style…',
+        sublabel: `Current: ${getStyleName(config.ui_style)}`,
+        icon: 'layout',
+        isFolder: true,
+        actionLabel: 'Open',
+      },
       {
         id: 'settings:choose-theme',
         label: 'Choose Theme…',
@@ -155,6 +164,9 @@ function settingsStep(config: AppConfig): Step {
       },
     ],
     onSelect: async (item): Promise<StepResult> => {
+      if (item.id === 'settings:choose-style') {
+        return { type: 'push', step: chooseStyleStep(config) }
+      }
       if (item.id === 'settings:choose-theme') {
         return { type: 'push', step: chooseThemeStep(config) }
       }
@@ -238,6 +250,36 @@ function settingsStep(config: AppConfig): Step {
   }
 }
 
+function chooseStyleStep(config: AppConfig): Step {
+  return {
+    id: 'settings:choose-style',
+    label: 'Choose Style',
+    placeholder: 'Select a style...',
+    load: async (): Promise<PaletteItem[]> => {
+      const current = getStyleName(config.ui_style).toLowerCase()
+      return getAllStyles().map(s => ({
+        id: `style:${s.name}`,
+        label: s.name,
+        sublabel: s.name.toLowerCase() === current ? 'Current' : undefined,
+        icon: 'layout',
+        data: s,
+        actionLabel: 'Apply Style',
+      }))
+    },
+    // Live preview while browsing; onExit re-applies the saved style.
+    onHighlight: item => applyStyle((item.data as UIStyle).name),
+    onExit: () => { applyStyle(config.ui_style) },
+    onSelect: async (item): Promise<StepResult> => {
+      const style = item.data as UIStyle
+      applyStyle(style.name)
+      const next: AppConfig = { ...config, ui_style: style.name }
+      await writeConfig(next)
+      Object.assign(config, next)
+      return { type: 'replace', step: chooseStyleStep(next) }
+    },
+  }
+}
+
 function chooseThemeStep(config: AppConfig): Step {
   return {
     id: 'settings:choose-theme',
@@ -257,14 +299,25 @@ function chooseThemeStep(config: AppConfig): Step {
     // Live preview while browsing; onExit re-applies the saved theme, which
     // undoes an uncommitted preview (and is a visual no-op after a commit,
     // since config.theme is updated before the step is replaced)
-    onHighlight: item => applyTheme(item.data as Theme),
-    onExit: () => { applyThemeByName(config.theme).catch(console.error) },
+    onHighlight: item => {
+      applyTheme(item.data as Theme)
+      // Re-assert the active style so structural overrides (and the Onix
+      // colorway) remain in effect while previewing themes.
+      applyStyle(config.ui_style)
+    },
+    onExit: () => {
+      applyThemeByName(config.theme)
+        .then(() => applyStyle(config.ui_style))
+        .catch(console.error)
+    },
     onSelect: async (item): Promise<StepResult> => {
       const theme = item.data as Theme
       applyTheme(theme)
       const next: AppConfig = { ...config, theme: theme.name }
       await writeConfig(next)
       Object.assign(config, next)
+      // Re-assert style so Onix colors win after a theme commit.
+      applyStyle(next.ui_style)
       // Replace so the "Current" marker updates while the user previews themes
       return { type: 'replace', step: chooseThemeStep(next) }
     },

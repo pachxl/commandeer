@@ -108,6 +108,10 @@ pub struct AppConfig {
     /// None = 1.0. Persisted here so it survives across builds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub palette_scale: Option<f64>,
+    /// UI style preset ("Default" or "Onix"). Controls layout, spacing, fonts,
+    /// and (for Onix) a Raycast/Vicinae-inspired color palette.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui_style: Option<String>,
 }
 
 fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
