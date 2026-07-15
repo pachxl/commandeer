@@ -11,6 +11,11 @@ src-tauri/gen/
 # Binary build artifacts (not source)
 bin/
 
+# Script-command folder: empty by default; the app discovers/populates it at
+# runtime (no longer seeded), so keep user scripts out of git.
+/scripts/
+/commands/
+
 # Env / local config
 .env
 .env.*

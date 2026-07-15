@@ -390,10 +390,6 @@ pub fn run() {
             // directories before any feature opens config, databases, or keys.
             commands::config::migrate_legacy_identifier(app.app_handle());
 
-            // Ensure the scripts directory exists and, on first run only, seed a
-            // portable starter set demonstrating the script-command format.
-            commands::config::ensure_scripts_seeded(app.app_handle());
-
             // macOS app icons resolve through NSWorkspace at ~175 ms each cold,
             // so back the icon cache with a file in the app cache dir (survives
             // restarts) and warm every installed app's icon once in the
@@ -579,7 +575,7 @@ pub fn run() {
                     // it from another Space yanks the user back there instead of
                     // opening in place — and it can never appear over a
                     // fullscreen app. This was the deliberate lightweight
-                    // alternative to the nspanel plugin (see docs/macos-port.md).
+                    // alternative to the nspanel plugin.
                     if let Ok(ns_window) = win.ns_window() {
                         use objc2::runtime::AnyObject;
                         let ns_window = ns_window as *mut AnyObject;

@@ -5,29 +5,6 @@ use tauri::Manager;
 
 const LEGACY_IDENTIFIER: &str = "dev.commandeer.app";
 
-// Keep the source-checkout examples and the packaged first-run seeds identical:
-// `include_str!` embeds these files into the binary, while the root `scripts/`
-// directory is discovered directly during development.
-pub(crate) const TUTORIAL_SH: &str = include_str!("../../../scripts/tutorial.sh");
-pub(crate) const TUTORIAL_PS1: &str = include_str!("../../../scripts/tutorial.ps1");
-pub(crate) const CURRENT_TIME_SH: &str = include_str!("../../../scripts/current-time.sh");
-pub(crate) const CURRENT_TIME_PS1: &str = include_str!("../../../scripts/current-time.ps1");
-pub(crate) const OPEN_SCRIPTS_FOLDER_SH: &str =
-    include_str!("../../../scripts/open-scripts-folder.sh");
-pub(crate) const OPEN_SCRIPTS_FOLDER_PS1: &str =
-    include_str!("../../../scripts/open-scripts-folder.ps1");
-
-const UNIX_STARTERS: &[(&str, &str)] = &[
-    ("tutorial.sh", TUTORIAL_SH),
-    ("current-time.sh", CURRENT_TIME_SH),
-    ("open-scripts-folder.sh", OPEN_SCRIPTS_FOLDER_SH),
-];
-const WINDOWS_STARTERS: &[(&str, &str)] = &[
-    ("tutorial.ps1", TUTORIAL_PS1),
-    ("current-time.ps1", CURRENT_TIME_PS1),
-    ("open-scripts-folder.ps1", OPEN_SCRIPTS_FOLDER_PS1),
-];
-
 fn copy_dir_missing(source: &std::path::Path, destination: &std::path::Path) {
     let Ok(entries) = fs::read_dir(source) else {
         return;
@@ -161,44 +138,6 @@ fn default_scripts_dir(app: &tauri::AppHandle) -> String {
     };
     let _ = fs::create_dir_all(&dir);
     dir.to_string_lossy().replace('\\', "/")
-}
-
-/// Ensure the configured scripts directory exists and, exactly once, seed a
-/// small starter set so a fresh install has working examples of inline output,
-/// silent actions, and the `@raycast.*` / `@vicinae.*` directive format. A
-/// hidden marker records that we've seeded, so deleting examples never brings
-/// them back.
-/// Best-effort: any FS error is ignored (the app still runs without scripts).
-pub fn ensure_scripts_seeded(app: &tauri::AppHandle) {
-    let dir = PathBuf::from(load_config(app).scripts_dir);
-    if dir.as_os_str().is_empty() {
-        return;
-    }
-    let _ = fs::create_dir_all(&dir);
-
-    // Seed at most once, ever — the marker survives the user deleting the file.
-    let marker = dir.join(".commandeer-seeded");
-    if marker.exists() {
-        return;
-    }
-
-    // Windows scripts are PowerShell; macOS/Linux use portable POSIX shell.
-    let starters = if cfg!(target_os = "windows") {
-        WINDOWS_STARTERS
-    } else {
-        UNIX_STARTERS
-    };
-    for (name, body) in starters {
-        let script = dir.join(name);
-        if !script.exists() && fs::write(&script, body).is_ok() {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = fs::set_permissions(&script, fs::Permissions::from_mode(0o755));
-            }
-        }
-    }
-    let _ = fs::write(&marker, b"seeded by commandeer\n");
 }
 
 /// Synchronous, lenient config read for startup code paths (e.g. applying the

@@ -946,53 +946,6 @@ mod tests {
     }
 
     #[test]
-    fn tutorial_templates_parse_only_their_header_directives() {
-        // The tutorial's doc block lists the directive names; every comment
-        // line is parsed, so if those lines ever regain an '@' prefix they
-        // overwrite the real header (the palette once showed the doc text
-        // "Name shown in the palette" as the script's title).
-        use crate::commands::config::{TUTORIAL_PS1, TUTORIAL_SH};
-        for src in [TUTORIAL_SH, TUTORIAL_PS1] {
-            let m = parse_metadata_from_text(src).expect("tutorial header should parse");
-            assert_eq!(m.title.as_deref(), Some("Script Tutorial"));
-            assert_eq!(
-                m.description.as_deref(),
-                Some("Open this file to learn how to add your own commands")
-            );
-            assert_eq!(m.icon_name.as_deref(), Some("note"));
-            assert_eq!(m.mode.as_deref(), Some("inline"));
-            assert_eq!(m.refresh_seconds, Some(3600));
-            assert!(!m.needs_confirmation);
-            assert!(m.arguments.is_empty());
-            assert_eq!(m.keywords, vec!["tutorial", "help", "scripts", "example", "docs"]);
-        }
-    }
-
-    #[test]
-    fn starter_templates_have_platform_parity() {
-        use crate::commands::config::{
-            CURRENT_TIME_PS1, CURRENT_TIME_SH, OPEN_SCRIPTS_FOLDER_PS1,
-            OPEN_SCRIPTS_FOLDER_SH,
-        };
-
-        for src in [CURRENT_TIME_SH, CURRENT_TIME_PS1] {
-            let metadata = parse_metadata_from_text(src).expect("current-time header should parse");
-            assert_eq!(metadata.title.as_deref(), Some("Current Time"));
-            assert_eq!(metadata.mode.as_deref(), Some("inline"));
-            assert_eq!(metadata.refresh_seconds, Some(60));
-            assert!(metadata.arguments.is_empty());
-        }
-
-        for src in [OPEN_SCRIPTS_FOLDER_SH, OPEN_SCRIPTS_FOLDER_PS1] {
-            let metadata =
-                parse_metadata_from_text(src).expect("open-folder header should parse");
-            assert_eq!(metadata.title.as_deref(), Some("Open Scripts Folder"));
-            assert_eq!(metadata.mode.as_deref(), Some("silent"));
-            assert!(metadata.arguments.is_empty());
-        }
-    }
-
-    #[test]
     fn metadata_accepts_mixed_comment_markers() {
         // `//` (js), `--` (lua), `;` (ini-style) all work.
         let src = "// @vicinae.title JS Task\n-- @vicinae.author me\n; @vicinae.packageName misc\n";

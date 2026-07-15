@@ -38,7 +38,7 @@ fn embedded_app_icon() -> String {
 pub async fn path_icon(path: String) -> Option<String> {
     // The running app's own process row must not depend on platform shell
     // caches or desktop-entry association. All builds embed this PNG generated
-    // from the same logo.svg as the ICNS/ICO/package artwork.
+    // from the same favicon.svg as the ICNS/ICO/package artwork.
     if is_current_executable(&path) {
         return Some(embedded_app_icon());
     }

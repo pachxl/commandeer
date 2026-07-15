@@ -22,9 +22,6 @@ npm run release                      # cross-platform release build + copy artif
                                      #   Windows: commandeer.exe
                                      #   Linux:   commandeer binary
                                      #   macOS:   commandeer.app bundle
-powershell -ExecutionPolicy Bypass -File scripts/windows-auto-update.ps1 -Install
-                                     # Windows: launch at sign-in, check origin/main every
-                                     # 15 min, rebuild changed commits, and keep the app running
 ```
 
 Linux dev/test notes:
