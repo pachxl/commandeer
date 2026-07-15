@@ -406,11 +406,17 @@ fn grid_card_left(layout: GridLayout, local: usize, visible: usize) -> i32 {
     row_left + (local % cols) as i32 * (layout.card_w + layout.gap)
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn is_windows_desktop_class(class_name: &str) -> bool {
+    matches!(class_name, "Progman" | "WorkerW")
+}
+
 #[cfg(target_os = "windows")]
 mod platform {
     use super::{
         cycled_index, grid_card_left, grid_layout, initial_selection, selection_after_prune,
-        AltTabTheme, Direction, GridLayout, GridMove, HookHost, HookKey, HookState, SessionEvent,
+        is_windows_desktop_class, AltTabTheme, Direction, GridLayout, GridMove, HookHost, HookKey,
+        HookState, SessionEvent,
     };
     use std::cell::RefCell;
     use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
@@ -451,9 +457,10 @@ mod platform {
     use windows::Win32::UI::WindowsAndMessaging::{
         CallNextHookEx, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyWindow,
         DispatchMessageW, DrawIconEx, EnumWindows, FlashWindowEx, GetAncestor, GetClassLongPtrW,
-        GetCursorPos, GetDesktopWindow, GetForegroundWindow, GetLastActivePopup, GetMessageW,
-        GetShellWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
-        IsWindow, IsWindowVisible, IsZoomed, KillTimer, LoadCursorW, PostMessageW,
+        GetClassNameW, GetCursorPos, GetDesktopWindow, GetForegroundWindow, GetLastActivePopup,
+        GetMessageW, GetShellWindow, GetWindowLongW, GetWindowRect, GetWindowTextW,
+        GetWindowThreadProcessId, IsWindow, IsWindowVisible, IsZoomed, KillTimer, LoadCursorW,
+        PostMessageW,
         PostThreadMessageW, RegisterClassW, SendMessageTimeoutW, SetTimer, SetWindowPos,
         SetWindowsHookExW, ShowWindow, TranslateMessage, UnhookWindowsHookEx, CS_HREDRAW,
         CS_VREDRAW, DI_NORMAL, FLASHWINFO, FLASHW_TRAY, GA_ROOTOWNER, GCLP_HICON, GCLP_HICONSM,
@@ -800,6 +807,13 @@ mod platform {
         if hwnd.0.is_null() || IsZoomed(hwnd).as_bool() {
             return false;
         }
+        // Explorer's desktop surfaces are borderless monitor-sized windows,
+        // but they are not fullscreen apps. Passing through here opens the
+        // system-wide switcher (usually on the primary monitor) instead of
+        // the cursor monitor's custom switcher.
+        if hwnd == GetDesktopWindow() || hwnd == GetShellWindow() || is_desktop_surface(hwnd) {
+            return false;
+        }
         // Tauri's transparent, undecorated palette can occasionally be
         // reported with monitor-sized extended bounds while it is visible.
         // It is our UI, never a game that should opt into native Alt+Tab.
@@ -827,6 +841,13 @@ mod platform {
             && rect.bottom >= m.bottom - 2;
         let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
         covers && style & WS_CAPTION.0 != WS_CAPTION.0 && style & WS_THICKFRAME.0 == 0
+    }
+
+    unsafe fn is_desktop_surface(hwnd: HWND) -> bool {
+        let mut class_name = [0u16; 64];
+        let len = GetClassNameW(hwnd, &mut class_name);
+        len > 0
+            && is_windows_desktop_class(&String::from_utf16_lossy(&class_name[..len as usize]))
     }
 
     unsafe extern "system" fn overlay_proc(
@@ -1816,6 +1837,13 @@ mod tests {
         assert!(!key(&mut state, &mut host, HookKey::Tab, true));
         assert!(host.events.is_empty());
         assert!(!state.session);
+    }
+
+    #[test]
+    fn explorer_desktop_classes_are_not_fullscreen_apps() {
+        assert!(is_windows_desktop_class("Progman"));
+        assert!(is_windows_desktop_class("WorkerW"));
+        assert!(!is_windows_desktop_class("ApplicationFrameWindow"));
     }
 
     #[test]
