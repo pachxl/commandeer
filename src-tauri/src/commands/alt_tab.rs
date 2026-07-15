@@ -416,8 +416,8 @@ mod platform {
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::System::Threading::{
-        GetCurrentProcessId, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
-        PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+        AttachThreadInput, GetCurrentProcessId, GetCurrentThreadId, OpenProcess,
+        QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
     };
     use windows::Win32::UI::HiDpi::GetDpiForWindow;
     use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -432,15 +432,15 @@ mod platform {
         GetCursorPos, GetDesktopWindow, GetForegroundWindow, GetLastActivePopup, GetMessageW,
         GetShellWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
         IsWindowVisible, KillTimer, LoadCursorW, PostMessageW,
-        PostThreadMessageW, RegisterClassW, SendMessageTimeoutW, SetTimer, SetWindowPos,
-        SetWindowsHookExW, ShowWindow, TranslateMessage, UnhookWindowsHookEx, CS_HREDRAW,
-        CS_VREDRAW, DI_NORMAL, FLASHWINFO, FLASHW_TRAY, GA_ROOTOWNER, GCLP_HICON, GCLP_HICONSM,
-        GWL_EXSTYLE, HHOOK, HICON, HWND_TOPMOST, ICON_BIG, ICON_SMALL, ICON_SMALL2,
+        PostThreadMessageW, RegisterClassW, SendMessageTimeoutW, SetForegroundWindow, SetTimer,
+        SetWindowPos, SetWindowsHookExW, ShowWindow, TranslateMessage, UnhookWindowsHookEx,
+        CS_HREDRAW, CS_VREDRAW, DI_NORMAL, FLASHWINFO, FLASHW_TRAY, GA_ROOTOWNER, GCLP_HICON,
+        GCLP_HICONSM, GWL_EXSTYLE, HHOOK, HICON, HWND_TOPMOST, ICON_BIG, ICON_SMALL, ICON_SMALL2,
         IDC_ARROW, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN, LLKHF_INJECTED, LLKHF_UP, MSG, SC_CLOSE,
         SMTO_ABORTIFHUNG, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE,
         WH_KEYBOARD_LL, WM_APP, WM_DESTROY, WM_DISPLAYCHANGE, WM_GETICON, WM_LBUTTONUP,
         WM_MOUSEMOVE, WM_PAINT, WM_QUIT, WM_SYSCOMMAND, WM_TIMER, WNDCLASSW, WS_EX_APPWINDOW,
-        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+        WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
     };
 
     const MSG_START: u32 = WM_APP + 1;
@@ -603,7 +603,7 @@ mod platform {
         };
         RegisterClassW(&wc);
         let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             class,
             w!("Task Switching"),
             WS_POPUP,
@@ -978,6 +978,11 @@ mod platform {
             self.position_and_register();
             self.visible = true;
             let _ = ShowWindow(self.hwnd, SW_SHOWNOACTIVATE);
+            // Temporarily take foreground focus from the selected app. Games
+            // commonly confine or continuously recenter the cursor only while
+            // foreground, so this releases their mouse lock for the switcher.
+            // commit/cancel below always hand focus to a real app again.
+            focus_overlay(self.hwnd);
         }
 
         unsafe fn relayout(&mut self) {
@@ -1162,7 +1167,11 @@ mod platform {
         }
 
         unsafe fn cancel(&mut self) {
+            let original = self.original;
             self.hide();
+            if !original.0.is_null() && IsWindow(original).as_bool() {
+                crate::commands::paste::force_foreground(original);
+            }
         }
 
         unsafe fn hide(&mut self) {
@@ -1189,7 +1198,7 @@ mod platform {
                 return;
             }
             let Some(selected) = selection_after_prune(self.selected, &alive) else {
-                self.hide();
+                self.cancel();
                 KEYS.with(|keys| keys.borrow_mut().reset_session());
                 return;
             };
@@ -1328,6 +1337,28 @@ mod platform {
 
     fn contains(rect: RECT, x: i32, y: i32) -> bool {
         x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
+    }
+
+    /// Focus our own overlay even when the fullscreen foreground process owns
+    /// Windows' foreground lock. The general app-activation helper attaches to
+    /// the target thread; here the target is this thread, so we instead attach
+    /// to the current foreground thread before retrying.
+    unsafe fn focus_overlay(hwnd: HWND) {
+        if SetForegroundWindow(hwnd).as_bool() {
+            return;
+        }
+        let foreground = GetForegroundWindow();
+        if foreground.0.is_null() {
+            return;
+        }
+        let foreground_thread = GetWindowThreadProcessId(foreground, None);
+        let our_thread = GetCurrentThreadId();
+        if foreground_thread == 0 || foreground_thread == our_thread {
+            return;
+        }
+        let _ = AttachThreadInput(our_thread, foreground_thread, true);
+        let _ = SetForegroundWindow(hwnd);
+        let _ = AttachThreadInput(our_thread, foreground_thread, false);
     }
 
     fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
