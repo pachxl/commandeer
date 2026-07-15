@@ -211,6 +211,20 @@ export const setWindowDrag = (enabled: boolean) =>
 export const setPerMonitorAltTab = (enabled: boolean) =>
   invoke<void>('set_per_monitor_alt_tab', { enabled })
 
+export interface AltTabTheme {
+  background: [number, number, number]
+  card: [number, number, number]
+  selected: [number, number, number]
+  border: [number, number, number]
+  text: [number, number, number]
+  accent: [number, number, number]
+  dark: boolean
+}
+
+/** Keep the native Windows switcher synchronized with the active CSS theme. */
+export const setAltTabTheme = (theme: AltTabTheme) =>
+  invoke<void>('set_alt_tab_theme', { theme })
+
 export const setCommandHotkey = (commandId: string, hotkey: string | null) =>
   invoke<void>('set_command_hotkey', { commandId, hotkey })
 

@@ -1,7 +1,7 @@
 // Theme handling: built-in palettes plus user themes from
 // <app-data>/themes/*.json, applied as CSS variables on :root (inline
 // styles override the stylesheet defaults in index.css).
-import { readThemes, type Theme } from './tauri'
+import { readThemes, setAltTabTheme, type AltTabTheme, type Theme } from './tauri'
 
 export type { Theme }
 
@@ -515,15 +515,52 @@ export async function getAllThemes(): Promise<Theme[]> {
   return [...BUILTIN_THEMES, ...user.filter(t => t.name && !names.has(t.name.toLowerCase()))]
 }
 
-function parseColor(value: string): [number, number, number] | null {
+type Rgba = [number, number, number, number]
+
+function parseCssColor(value: string): Rgba | null {
   const hex = value.trim().match(/^#([0-9a-f]{6})$/i)
   if (hex) {
     const n = parseInt(hex[1], 16)
-    return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]
+    return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff, 1]
   }
-  const rgb = value.trim().match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i)
-  if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])]
+  const rgb = value.trim().match(
+    /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d*\.?\d+))?\s*\)$/i,
+  )
+  if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3]), Number(rgb[4] ?? 1)]
   return null
+}
+
+function parseColor(value: string): [number, number, number] | null {
+  const color = parseCssColor(value)
+  return color ? [color[0], color[1], color[2]] : null
+}
+
+function opaque(theme: Theme, variable: string, fallback: Rgba): Rgba {
+  return parseCssColor(theme.variables[variable] ?? '') ?? fallback
+}
+
+function composite(foreground: Rgba, background: Rgba): [number, number, number] {
+  const alpha = Math.min(1, Math.max(0, foreground[3]))
+  return [0, 1, 2].map(index =>
+    Math.round(foreground[index] * alpha + background[index] * (1 - alpha)),
+  ) as [number, number, number]
+}
+
+function nativeTheme(theme: Theme): AltTabTheme {
+  const background = opaque(theme, '--bg', [26, 27, 38, 0.85])
+  const card = opaque(theme, '--bg-tab', [36, 40, 59, 0.9])
+  const selected = opaque(theme, '--accent', [122, 162, 247, 1])
+  const border = opaque(theme, '--border', [86, 95, 137, 0.25])
+  const text = opaque(theme, '--text', [192, 202, 245, 1])
+  return {
+    background: [background[0], background[1], background[2]],
+    card: [card[0], card[1], card[2]],
+    selected: [selected[0], selected[1], selected[2]],
+    border: composite(border, card),
+    text: [text[0], text[1], text[2]],
+    accent: [selected[0], selected[1], selected[2]],
+    dark: !isLightTheme(theme),
+  }
 }
 
 function isLightTheme(theme: Theme): boolean {
@@ -545,6 +582,7 @@ export function applyTheme(theme: Theme) {
   }
   // Keep the attribute for anything still keying off index.css light rules
   root.setAttribute('data-theme', isLightTheme(theme) ? 'light' : 'dark')
+  setAltTabTheme(nativeTheme(theme)).catch(console.error)
 }
 
 export async function applyThemeByName(name: string | undefined | null) {

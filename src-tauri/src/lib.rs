@@ -663,6 +663,7 @@ pub fn run() {
             commands::window::set_window_transparency,
             commands::window_drag::set_window_drag,
             commands::alt_tab::set_per_monitor_alt_tab,
+            commands::alt_tab::set_alt_tab_theme,
             commands::screenshot::start_screenshot,
             commands::screenshot::show_screenshot_overlay,
             commands::screenshot::reveal_screenshot_overlay,

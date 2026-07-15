@@ -20,6 +20,25 @@ pub async fn set_per_monitor_alt_tab(enabled: bool) -> Result<(), String> {
     }
 }
 
+/// Opaque colors used by the native switcher. The frontend resolves the
+/// active CSS theme (including user themes) and sends its rendered palette so
+/// this Win32 window stays visually in step with Commandeer.
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+pub struct AltTabTheme {
+    background: [u8; 3],
+    card: [u8; 3],
+    selected: [u8; 3],
+    border: [u8; 3],
+    text: [u8; 3],
+    accent: [u8; 3],
+    dark: bool,
+}
+
+#[tauri::command]
+pub async fn set_alt_tab_theme(theme: AltTabTheme) {
+    platform::set_theme(theme);
+}
+
 #[cfg(target_os = "windows")]
 pub fn apply_from_config(app: &tauri::AppHandle) {
     if crate::commands::config::load_config(app)
@@ -374,8 +393,8 @@ fn grid_layout(count: usize, work_w: i32, work_h: i32, dpi: u32) -> GridLayout {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::{
-        cycled_index, grid_layout, initial_selection, selection_after_prune, Direction, GridLayout,
-        GridMove, HookHost, HookKey, HookState, SessionEvent,
+        cycled_index, grid_layout, initial_selection, selection_after_prune, AltTabTheme, Direction,
+        GridLayout, GridMove, HookHost, HookKey, HookState, SessionEvent,
     };
     use std::cell::RefCell;
     use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
@@ -442,6 +461,15 @@ mod platform {
     static READY: AtomicBool = AtomicBool::new(false);
     static OVERLAY: AtomicIsize = AtomicIsize::new(0);
     static THREAD_ID: AtomicU32 = AtomicU32::new(0);
+    // Tokyo Night defaults are available before the webview sends the saved
+    // theme during startup. COLORREF stores bytes as 0x00BBGGRR.
+    static THEME_BACKGROUND: AtomicU32 = AtomicU32::new(colorref(26, 27, 38));
+    static THEME_CARD: AtomicU32 = AtomicU32::new(colorref(36, 40, 59));
+    static THEME_SELECTED: AtomicU32 = AtomicU32::new(colorref(122, 162, 247));
+    static THEME_BORDER: AtomicU32 = AtomicU32::new(colorref(41, 43, 57));
+    static THEME_TEXT: AtomicU32 = AtomicU32::new(colorref(192, 202, 245));
+    static THEME_ACCENT: AtomicU32 = AtomicU32::new(colorref(122, 162, 247));
+    static THEME_DARK: AtomicBool = AtomicBool::new(true);
 
     struct Service {
         thread: JoinHandle<()>,
@@ -487,6 +515,27 @@ mod platform {
                 }
                 let _ = thread.join();
                 Err("Alt+Tab service timed out during startup".into())
+            }
+        }
+    }
+
+    pub fn set_theme(theme: AltTabTheme) {
+        let store = |target: &AtomicU32, value: [u8; 3]| {
+            target.store(colorref(value[0], value[1], value[2]), Ordering::Release);
+        };
+        store(&THEME_BACKGROUND, theme.background);
+        store(&THEME_CARD, theme.card);
+        store(&THEME_SELECTED, theme.selected);
+        store(&THEME_BORDER, theme.border);
+        store(&THEME_TEXT, theme.text);
+        store(&THEME_ACCENT, theme.accent);
+        THEME_DARK.store(theme.dark, Ordering::Release);
+
+        let hwnd = HWND(OVERLAY.load(Ordering::Acquire) as *mut _);
+        if !hwnd.0.is_null() {
+            unsafe {
+                apply_dwm_color_mode(hwnd);
+                let _ = InvalidateRect(hwnd, None, true);
             }
         }
     }
@@ -598,19 +647,23 @@ mod platform {
             &corner as *const _ as *const _,
             std::mem::size_of_val(&corner) as u32,
         );
-        let dark = BOOL(1);
-        let _ = DwmSetWindowAttribute(
-            hwnd,
-            DWMWA_USE_IMMERSIVE_DARK_MODE,
-            &dark as *const _ as *const _,
-            std::mem::size_of_val(&dark) as u32,
-        );
+        apply_dwm_color_mode(hwnd);
         let backdrop = DWMSBT_TRANSIENTWINDOW;
         let _ = DwmSetWindowAttribute(
             hwnd,
             DWMWA_SYSTEMBACKDROP_TYPE,
             &backdrop as *const _ as *const _,
             std::mem::size_of_val(&backdrop) as u32,
+        );
+    }
+
+    unsafe fn apply_dwm_color_mode(hwnd: HWND) {
+        let dark = BOOL(THEME_DARK.load(Ordering::Acquire) as i32);
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            &dark as *const _ as *const _,
+            std::mem::size_of_val(&dark) as u32,
         );
     }
 
@@ -729,6 +782,14 @@ mod platform {
     unsafe fn native_fullscreen_fallback() -> bool {
         let hwnd = GetForegroundWindow();
         if hwnd.0.is_null() || IsZoomed(hwnd).as_bool() {
+            return false;
+        }
+        // Tauri's transparent, undecorated palette can occasionally be
+        // reported with monitor-sized extended bounds while it is visible.
+        // It is our UI, never a game that should opt into native Alt+Tab.
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == GetCurrentProcessId() {
             return false;
         }
         let mut rect = RECT::default();
@@ -1201,11 +1262,15 @@ mod platform {
                 right: self.layout.panel_w,
                 bottom: self.layout.panel_h,
             };
-            let bg = CreateSolidBrush(rgb(32, 34, 40));
+            let theme = NativeTheme::load();
+            let bg = CreateSolidBrush(theme.background);
             FillRect(dc, &panel, bg);
             let _ = DeleteObject(bg);
 
-            let face: Vec<u16> = "Segoe UI".encode_utf16().chain(std::iter::once(0)).collect();
+            let face: Vec<u16> = "Segoe UI Variable"
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
             let font = CreateFontW(
                 -((14 * GetDpiForWindow(self.hwnd).max(96) as i32) / 96),
                 0,
@@ -1224,26 +1289,18 @@ mod platform {
             );
             let old_font = SelectObject(dc, HGDIOBJ(font.0));
             SetBkMode(dc, TRANSPARENT);
-            SetTextColor(dc, rgb(245, 245, 247));
+            SetTextColor(dc, theme.text);
 
             let first = self.page * self.layout.capacity;
             let last = (first + self.layout.capacity).min(self.candidates.len());
             for index in first..last {
                 let candidate = &self.candidates[index];
                 let selected = index == self.selected;
-                let brush = CreateSolidBrush(if selected {
-                    rgb(62, 67, 78)
-                } else {
-                    rgb(45, 48, 56)
-                });
+                let brush = CreateSolidBrush(if selected { theme.selected } else { theme.card });
                 let pen = CreatePen(
                     PS_SOLID,
-                    if selected { 3 } else { 1 },
-                    if selected {
-                        rgb(112, 177, 255)
-                    } else {
-                        rgb(72, 76, 86)
-                    },
+                    1,
+                    if selected { theme.accent } else { theme.border },
                 );
                 let old_brush = SelectObject(dc, HGDIOBJ(brush.0));
                 let old_pen = SelectObject(dc, HGDIOBJ(pen.0));
@@ -1253,8 +1310,8 @@ mod platform {
                     candidate.card.top,
                     candidate.card.right,
                     candidate.card.bottom,
-                    14,
-                    14,
+                    10,
+                    10,
                 );
                 SelectObject(dc, old_brush);
                 SelectObject(dc, old_pen);
@@ -1283,6 +1340,7 @@ mod platform {
                     right: candidate.close.left - 5,
                     bottom: candidate.card.bottom,
                 };
+                SetTextColor(dc, if selected { rgb(255, 255, 255) } else { theme.text });
                 DrawTextW(
                     dc,
                     &mut title,
@@ -1312,7 +1370,34 @@ mod platform {
     }
 
     fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
-        COLORREF(r as u32 | ((g as u32) << 8) | ((b as u32) << 16))
+        COLORREF(colorref(r, g, b))
+    }
+
+    const fn colorref(r: u8, g: u8, b: u8) -> u32 {
+        r as u32 | ((g as u32) << 8) | ((b as u32) << 16)
+    }
+
+    struct NativeTheme {
+        background: COLORREF,
+        card: COLORREF,
+        selected: COLORREF,
+        border: COLORREF,
+        text: COLORREF,
+        accent: COLORREF,
+    }
+
+    impl NativeTheme {
+        fn load() -> Self {
+            let load = |value: &AtomicU32| COLORREF(value.load(Ordering::Acquire));
+            Self {
+                background: load(&THEME_BACKGROUND),
+                card: load(&THEME_CARD),
+                selected: load(&THEME_SELECTED),
+                border: load(&THEME_BORDER),
+                text: load(&THEME_TEXT),
+                accent: load(&THEME_ACCENT),
+            }
+        }
     }
 
     unsafe fn fit_thumbnail(thumbnail: isize, bounds: RECT) -> RECT {
@@ -1501,6 +1586,8 @@ mod platform {
 
 #[cfg(not(target_os = "windows"))]
 mod platform {
+    use super::AltTabTheme;
+
     pub fn enable() -> Result<(), String> {
         Err("Per-monitor Alt+Tab is only available on Windows".into())
     }
@@ -1508,6 +1595,8 @@ mod platform {
     pub fn disable() -> Result<(), String> {
         Ok(())
     }
+
+    pub fn set_theme(_theme: AltTabTheme) {}
 }
 
 #[cfg(test)]
