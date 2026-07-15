@@ -452,6 +452,9 @@ mod platform {
     const PRUNE_TIMER: usize = 1;
 
     static READY: AtomicBool = AtomicBool::new(false);
+    /// The native overlay is actually visible. This is authoritative for Tab
+    /// interception even if focus transfer makes the logical key session lag.
+    static OVERLAY_ACTIVE: AtomicBool = AtomicBool::new(false);
     static OVERLAY: AtomicIsize = AtomicIsize::new(0);
     static THREAD_ID: AtomicU32 = AtomicU32::new(0);
     // Tokyo Night defaults are available before the webview sends the saved
@@ -757,6 +760,17 @@ mod platform {
                 let down = info.flags.0 & LLKHF_UP.0 == 0;
                 let alt_flag = info.flags.0 & LLKHF_ALTDOWN.0 != 0;
                 let key = hook_key(info.vkCode as u16);
+                // Once our overlay is visibly handling the session, Windows
+                // must never see another physical Tab from it. Focus transfer
+                // can race or reset the logical HookState in some fullscreen
+                // games, so visible UI is the stronger source of truth here.
+                if key == HookKey::Tab && OVERLAY_ACTIVE.load(Ordering::Acquire) {
+                    if down {
+                        let direction = KEYS.with(|keys| keys.borrow().direction());
+                        let _ = Win32Host.post(SessionEvent::Cycle { direction });
+                    }
+                    return LRESULT(1);
+                }
                 let swallow = KEYS.with(|keys| {
                     keys.borrow_mut().on_key(key, down, alt_flag, &mut Win32Host)
                 });
@@ -977,6 +991,7 @@ mod platform {
             self.page = self.selected / self.layout.capacity;
             self.position_and_register();
             self.visible = true;
+            OVERLAY_ACTIVE.store(true, Ordering::Release);
             let _ = ShowWindow(self.hwnd, SW_SHOWNOACTIVATE);
             // Temporarily take foreground focus from the selected app. Games
             // commonly confine or continuously recenter the cursor only while
@@ -1176,6 +1191,7 @@ mod platform {
 
         unsafe fn hide(&mut self) {
             self.visible = false;
+            OVERLAY_ACTIVE.store(false, Ordering::Release);
             self.sticky = false;
             self.unregister_thumbnails();
             for candidate in &mut self.candidates {
