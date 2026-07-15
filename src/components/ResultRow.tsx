@@ -111,7 +111,7 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(
             {isDataUrl
               ? <img src={displayIcon} width="100%" height="100%" style={{ objectFit: 'contain' }} />
               : isNamedIcon
-                ? <div dangerouslySetInnerHTML={{ __html: getIconSvg(displayIcon, iconColor, 16) ?? '' }} style={{ display: 'flex' }} />
+                ? <div data-row-icon dangerouslySetInnerHTML={{ __html: getIconSvg(displayIcon, iconColor, 16) ?? '' }} style={{ display: 'flex' }} />
                 : displayIcon
             }
           </div>

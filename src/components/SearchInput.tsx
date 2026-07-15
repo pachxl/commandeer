@@ -8,6 +8,8 @@ interface SearchInputProps {
   loading: boolean
   onChange: (value: string) => void
   preview?: LivePreview | null
+  showBack?: boolean
+  onBack?: () => void
 }
 
 interface SliderInputProps {
@@ -20,7 +22,7 @@ interface SliderInputProps {
 }
 
 const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
-  ({ value, placeholder, loading, onChange, preview }, ref) => {
+  ({ value, placeholder, loading, onChange, preview, showBack, onBack }, ref) => {
     return (
       <div style={{
         display: 'flex',
@@ -30,14 +32,39 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
         height: 'var(--search-height)',
         borderBottom: '1px solid var(--divider)',
       }}>
-        {loading ? (
+        {showBack ? (
+          <button
+            type="button"
+            data-search-leading="back"
+            aria-label="Go back"
+            onClick={onBack}
+            style={{
+              width: 22,
+              height: 22,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              padding: 0,
+              border: 'none',
+              borderRadius: 6,
+              background: 'var(--search-back-bg)',
+              color: 'var(--text-dim)',
+              cursor: 'pointer',
+            }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" width="18" height="18">
+              <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        ) : loading ? (
           <svg viewBox="0 0 14 14" fill="none" style={{ width: 'var(--search-icon-size)', height: 'var(--search-icon-size)', flexShrink: 0, color: 'var(--text-dim)' }}>
             <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5"
               strokeDasharray="16" strokeLinecap="round"
               style={{ animation: 'spin 0.7s linear infinite', transformOrigin: 'center' }} />
           </svg>
         ) : (
-          <svg viewBox="0 0 24 24" fill="none" style={{ width: 'var(--search-icon-size)', height: 'var(--search-icon-size)', flexShrink: 0, color: 'var(--text-dim)' }}>
+          <svg data-search-leading="search" viewBox="0 0 24 24" fill="none" style={{ width: 'var(--search-icon-size)', height: 'var(--search-icon-size)', flexShrink: 0, color: 'var(--text-dim)' }}>
             <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="2" />
             <path d="M15.5 15.5L20 20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>

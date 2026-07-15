@@ -8,6 +8,8 @@ interface FooterProps {
   settingsVisible?: boolean
   gameModeEnabled?: boolean
   onToggleGameMode?: () => void
+  navigationTitle?: string
+  navigationIcon?: string
 }
 
 // Raycast-style footer: primary action + footer controls.
@@ -18,10 +20,15 @@ export default function Footer({
   settingsVisible,
   gameModeEnabled,
   onToggleGameMode,
+  navigationTitle,
+  navigationIcon,
 }: FooterProps) {
   const icon = selectedItem?.icon ?? ''
   const isDataUrl = icon.startsWith('data:')
   const isNamedIcon = hasIcon(icon)
+  const navIcon = navigationIcon ?? '/favicon.svg'
+  const navIsImage = navIcon.startsWith('data:') || navIcon.startsWith('/')
+  const navIsNamedIcon = hasIcon(navIcon)
 
   return (
     <div style={{
@@ -40,9 +47,9 @@ export default function Footer({
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
         {selectedItem && icon && (
           <div style={{
+            display: 'var(--footer-selected-icon-display)',
             width: 14,
             height: 14,
-            display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0,
@@ -74,6 +81,38 @@ export default function Footer({
             <kbd style={kbdStyle}>↵</kbd>
           </div>
         )}
+        <div style={{
+          display: 'var(--footer-nav-display)',
+          alignItems: 'center',
+          gap: 6,
+          minWidth: 0,
+        }}>
+          <div style={{
+            width: 20,
+            height: 20,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}>
+            {navIsImage
+              ? <img src={navIcon} width={20} height={20} style={{ objectFit: 'contain' }} />
+              : navIsNamedIcon
+                ? <div dangerouslySetInnerHTML={{ __html: getIconSvg(navIcon, 'var(--text-dim)', 18) ?? '' }} style={{ display: 'flex' }} />
+                : navIcon
+            }
+          </div>
+          {navigationTitle && (
+            <span style={{
+              color: 'var(--text-dim)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}>
+              {navigationTitle}
+            </span>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>

@@ -13,7 +13,7 @@ import { applyOverride, type Overrides } from '../lib/paletteRanking'
 import { parseAtQuery, computeMatchedItems, computePreviewResult } from '../lib/paletteModes'
 import { buildItemActions } from '../lib/paletteActions'
 import { useInlineScripts, type InlineScript } from '../hooks/useInlineScripts'
-import { usePaletteWindowSize, PALETTE_WIDTH } from '../hooks/usePaletteWindowSize'
+import { usePaletteWindowSize, DEFAULT_PALETTE_WIDTH, ONIX_PALETTE_WIDTH } from '../hooks/usePaletteWindowSize'
 import { usePaletteFeedback } from '../hooks/usePaletteFeedback'
 import { initialState, reducer } from '../lib/paletteReducer'
 import { applyStepResult } from '../lib/paletteNavigation'
@@ -98,8 +98,13 @@ export default function Palette({
   configRef.current = config
   commandsRef.current = commands
   providerCommandsRef.current = providerCommands
+  // Onix follows Vicinae's launcher width; Default retains Commandeer's
+  // established compact width. Both remain subject to the user's scale.
+  const paletteWidth = config.ui_style?.toLowerCase() === 'onix'
+    ? ONIX_PALETTE_WIDTH
+    : DEFAULT_PALETTE_WIDTH
   // Sizes the window to its content and returns the wrapper/container refs.
-  const { sizeRef, containerRef } = usePaletteWindowSize(scale)
+  const { sizeRef, containerRef } = usePaletteWindowSize(scale, paletteWidth)
   // Toasts, the HUD pill, and the confirm dialog (also registered on appEvents).
   const {
     toast, toasts, hud, showHud, requestConfirm, resolveConfirm,
@@ -851,7 +856,7 @@ export default function Palette({
     // Outer wrapper is unscaled and full-width: usePaletteWindowSize measures
     // its height (which already reflects the inner zoom) to size the window. The
     // inner container is a fixed base width scaled by `zoom`, so it renders at
-    // PALETTE_WIDTH × scale — exactly the window width the hook sets.
+    // paletteWidth × scale — exactly the window width the hook sets.
     <div ref={sizeRef} style={{ width: '100%' }}>
     <div
       ref={containerRef}
@@ -860,7 +865,7 @@ export default function Palette({
       style={{
         outline: 'none',
         position: 'relative',
-        width: PALETTE_WIDTH,
+        width: paletteWidth,
         zoom: scale,
         background: 'var(--bg)',
         backdropFilter: 'blur(60px) saturate(180%)',
@@ -914,6 +919,8 @@ export default function Palette({
           loading={state.loading}
           onChange={q => dispatch({ type: 'SET_QUERY', query: q })}
           preview={previewResult}
+          showBack={config.ui_style?.toLowerCase() === 'onix' && state.stepStack.length > 0}
+          onBack={() => dispatch({ type: 'POP_STEP' })}
         />
       )}
 
@@ -930,7 +937,9 @@ export default function Palette({
       )}
 
       {state.stepStack.length > 0 && (
-        <StepBreadcrumb steps={state.stepStack} />
+        <div data-step-breadcrumb>
+          <StepBreadcrumb steps={state.stepStack} />
+        </div>
       )}
 
       {!isInputStep && !isSliderStep && !state.loading && noMatches && state.query
@@ -1029,6 +1038,8 @@ export default function Palette({
         settingsVisible={!!settingsCmd}
         gameModeEnabled={gameModeEnabled}
         onToggleGameMode={onToggleGameMode}
+        navigationTitle={currentStep?.label}
+        navigationIcon={currentStep?.icon}
       />
     </div>
     </div>

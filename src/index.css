@@ -31,6 +31,7 @@
   --row-active-indicator-bg: #30d158;
   --icon-size: 18px;
   --icon-font-size: 14px;
+  --row-svg-size: 16px;
   --label-font-size: 13px;
   --sublabel-font-size: 11px;
   --accessory-font-size: 10px;
@@ -86,6 +87,11 @@
   margin: 0 var(--row-inset);
   transition: var(--row-transition);
 }
+
+[data-row-icon] svg {
+  width: var(--row-svg-size);
+  height: var(--row-svg-size);
+}
 [data-style="onix"] [data-list-index]:not([data-selected]):hover {
   background: var(--row-hover-bg) !important;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.018) !important;
@@ -111,6 +117,16 @@
 [data-style="onix"] input::placeholder {
   color: #77777e;
   opacity: 1;
+}
+[data-style="onix"] [data-search-leading="search"] {
+  display: none !important;
+}
+[data-style="onix"] [data-search-leading="back"]:hover {
+  color: var(--text) !important;
+  background: var(--bg-select-hover) !important;
+}
+[data-style="onix"] [data-step-breadcrumb] {
+  display: none;
 }
 [data-style="onix"] ::selection {
   color: #0f1014;

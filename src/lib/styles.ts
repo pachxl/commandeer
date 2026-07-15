@@ -39,6 +39,7 @@ const DEFAULT_VARIABLES: Record<string, string> = {
   // Icons / text inside rows
   '--icon-size': '18px',
   '--icon-font-size': '14px',
+  '--row-svg-size': '16px',
   '--label-font-size': '13px',
   '--sublabel-font-size': '11px',
   '--accessory-font-size': '10px',
@@ -55,6 +56,7 @@ const DEFAULT_VARIABLES: Record<string, string> = {
   '--search-font-size': '15px',
   '--search-icon-size': '16px',
   '--search-gap': '10px',
+  '--search-back-bg': 'transparent',
   '--preview-label-font-size': '15px',
   '--preview-sublabel-font-size': '11px',
 
@@ -70,6 +72,8 @@ const DEFAULT_VARIABLES: Record<string, string> = {
   '--footer-font': 'var(--font-ui)',
   '--footer-primary-left-display': 'inline-flex',
   '--footer-primary-right-display': 'none',
+  '--footer-selected-icon-display': 'flex',
+  '--footer-nav-display': 'none',
 
   // Keyboard hints
   '--kbd-font-size': '10px',
@@ -184,6 +188,7 @@ const onixStyle: UIStyle = {
     '--sublabel-flex-shrink': '1',
     '--icon-size': '26px',
     '--icon-font-size': '16px',
+    '--row-svg-size': '20px',
     '--label-font-size': '14px',
     '--sublabel-font-size': '12px',
     '--accessory-font-size': '11px',
@@ -200,6 +205,7 @@ const onixStyle: UIStyle = {
     '--search-font-size': '17px',
     '--search-icon-size': '20px',
     '--search-gap': '12px',
+    '--search-back-bg': 'transparent',
     '--preview-label-font-size': '17px',
     '--preview-sublabel-font-size': '12px',
 
@@ -215,6 +221,8 @@ const onixStyle: UIStyle = {
     '--footer-font': 'var(--font)',
     '--footer-primary-left-display': 'none',
     '--footer-primary-right-display': 'inline-flex',
+    '--footer-selected-icon-display': 'none',
+    '--footer-nav-display': 'flex',
     '--kbd-font-size': '11px',
     '--kbd-padding': '2px 6px',
     '--kbd-radius': '4px',
@@ -267,7 +275,7 @@ const onixStyle: UIStyle = {
     '--breadcrumb-border': '1px solid var(--divider)',
 
     // Results list container
-    '--results-list-padding': '6px 8px',
+    '--results-list-padding': '4px 0px',
   },
 }
 
