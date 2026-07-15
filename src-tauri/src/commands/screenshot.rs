@@ -645,17 +645,7 @@ fn copy_image_to_clipboard(path: &std::path::Path, img: &image::RgbaImage) -> Re
     let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
 
     let tool_result = if wayland {
-        std::fs::File::open(path).map_err(|e| e.to_string()).and_then(|file| {
-            match std::process::Command::new("wl-copy")
-                .args(["--type", "image/png"])
-                .stdin(file)
-                .status()
-            {
-                Ok(status) if status.success() => Ok(()),
-                Ok(_) => Err("wl-copy failed".to_string()),
-                Err(e) => Err(format!("wl-copy failed to run: {e}")),
-            }
-        })
+        copy_png_with_wl_copy(path)
     } else {
         match std::process::Command::new("xclip")
             .args(["-selection", "clipboard", "-t", "image/png", "-i"])
@@ -698,6 +688,47 @@ fn copy_image_to_clipboard(path: &std::path::Path, img: &image::RgbaImage) -> Re
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
             Err("clipboard thread died before setting the image".to_string())
         }
+    }
+}
+
+/// Feed the encoded PNG to wl-copy ourselves instead of attaching the file as
+/// its stdin. This makes a successful exit mean that every byte was accepted;
+/// with an inherited file descriptor a launcher could exit successfully even
+/// though the eventual clipboard owner observed EOF and advertised an empty
+/// image (Discord reports that as "This file cannot be empty").
+#[cfg(target_os = "linux")]
+fn copy_png_with_wl_copy(path: &std::path::Path) -> Result<(), String> {
+    use std::io::Write;
+
+    let png = std::fs::read(path).map_err(|e| format!("failed to read screenshot PNG: {e}"))?;
+    if png.is_empty() {
+        return Err("refusing to copy an empty screenshot PNG".to_string());
+    }
+
+    let mut child = std::process::Command::new("wl-copy")
+        .args(["--type", "image/png"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("wl-copy failed to run: {e}"))?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or("wl-copy did not provide a stdin pipe")?;
+    stdin
+        .write_all(&png)
+        .map_err(|e| format!("failed to send PNG to wl-copy: {e}"))?;
+    stdin
+        .flush()
+        .map_err(|e| format!("failed to flush PNG to wl-copy: {e}"))?;
+    drop(stdin);
+
+    let status = child
+        .wait()
+        .map_err(|e| format!("failed waiting for wl-copy: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("wl-copy failed with status {status}"))
     }
 }
 
