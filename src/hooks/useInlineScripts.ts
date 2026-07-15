@@ -48,13 +48,10 @@ export function useInlineScripts(inlineScripts: InlineScript[]): UseInlineScript
   // Pause polling while the palette is hidden (focus loss auto-hides it) so we
   // don't keep running user scripts in the background.
   useEffect(() => {
-    let unlisten: (() => void) | undefined
-    ;(async () => {
-      unlisten = await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+    const unlistenPromise = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
         setWindowFocused(focused)
-      })
-    })()
-    return () => { unlisten?.() }
+    })
+    return () => { void unlistenPromise.then(unlisten => unlisten()) }
   }, [])
 
   // Seed + poll each inline script on its @vicinae.refreshTime interval. Only

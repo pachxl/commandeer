@@ -86,8 +86,7 @@ export function usePaletteWindowSize(scale: number, baseWidth = DEFAULT_PALETTE_
     if (!el) return
     const observer = new ResizeObserver(() => { void applySize() })
     observer.observe(el)
-    let unlisten: (() => void) | undefined
-    getCurrentWindow()
+    const unlistenPromise = getCurrentWindow()
       .onFocusChanged(({ payload: focused }) => {
         if (focused) {
           // Force a re-apply even if the height didn't change while hidden
@@ -95,8 +94,10 @@ export function usePaletteWindowSize(scale: number, baseWidth = DEFAULT_PALETTE_
           void applySize()
         }
       })
-      .then(fn => { unlisten = fn })
-    return () => { observer.disconnect(); unlisten?.() }
+    return () => {
+      observer.disconnect()
+      void unlistenPromise.then(unlisten => unlisten())
+    }
   }, [applySize])
 
   return { sizeRef, containerRef }

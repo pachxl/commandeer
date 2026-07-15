@@ -6,7 +6,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 Commandeer is a Raycast-style command palette built with Tauri 2 (React/TypeScript frontend, Rust backend). It is **cross-platform: Windows, Linux (Wayland/COSMIC), and macOS** — originally Windows-only, then ported to Linux, then to macOS. It is **still in active development** with new features being added regularly; keep this file updated as the app evolves.
 
-Checks: `npm run build` runs `tsc` (strict) and is the frontend type-check; `npm run lint` runs ESLint (react-hooks rules only); `cargo test` in `src-tauri/` runs the Rust unit tests; `cargo clippy --all-targets -- -D warnings` must stay clean. There is deliberately **no CI** — it was added and removed twice; don't re-add it. Clippy lints are platform-gated, so a clean local run only proves the current OS: treat cross-OS clippy as unverified until the code is pulled on the other machines.
+Checks: `npm run build` runs `tsc` (strict) and is the frontend type-check; `npm test` runs the Vitest frontend regression suite; `npm run lint` runs ESLint (react-hooks rules only); `cargo test` in `src-tauri/` runs the Rust unit tests; `cargo clippy --all-targets -- -D warnings` must stay clean. There is deliberately **no CI** — it was added and removed twice; don't re-add it. Clippy lints are platform-gated, so a clean local run only proves the current OS: treat cross-OS clippy as unverified until the code is pulled on the other machines.
 
 ## Commands
 
@@ -18,6 +18,7 @@ npm run tauri build -- --no-bundle   # release build (on Linux: source ~/.cargo/
                                      # NEVER `cargo build --release` directly: without the tauri
                                      # CLI the binary is dev-mode and loads localhost:5173
 npm run build                        # tsc + vite build (frontend only; use as the type-check)
+npm test                             # Vitest frontend regression suite
 npm run release                      # cross-platform release build + copy artifact to bin/
                                      #   Windows: commandeer.exe
                                      #   Linux:   commandeer binary
@@ -82,6 +83,14 @@ Everything hangs off three types in `src/types.ts`:
 - **`CommandProvider`** (`src/providers/`) — contributes static root commands (`getCommands`) and/or per-query inline results (`search`). Registered in `src/providers/index.ts`. Newer feature families live here; the older script and settings sources are assembled directly in `App.tsx`'s `refresh()`. Quick Links, Notes and Bookmarks render as sub-folders inside the Tools virtual folder (wired in `refresh()`).
 
 `App.tsx` builds the command list (grouping `folderName`-tagged commands under virtual folders) and hands it to `components/Palette.tsx` (~1900 lines), which owns the step stack, query state, fuzzy ranking (fzf + frecency in `src/lib/`), keyboard handling, and the Ctrl+K action panel. `src/lib/tauri.ts` is the single wrapper around all Rust `invoke` calls. `src/lib/appEvents.ts` is a mutable bridge so settings commands can flip App-level state without prop drilling.
+
+Frontend lifecycle invariants:
+- **Escape and dismissal have one state machine.** Palette handles Escape from most-specific to least-specific state: cancel a pending confirm, close the action panel, pop one step, then dismiss at root. Every external dismissal path (focus loss, toggle, tray, etc.) must settle a pending confirm with `false` and clear transient feedback before hiding. Never leave a confirm promise or destructive callback alive across palette sessions.
+- **Async palette loads are sequenced.** `@find`, active-folder `@search`, normal step `load()`, and explicit step reloads may overlap. Only the newest request for the still-current mode/step may update items, errors, or loading state; abandoning a mode must clear its loading state. Preserve this guard when adding a load path.
+- **Selection is always valid for the current items.** Item replacement/reload clamps the selected index, and pointer hover sets an absolute selection rather than applying a delta derived from stale state. Enter must never target a different row from the rendered highlight.
+- **Promise-based listeners must clean up after late registration.** Tauri `listen()`/`onFocusChanged()` registration can resolve after React effect cleanup (including the intentional StrictMode mount cycle). Cleanup must unsubscribe even in that ordering, using a disposed flag or by chaining unlisten from the registration promise.
+- **Slider side effects and persistence are separate.** Apply visual/audio feedback on every tick, but serialize/debounce whole-config persistence and flush the trailing value when the step exits. Do not allow older `writeConfig` calls to finish after and overwrite newer values.
+- **Screenshot completion is transactional.** A failed finish must reset the finishing guard and surface an error instead of looking successful. Cancel only while a frame/capture is active so a delayed Escape cannot cancel the next capture.
 
 User-facing "commands" also come from a scripts directory on disk (configurable `scripts_dir`; `.ps1`/`.lnk` on Windows, `.sh`/`.desktop`/`.AppImage`/executables on Linux, `.sh`/`.command`/executables on macOS), scanned by the Rust side.
 

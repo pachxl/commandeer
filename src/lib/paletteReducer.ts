@@ -5,6 +5,10 @@
 
 import type { AppConfig, PaletteAction, PaletteState } from '../types'
 
+export function clampSelectionIndex(index: number, itemCount: number): number {
+  return Math.min(Math.max(0, index), Math.max(0, itemCount - 1))
+}
+
 export function initialState(_config: AppConfig): PaletteState {
   return {
     query: '',
@@ -70,10 +74,10 @@ export function reducer(state: PaletteState, action: PaletteAction): PaletteStat
         error: null,
       }
 
-    case 'MOVE_SELECTION':
+    case 'SET_SELECTION':
       return {
         ...state,
-        selectedIndex: Math.max(0, state.selectedIndex + action.delta),
+        selectedIndex: Math.max(0, action.index),
       }
 
     case 'SET_LOADING':

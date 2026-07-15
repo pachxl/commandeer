@@ -154,25 +154,22 @@ export default function App() {
       unlistenHotkey = await onCommandHotkey(id => commandHotkeyRef.current?.(id))
 
       const win = getCurrentWindow()
-      // Dismiss from every palette state. Nested steps, action menus, and
-      // confirmation dialogs have their own Escape behavior, so capture the
-      // key before React handlers can consume it. DOM blur is a fallback for
-      // platforms/webviews where the Tauri focus event arrives late or is
-      // missed; hide is idempotent with the Rust focus-loss handler.
+      // Palette owns Escape while one of its navigation/confirmation states is
+      // active. This window-level bubble listener is only a fallback for an
+      // event React did not handle; blur remains the focus-loss fallback.
       const dismiss = () => {
         resetRef.current?.()
         void win.hide()
       }
       const onEscape = (event: KeyboardEvent) => {
-        if (event.key !== 'Escape') return
+        if (event.key !== 'Escape' || event.defaultPrevented) return
         event.preventDefault()
-        event.stopImmediatePropagation()
         dismiss()
       }
-      window.addEventListener('keydown', onEscape, true)
+      window.addEventListener('keydown', onEscape)
       window.addEventListener('blur', dismiss)
       removeDismissListeners = () => {
-        window.removeEventListener('keydown', onEscape, true)
+        window.removeEventListener('keydown', onEscape)
         window.removeEventListener('blur', dismiss)
       }
 

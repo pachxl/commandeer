@@ -76,13 +76,16 @@ export default function SystemStatsPanel() {
     }
 
     start()
-    let unlisten: (() => void) | undefined
-    getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+    const unlistenPromise = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
       if (focused) start()
       else stop()
-    }).then(fn => { unlisten = fn })
+    })
 
-    return () => { disposed = true; stop(); unlisten?.() }
+    return () => {
+      disposed = true
+      stop()
+      void unlistenPromise.then(unlisten => unlisten())
+    }
   }, [])
 
   return (

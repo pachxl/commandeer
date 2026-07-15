@@ -576,25 +576,26 @@ pub async fn finish_screenshot(
     }
 
     let state = app.state::<ScreenshotState>();
-    let capture = state
-        .0
-        .lock()
-        .unwrap()
-        .take()
-        .ok_or("no pending capture")?;
+    // Keep the pending capture installed until every fallible save/copy step
+    // succeeds. On failure the frontend can restore the same selection and
+    // retry; taking it up front made failures indistinguishable from success.
+    let mut guard = state.0.lock().unwrap();
+    let capture = guard.as_mut().ok_or("no pending capture")?;
 
     // Reuse the frame the Alt color picker already decoded, if any.
-    let frame = match capture.decoded {
-        Some(img) => img,
-        None => image::open(&capture.frame_path)
-            .map_err(|e| e.to_string())?
-            .into_rgba8(),
-    };
+    if capture.decoded.is_none() {
+        capture.decoded = Some(
+            image::open(&capture.frame_path)
+                .map_err(|e| e.to_string())?
+                .into_rgba8(),
+        );
+    }
+    let frame = capture.decoded.as_ref().unwrap();
     let x = region.x.min(capture.width.saturating_sub(1));
     let y = region.y.min(capture.height.saturating_sub(1));
     let w = region.w.clamp(1, capture.width - x);
     let h = region.h.clamp(1, capture.height - y);
-    let mut cropped = image::imageops::crop_imm(&frame, x, y, w, h).to_image();
+    let mut cropped = image::imageops::crop_imm(frame, x, y, w, h).to_image();
     for s in annotations.unwrap_or_default() {
         draw_stroke_annotation(&mut cropped, &s, x as f64, y as f64);
     }
@@ -616,7 +617,9 @@ pub async fn finish_screenshot(
         None => copy_image_to_clipboard(&path, &cropped)?,
     }
 
-    let _ = std::fs::remove_file(&capture.frame_path);
+    let frame_path = capture.frame_path.clone();
+    let _ = std::fs::remove_file(frame_path);
+    guard.take();
     Ok(path.to_string_lossy().into_owned())
 }
 
