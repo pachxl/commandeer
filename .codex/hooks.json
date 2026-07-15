@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node 'C:\\dev\\commandeer\\.codex\\hooks\\ship-reminder.mjs'",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
