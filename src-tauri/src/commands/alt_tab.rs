@@ -74,6 +74,7 @@ enum SessionEvent {
     Start { direction: Direction, sticky: bool },
     Cycle { direction: Direction },
     Move(GridMove),
+    FocusDisplay(u8),
     Commit,
     Cancel,
     Sticky,
@@ -93,6 +94,8 @@ trait HookHost {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HookKey {
     Tab,
+    Digit1,
+    Digit2,
     Escape,
     Return,
     Left,
@@ -112,6 +115,14 @@ enum HookKey {
 }
 
 impl HookKey {
+    fn display_number(self) -> Option<u8> {
+        match self {
+            HookKey::Digit1 => Some(1),
+            HookKey::Digit2 => Some(2),
+            _ => None,
+        }
+    }
+
     fn modifier(self) -> bool {
         matches!(
             self,
@@ -141,6 +152,7 @@ struct HookState {
     sticky: bool,
     swallow_escape_up: bool,
     swallow_return_up: bool,
+    swallow_display_up: u8,
 }
 
 impl HookState {
@@ -192,6 +204,28 @@ impl HookState {
             }
             HookKey::GenericCtrl if !self.left_ctrl && !self.right_ctrl => self.left_ctrl = down,
             _ => {}
+        }
+
+        if let Some(display) = key.display_number() {
+            let bit = 1 << (display - 1);
+            if !down {
+                if self.swallow_display_up & bit != 0 {
+                    self.swallow_display_up &= !bit;
+                    return true;
+                }
+                return false;
+            }
+            if self.swallow_display_up & bit != 0 {
+                // Keep swallowing key-repeat downs until the physical key is released.
+                return true;
+            }
+            if !self.session && self.ctrl() && (self.alt() || alt_flag) {
+                if host.post(SessionEvent::FocusDisplay(display)) {
+                    self.swallow_display_up |= bit;
+                    return true;
+                }
+                return false;
+            }
         }
 
         if key == HookKey::Tab {
@@ -416,6 +450,48 @@ fn grid_card_left(layout: GridLayout, local: usize, visible: usize) -> i32 {
 }
 
 #[cfg(any(target_os = "windows", test))]
+fn include_for_monitor(
+    invocation_monitor: isize,
+    window_monitor: isize,
+    maximized: bool,
+    minimized: bool,
+    remote_seen: &mut Vec<isize>,
+) -> bool {
+    if window_monitor == invocation_monitor {
+        return true;
+    }
+    if !maximized || minimized || remote_seen.contains(&window_monitor) {
+        return false;
+    }
+    remote_seen.push(window_monitor);
+    true
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn parse_display_number(device_name: &str) -> Option<u8> {
+    device_name.strip_prefix(r"\\.\DISPLAY")?.parse().ok()
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn direct_focus_candidate(
+    requested_display: u8,
+    window_display: Option<u8>,
+    eligible: bool,
+    maximized: bool,
+    minimized: bool,
+) -> bool {
+    eligible && maximized && !minimized && window_display == Some(requested_display)
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn promote_original<T>(items: &mut Vec<T>, mut is_original: impl FnMut(&T) -> bool) {
+    if let Some(index) = items.iter().position(&mut is_original) {
+        let original = items.remove(index);
+        items.insert(0, original);
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
 fn is_windows_desktop_class(class_name: &str) -> bool {
     matches!(class_name, "Progman" | "WorkerW")
 }
@@ -423,7 +499,8 @@ fn is_windows_desktop_class(class_name: &str) -> bool {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::{
-        cycled_index, grid_card_left, grid_layout, initial_selection, is_windows_desktop_class,
+        cycled_index, direct_focus_candidate, grid_card_left, grid_layout, include_for_monitor,
+        initial_selection, is_windows_desktop_class, parse_display_number, promote_original,
         selection_after_prune, AltTabTheme, Direction, GridLayout, GridMove, HookHost, HookKey,
         HookState, SessionEvent,
     };
@@ -449,8 +526,8 @@ mod platform {
         BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
         FillRect, GetMonitorInfoW, InvalidateRect, MonitorFromPoint, MonitorFromWindow, RoundRect,
         SelectObject, SetBkMode, SetTextColor, ValidateRect, DT_END_ELLIPSIS, DT_NOPREFIX,
-        DT_SINGLELINE, DT_VCENTER, HGDIOBJ, MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT,
-        PS_SOLID, TRANSPARENT,
+        DT_SINGLELINE, DT_VCENTER, HGDIOBJ, MONITORINFO, MONITORINFOEXW, MONITOR_DEFAULTTONEAREST,
+        PAINTSTRUCT, PS_SOLID, TRANSPARENT,
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::System::Threading::{
@@ -460,8 +537,8 @@ mod platform {
     use windows::Win32::UI::HiDpi::GetDpiForWindow;
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
-        VIRTUAL_KEY, VK_CONTROL, VK_DOWN, VK_ESCAPE, VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT,
-        VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_SHIFT, VK_TAB, VK_UP,
+        VIRTUAL_KEY, VK_1, VK_2, VK_CONTROL, VK_DOWN, VK_ESCAPE, VK_LCONTROL, VK_LEFT, VK_LMENU,
+        VK_LSHIFT, VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_SHIFT, VK_TAB, VK_UP,
     };
     use windows::Win32::UI::Shell::ExtractIconExW;
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -469,17 +546,17 @@ mod platform {
         DispatchMessageW, DrawIconEx, EnumWindows, FlashWindowEx, GetAncestor, GetClassLongPtrW,
         GetClassNameW, GetCursorPos, GetDesktopWindow, GetForegroundWindow, GetLastActivePopup,
         GetMessageW, GetShellWindow, GetWindowLongW, GetWindowRect, GetWindowTextW,
-        GetWindowThreadProcessId, IsWindow, IsWindowVisible, IsZoomed, KillTimer, LoadCursorW,
-        PostMessageW, PostThreadMessageW, RegisterClassW, SendMessageTimeoutW, SetTimer,
-        SetWindowPos, SetWindowsHookExW, ShowWindow, TranslateMessage, UnhookWindowsHookEx,
-        CS_HREDRAW, CS_VREDRAW, DI_NORMAL, FLASHWINFO, FLASHW_TRAY, GA_ROOTOWNER, GCLP_HICON,
-        GCLP_HICONSM, GWL_EXSTYLE, GWL_STYLE, HHOOK, HICON, HWND_TOPMOST, ICON_BIG, ICON_SMALL,
-        ICON_SMALL2, IDC_ARROW, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN, LLKHF_INJECTED, LLKHF_UP, MSG,
-        SC_CLOSE, SMTO_ABORTIFHUNG, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE,
-        WH_KEYBOARD_LL, WM_APP, WM_DESTROY, WM_DISPLAYCHANGE, WM_GETICON, WM_LBUTTONUP,
-        WM_MBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_QUIT, WM_SYSCOMMAND, WM_TIMER, WNDCLASSW,
-        WS_CAPTION, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
-        WS_THICKFRAME,
+        GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed, KillTimer,
+        LoadCursorW, PostMessageW, PostThreadMessageW, RegisterClassW, SendMessageTimeoutW,
+        SetTimer, SetWindowPos, SetWindowsHookExW, ShowWindow, TranslateMessage,
+        UnhookWindowsHookEx, CS_HREDRAW, CS_VREDRAW, DI_NORMAL, FLASHWINFO, FLASHW_TRAY,
+        GA_ROOTOWNER, GCLP_HICON, GCLP_HICONSM, GWL_EXSTYLE, GWL_STYLE, HHOOK, HICON, HWND_TOPMOST,
+        ICON_BIG, ICON_SMALL, ICON_SMALL2, IDC_ARROW, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN,
+        LLKHF_INJECTED, LLKHF_UP, MSG, SC_CLOSE, SMTO_ABORTIFHUNG, SWP_NOACTIVATE, SWP_SHOWWINDOW,
+        SW_HIDE, SW_SHOWNOACTIVATE, WH_KEYBOARD_LL, WM_APP, WM_DESTROY, WM_DISPLAYCHANGE,
+        WM_GETICON, WM_LBUTTONUP, WM_MBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_QUIT, WM_SYSCOMMAND,
+        WM_TIMER, WNDCLASSW, WS_CAPTION, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+        WS_EX_TOPMOST, WS_POPUP, WS_THICKFRAME,
     };
 
     const MSG_START: u32 = WM_APP + 1;
@@ -488,6 +565,7 @@ mod platform {
     const MSG_COMMIT: u32 = WM_APP + 4;
     const MSG_CANCEL: u32 = WM_APP + 5;
     const MSG_STICKY: u32 = WM_APP + 6;
+    const MSG_FOCUS_DISPLAY: u32 = WM_APP + 7;
     const PRUNE_TIMER: usize = 1;
 
     static READY: AtomicBool = AtomicBool::new(false);
@@ -699,6 +777,8 @@ mod platform {
     fn hook_key(vk: u16) -> HookKey {
         match vk {
             x if x == VK_TAB.0 => HookKey::Tab,
+            x if x == VK_1.0 => HookKey::Digit1,
+            x if x == VK_2.0 => HookKey::Digit2,
             x if x == VK_ESCAPE.0 => HookKey::Escape,
             x if x == VK_RETURN.0 => HookKey::Return,
             x if x == VK_LEFT.0 => HookKey::Left,
@@ -752,12 +832,20 @@ mod platform {
                     }),
                     LPARAM(0),
                 ),
+                SessionEvent::FocusDisplay(display) => {
+                    (MSG_FOCUS_DISPLAY, WPARAM(display as usize), LPARAM(0))
+                }
                 SessionEvent::Commit => (MSG_COMMIT, WPARAM(0), LPARAM(0)),
                 SessionEvent::Cancel => (MSG_CANCEL, WPARAM(0), LPARAM(0)),
                 SessionEvent::Sticky => (MSG_STICKY, WPARAM(0), LPARAM(0)),
             };
             let posted = unsafe { PostMessageW(hwnd, msg, wparam, lparam).is_ok() };
-            if posted && matches!(event, SessionEvent::Start { .. }) {
+            if posted
+                && matches!(
+                    event,
+                    SessionEvent::Start { .. } | SessionEvent::FocusDisplay(_)
+                )
+            {
                 // The foreground app saw Alt go down and will see Alt go back
                 // up with every Tab swallowed in between — a lone Alt press,
                 // which focuses the menu bar in many apps. Inject a no-op key
@@ -919,6 +1007,10 @@ mod platform {
                         switcher.sticky = true;
                     }
                 });
+                LRESULT(0)
+            }
+            MSG_FOCUS_DISPLAY => {
+                focus_maximized_on_display(wparam.0 as u8, hwnd);
                 LRESULT(0)
             }
             WM_MOUSEMOVE => {
@@ -1272,18 +1364,8 @@ mod platform {
         unsafe fn commit(&mut self) {
             let target = self.candidates.get(self.selected).map(|c| c.hwnd);
             self.hide();
-            if let Some(target) = target.filter(|hwnd| IsWindow(*hwnd).as_bool()) {
-                crate::commands::paste::force_foreground(target);
-                if GetForegroundWindow() != target {
-                    let flash = FLASHWINFO {
-                        cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
-                        hwnd: target,
-                        dwFlags: FLASHW_TRAY,
-                        uCount: 3,
-                        dwTimeout: 0,
-                    };
-                    let _ = FlashWindowEx(&flash);
-                }
+            if let Some(target) = target {
+                activate_window(target);
             }
         }
 
@@ -1457,6 +1539,23 @@ mod platform {
         x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
     }
 
+    unsafe fn activate_window(target: HWND) {
+        if !IsWindow(target).as_bool() || GetForegroundWindow() == target {
+            return;
+        }
+        crate::commands::paste::force_foreground(target);
+        if GetForegroundWindow() != target {
+            let flash = FLASHWINFO {
+                cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
+                hwnd: target,
+                dwFlags: FLASHW_TRAY,
+                uCount: 3,
+                dwTimeout: 0,
+            };
+            let _ = FlashWindowEx(&flash);
+        }
+    }
+
     fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
         COLORREF(colorref(r, g, b))
     }
@@ -1511,9 +1610,10 @@ mod platform {
     }
 
     struct EnumContext {
-        monitor: windows::Win32::Graphics::Gdi::HMONITOR,
+        invocation_monitor: windows::Win32::Graphics::Gdi::HMONITOR,
         own_pid: u32,
         overlay: HWND,
+        remote_seen: Vec<isize>,
         windows: Vec<Candidate>,
     }
 
@@ -1523,30 +1623,44 @@ mod platform {
         overlay: HWND,
     ) -> Vec<Candidate> {
         let mut context = EnumContext {
-            monitor,
+            invocation_monitor: monitor,
             own_pid: GetCurrentProcessId(),
             overlay,
+            remote_seen: Vec::new(),
             windows: Vec::new(),
         };
         let _ = EnumWindows(
             Some(enum_window),
             LPARAM(&mut context as *mut EnumContext as isize),
         );
-        if let Some(index) = context.windows.iter().position(|c| c.hwnd == original) {
-            let original = context.windows.remove(index);
-            context.windows.insert(0, original);
-        }
+        promote_original(&mut context.windows, |candidate| candidate.hwnd == original);
         context.windows
     }
 
     unsafe extern "system" fn enum_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
         let context = &mut *(lparam.0 as *mut EnumContext);
-        if !is_candidate(hwnd, context) {
+        if !is_common_candidate(hwnd, context.own_pid, context.overlay) {
+            return BOOL(1);
+        }
+        let window_monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let is_local = window_monitor == context.invocation_monitor;
+        let maximized = IsZoomed(hwnd).as_bool();
+        let minimized = IsIconic(hwnd).as_bool();
+        if !is_local && (!maximized || minimized) {
             return BOOL(1);
         }
         let mut title = vec![0u16; 512];
         let len = GetWindowTextW(hwnd, &mut title);
         if len <= 0 {
+            return BOOL(1);
+        }
+        if !include_for_monitor(
+            context.invocation_monitor.0 as isize,
+            window_monitor.0 as isize,
+            maximized,
+            minimized,
+            &mut context.remote_seen,
+        ) {
             return BOOL(1);
         }
         title.truncate(len as usize);
@@ -1564,19 +1678,18 @@ mod platform {
         BOOL(1)
     }
 
-    unsafe fn is_candidate(hwnd: HWND, context: &EnumContext) -> bool {
+    unsafe fn is_common_candidate(hwnd: HWND, own_pid: u32, overlay: HWND) -> bool {
         if hwnd.0.is_null()
-            || hwnd == context.overlay
+            || hwnd == overlay
             || hwnd == GetDesktopWindow()
             || hwnd == GetShellWindow()
             || !IsWindowVisible(hwnd).as_bool()
-            || MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) != context.monitor
         {
             return false;
         }
         let mut pid = 0u32;
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
-        if pid == context.own_pid {
+        if pid == own_pid {
             return false;
         }
         let mut cloaked = 0u32;
@@ -1598,6 +1711,64 @@ mod platform {
             return false;
         }
         app_window || is_alt_tab_representative(hwnd)
+    }
+
+    struct FocusContext {
+        display: u8,
+        own_pid: u32,
+        overlay: HWND,
+        target: HWND,
+    }
+
+    unsafe fn focus_maximized_on_display(display: u8, overlay: HWND) {
+        let mut context = FocusContext {
+            display,
+            own_pid: GetCurrentProcessId(),
+            overlay,
+            target: HWND::default(),
+        };
+        let _ = EnumWindows(
+            Some(enum_focus_window),
+            LPARAM(&mut context as *mut FocusContext as isize),
+        );
+        if !context.target.0.is_null() {
+            activate_window(context.target);
+        }
+    }
+
+    unsafe extern "system" fn enum_focus_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let context = &mut *(lparam.0 as *mut FocusContext);
+        if !is_common_candidate(hwnd, context.own_pid, context.overlay) {
+            return BOOL(1);
+        }
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        if direct_focus_candidate(
+            context.display,
+            monitor_display_number(monitor),
+            true,
+            IsZoomed(hwnd).as_bool(),
+            IsIconic(hwnd).as_bool(),
+        ) {
+            context.target = hwnd;
+            return BOOL(0);
+        }
+        BOOL(1)
+    }
+
+    unsafe fn monitor_display_number(
+        monitor: windows::Win32::Graphics::Gdi::HMONITOR,
+    ) -> Option<u8> {
+        let mut info = MONITORINFOEXW::default();
+        info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        if !GetMonitorInfoW(monitor, &mut info.monitorInfo).as_bool() {
+            return None;
+        }
+        let len = info
+            .szDevice
+            .iter()
+            .position(|unit| *unit == 0)
+            .unwrap_or(info.szDevice.len());
+        parse_display_number(&String::from_utf16_lossy(&info.szDevice[..len]))
     }
 
     unsafe fn is_alt_tab_representative(hwnd: HWND) -> bool {
@@ -1819,6 +1990,70 @@ mod tests {
             assert!(key(&mut state, &mut host, hook_key, true));
             assert_eq!(host.events.last(), Some(&SessionEvent::Move(movement)));
         }
+    }
+
+    #[test]
+    fn ctrl_alt_digits_focus_displays_and_swallow_the_digit_pair() {
+        for (digit, display) in [(HookKey::Digit1, 1), (HookKey::Digit2, 2)] {
+            let mut state = HookState::default();
+            let mut host = Recorder::new();
+            assert!(!key(&mut state, &mut host, HookKey::LeftCtrl, true));
+            assert!(!key(&mut state, &mut host, HookKey::LeftAlt, true));
+            assert!(key(&mut state, &mut host, digit, true));
+            assert!(key(&mut state, &mut host, digit, false));
+            assert_eq!(host.events, vec![SessionEvent::FocusDisplay(display)]);
+            assert!(!key(&mut state, &mut host, HookKey::LeftAlt, false));
+            assert!(!key(&mut state, &mut host, HookKey::LeftCtrl, false));
+        }
+    }
+
+    #[test]
+    fn display_focus_requires_both_modifiers_and_a_successful_post() {
+        let mut state = HookState::default();
+        let mut host = Recorder::new();
+        key(&mut state, &mut host, HookKey::LeftCtrl, true);
+        assert!(!key(&mut state, &mut host, HookKey::Digit1, true));
+        assert!(!key(&mut state, &mut host, HookKey::Digit1, false));
+        key(&mut state, &mut host, HookKey::LeftCtrl, false);
+        key(&mut state, &mut host, HookKey::LeftAlt, true);
+        assert!(!key(&mut state, &mut host, HookKey::Digit2, true));
+        assert!(!key(&mut state, &mut host, HookKey::Digit2, false));
+        assert!(host.events.is_empty());
+
+        key(&mut state, &mut host, HookKey::LeftCtrl, true);
+        host.post_ok = false;
+        assert!(!key(&mut state, &mut host, HookKey::Digit1, true));
+        assert!(!key(&mut state, &mut host, HookKey::Digit1, false));
+        assert!(host.events.is_empty());
+    }
+
+    #[test]
+    fn display_focus_suppresses_repeat_until_digit_release() {
+        let mut state = HookState::default();
+        let mut host = Recorder::new();
+        key(&mut state, &mut host, HookKey::LeftCtrl, true);
+        key(&mut state, &mut host, HookKey::LeftAlt, true);
+        assert!(key(&mut state, &mut host, HookKey::Digit2, true));
+        assert!(key(&mut state, &mut host, HookKey::Digit2, true));
+        key(&mut state, &mut host, HookKey::LeftAlt, false);
+        assert!(key(&mut state, &mut host, HookKey::Digit2, true));
+        assert!(key(&mut state, &mut host, HookKey::Digit2, false));
+        assert_eq!(host.events, vec![SessionEvent::FocusDisplay(2)]);
+        assert_eq!(state.swallow_display_up, 0);
+    }
+
+    #[test]
+    fn display_focus_does_not_fire_during_alt_tab_session() {
+        let mut state = HookState::default();
+        let mut host = Recorder::new();
+        key(&mut state, &mut host, HookKey::LeftCtrl, true);
+        key(&mut state, &mut host, HookKey::LeftAlt, true);
+        key(&mut state, &mut host, HookKey::Tab, true);
+        assert!(key(&mut state, &mut host, HookKey::Digit1, true));
+        assert!(!host
+            .events
+            .iter()
+            .any(|event| matches!(event, SessionEvent::FocusDisplay(_))));
     }
 
     #[test]
@@ -2074,6 +2309,120 @@ mod tests {
         let last_left = grid_card_left(layout, 6, 7);
         assert_eq!(last_left, (layout.panel_w - layout.card_w) / 2);
         assert!(last_left > layout.padding);
+    }
+
+    #[test]
+    fn monitor_policy_keeps_local_windows_and_one_maximized_remote_per_display() {
+        let invocation = 1;
+        let mut remote_seen = Vec::new();
+
+        // Local candidates retain the existing policy regardless of window state.
+        for (maximized, minimized) in [(false, false), (true, false), (false, true)] {
+            assert!(include_for_monitor(
+                invocation,
+                invocation,
+                maximized,
+                minimized,
+                &mut remote_seen,
+            ));
+        }
+        assert!(!include_for_monitor(
+            invocation,
+            2,
+            false,
+            false,
+            &mut remote_seen,
+        ));
+        assert!(!include_for_monitor(
+            invocation,
+            2,
+            true,
+            true,
+            &mut remote_seen,
+        ));
+        assert!(include_for_monitor(
+            invocation,
+            2,
+            true,
+            false,
+            &mut remote_seen,
+        ));
+        assert!(!include_for_monitor(
+            invocation,
+            2,
+            true,
+            false,
+            &mut remote_seen,
+        ));
+        assert!(include_for_monitor(
+            invocation,
+            3,
+            true,
+            false,
+            &mut remote_seen,
+        ));
+        assert_eq!(remote_seen, vec![2, 3]);
+    }
+
+    #[test]
+    fn monitor_policy_preserves_global_z_order() {
+        let windows = [
+            (20, false, false),
+            (10, false, false),
+            (20, true, false),
+            (10, true, false),
+            (20, true, false),
+        ];
+        let mut remote_seen = Vec::new();
+        let kept: Vec<usize> = windows
+            .iter()
+            .enumerate()
+            .filter_map(|(index, (monitor, maximized, minimized))| {
+                include_for_monitor(10, *monitor, *maximized, *minimized, &mut remote_seen)
+                    .then_some(index)
+            })
+            .collect();
+        assert_eq!(kept, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn original_foreground_is_promoted_without_reordering_other_candidates() {
+        let mut candidates = vec![10, 20, 30, 40];
+        promote_original(&mut candidates, |candidate| *candidate == 30);
+        assert_eq!(candidates, vec![30, 10, 20, 40]);
+        promote_original(&mut candidates, |candidate| *candidate == 99);
+        assert_eq!(candidates, vec![30, 10, 20, 40]);
+    }
+
+    #[test]
+    fn parses_windows_display_device_numbers() {
+        assert_eq!(parse_display_number(r"\\.\DISPLAY1"), Some(1));
+        assert_eq!(parse_display_number(r"\\.\DISPLAY2"), Some(2));
+        assert_eq!(parse_display_number(r"\\.\DISPLAY"), None);
+        assert_eq!(parse_display_number("DISPLAY1"), None);
+        assert_eq!(parse_display_number(r"\\.\MONITOR1"), None);
+    }
+
+    #[test]
+    fn direct_focus_selects_first_eligible_maximized_target() {
+        let candidates = [
+            (Some(1), true, true, false),
+            (Some(2), true, false, false),
+            (Some(2), true, true, true),
+            (Some(2), true, true, false),
+            (Some(2), true, true, false),
+        ];
+        let selected = candidates
+            .iter()
+            .position(|(display, eligible, maximized, minimized)| {
+                direct_focus_candidate(2, *display, *eligible, *maximized, *minimized)
+            });
+        assert_eq!(selected, Some(3));
+        assert!(!candidates
+            .iter()
+            .any(|(display, eligible, maximized, minimized)| {
+                direct_focus_candidate(3, *display, *eligible, *maximized, *minimized)
+            }));
     }
 
     #[test]

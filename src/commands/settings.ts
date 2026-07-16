@@ -207,7 +207,7 @@ function settingsStep(config: AppConfig): Step {
               id: 'settings:per-monitor-alt-tab',
               label: 'Per-Monitor Alt+Tab',
               sublabel: config.per_monitor_alt_tab
-                ? 'On — show windows from the monitor under the cursor only'
+                ? 'On — local windows + top maximized windows from other displays; Ctrl+Alt+1/2 focuses displays'
                 : 'Off — use the standard Windows switcher',
               icon: 'window',
               actionLabel: 'Toggle',
