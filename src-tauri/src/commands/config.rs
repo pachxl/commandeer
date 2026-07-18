@@ -1,9 +1,28 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 const LEGACY_IDENTIFIER: &str = "dev.commandeer.app";
+const LEGACY_SEED_MARKER: &str = ".commandeer-seeded";
+
+// Exact byte lengths and FNV-1a checksums of the retired starter templates.
+// They let upgrades identify pristine generated files without carrying those
+// scripts in the binary again or touching a user's edited copy.
+const LEGACY_STARTERS: &[(&str, usize, u64)] = &[
+    ("current-time.ps1", 274, 0xcba3_1776_26b4_811c),
+    ("open-scripts-folder.ps1", 267, 0x9938_f8cb_0773_e679),
+    ("tutorial.ps1", 1984, 0xe0cf_3c10_a74c_7147),
+    ("current-time.sh", 271, 0x25ba_18d8_68df_67a6),
+    ("open-scripts-folder.sh", 450, 0xc665_c98e_f3af_860e),
+    ("tutorial.sh", 1993, 0xf212_32ce_dd5c_d208),
+];
+
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x100_0000_01b3)
+    })
+}
 
 fn copy_dir_missing(source: &std::path::Path, destination: &std::path::Path) {
     let Ok(entries) = fs::read_dir(source) else {
@@ -45,6 +64,36 @@ pub fn migrate_legacy_identifier(app: &tauri::AppHandle) {
 
     let _ = fs::create_dir_all(&data_dir);
     let _ = fs::write(marker, b"migrated from dev.commandeer.app\n");
+}
+
+fn remove_legacy_starters(dir: &Path) {
+    let marker = dir.join(LEGACY_SEED_MARKER);
+    if !marker.exists() {
+        return;
+    }
+
+    for (name, expected_len, expected_hash) in LEGACY_STARTERS {
+        let path = dir.join(name);
+        if fs::read(&path).is_ok_and(|contents| {
+            contents.len() == *expected_len && fnv1a(&contents) == *expected_hash
+        }) {
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    // This marker belonged solely to the retired seeding mechanism. Removing
+    // it records that cleanup has run; edited starter files are left alone.
+    let _ = fs::remove_file(marker);
+}
+
+/// Remove untouched examples written by Commandeer versions that seeded the
+/// scripts directory at startup. Files the user edited, and all unrelated
+/// commands, are preserved.
+pub fn cleanup_legacy_seeded_scripts(app: &tauri::AppHandle) {
+    let dir = PathBuf::from(load_config(app).scripts_dir);
+    if !dir.as_os_str().is_empty() {
+        remove_legacy_starters(&dir);
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -177,7 +226,8 @@ pub async fn write_config(app: tauri::AppHandle, config: AppConfig) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    use super::AppConfig;
+    use super::{fnv1a, remove_legacy_starters, AppConfig, LEGACY_SEED_MARKER};
+    use std::fs;
 
     #[test]
     fn per_monitor_alt_tab_defaults_to_none_when_missing() {
@@ -202,5 +252,34 @@ mod tests {
         let config = AppConfig::default();
         let json = serde_json::to_string(&config).unwrap();
         assert!(!json.contains("per_monitor_alt_tab"));
+    }
+
+    #[test]
+    fn legacy_cleanup_only_removes_untouched_seeded_files() {
+        const CURRENT_TIME_PS1: &str = "# @raycast.schemaVersion 1\n# @raycast.title Current Time\n# @raycast.description Show the current local date and time\n# @raycast.icon clock\n# @raycast.mode inline\n# @vicinae.refreshTime 1m\n# @vicinae.keywords [\"date\", \"time\", \"clock\"]\n\nGet-Date -Format 'ddd dd MMM · HH:mm'\n";
+        let dir = std::env::temp_dir().join(format!(
+            "commandeer-legacy-seed-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(LEGACY_SEED_MARKER), "seeded by commandeer\n").unwrap();
+        assert_eq!(CURRENT_TIME_PS1.len(), 274);
+        assert_eq!(fnv1a(CURRENT_TIME_PS1.as_bytes()), 0xcba3_1776_26b4_811c);
+        fs::write(dir.join("current-time.ps1"), CURRENT_TIME_PS1).unwrap();
+        fs::write(dir.join("tutorial.ps1"), "my edited command\n").unwrap();
+        fs::write(dir.join("mine.ps1"), "my command\n").unwrap();
+
+        remove_legacy_starters(&dir);
+
+        assert!(!dir.join(LEGACY_SEED_MARKER).exists());
+        assert!(!dir.join("current-time.ps1").exists());
+        assert_eq!(
+            fs::read_to_string(dir.join("tutorial.ps1")).unwrap(),
+            "my edited command\n"
+        );
+        assert!(dir.join("mine.ps1").exists());
+
+        fs::remove_dir_all(dir).unwrap();
     }
 }

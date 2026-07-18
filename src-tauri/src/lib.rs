@@ -391,6 +391,11 @@ pub fn run() {
             // directories before any feature opens config, databases, or keys.
             commands::config::migrate_legacy_identifier(app.app_handle());
 
+            // Older builds wrote tutorial/current-time/open-folder examples
+            // into the user's scripts directory. Remove only pristine copies;
+            // anything edited by the user is preserved.
+            commands::config::cleanup_legacy_seeded_scripts(app.app_handle());
+
             // Release builds quietly check the signed GitHub Release feed at
             // startup and every six hours, then install and restart when a
             // newer semantic version is available.
