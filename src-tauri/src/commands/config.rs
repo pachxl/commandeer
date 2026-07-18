@@ -138,6 +138,11 @@ pub struct AppConfig {
     /// and component treatment; the separate theme setting owns all colors.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui_style: Option<String>,
+    /// Background auto-update from GitHub Releases. None/true = on; the
+    /// updater loop re-reads this before every check, so toggling takes
+    /// effect without a restart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_update: Option<bool>,
 }
 
 fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {

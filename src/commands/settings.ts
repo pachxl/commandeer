@@ -166,6 +166,14 @@ function settingsStep(config: AppConfig): Step {
         actionLabel: 'Toggle',
       },
       {
+        id: 'settings:auto-update',
+        label: 'Automatic Updates',
+        sublabel:
+          (config.auto_update ?? true) ? 'On — installs new releases in the background' : 'Off — never updates itself',
+        icon: 'refresh',
+        actionLabel: 'Toggle',
+      },
+      {
         id: 'settings:toggle-game-mode',
         label: 'Game Mode',
         sublabel: `${appEvents.isGameMode?.() ? 'On' : 'Off'} — uses the game hotkey (Ctrl+G)`,
@@ -311,6 +319,17 @@ function settingsStep(config: AppConfig): Step {
       if (item.id === 'settings:autostart') {
         const current = await getAutostart().catch(() => false)
         await setAutostart(!current)
+        return { type: 'replace', step: settingsStep(config) }
+      }
+      if (item.id === 'settings:auto-update') {
+        const next = !(config.auto_update ?? true)
+        try {
+          await writeConfig({ ...config, auto_update: next })
+          Object.assign(config, { auto_update: next })
+          appEvents.toast?.(next ? 'Automatic updates enabled' : 'Automatic updates disabled', 'success')
+        } catch (err) {
+          appEvents.toast?.(`Couldn't save setting: ${String(err)}`, 'error')
+        }
         return { type: 'replace', step: settingsStep(config) }
       }
       if (item.id === 'settings:toggle-game-mode') {

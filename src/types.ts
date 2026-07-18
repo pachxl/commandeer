@@ -50,6 +50,8 @@ export interface AppConfig {
   // UI style preset ('Default' or 'Onix'). Controls layout, spacing, fonts, and
   // component treatment; the separate theme setting owns all colors.
   ui_style?: string
+  // Background auto-update from GitHub Releases. Undefined/true = on.
+  auto_update?: boolean
 }
 
 export interface PaletteItem {

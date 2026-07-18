@@ -21,6 +21,16 @@ pub fn start(app: AppHandle) {
         tokio::time::sleep(INITIAL_CHECK_DELAY).await;
 
         loop {
+            // Re-read the setting each cycle so a Settings toggle applies
+            // without restarting the app.
+            if !crate::commands::config::load_config(&app)
+                .auto_update
+                .unwrap_or(true)
+            {
+                tokio::time::sleep(CHECK_INTERVAL).await;
+                continue;
+            }
+
             match check_and_install(&app).await {
                 Ok(true) => {
                     // Windows' installer normally exits the process itself.
