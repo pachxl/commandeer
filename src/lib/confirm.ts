@@ -5,6 +5,10 @@
 // overlay and appEvents.confirm.
 
 const STORAGE_KEY = 'commandeer:confirm-suppressed'
+const SAVE_DEBOUNCE_MS = 50
+
+let pendingSet: Set<string> | null = null
+let saveTimeout: ReturnType<typeof setTimeout> | null = null
 
 function load(): Set<string> {
   try {
@@ -15,6 +19,22 @@ function load(): Set<string> {
   }
 }
 
+function doSave(set: Set<string>): void {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify([...set]))
+}
+
+function save(set: Set<string>): void {
+  pendingSet = set
+  if (saveTimeout) clearTimeout(saveTimeout)
+  saveTimeout = setTimeout(() => {
+    if (pendingSet !== null) {
+      doSave(pendingSet)
+      pendingSet = null
+    }
+    saveTimeout = null
+  }, SAVE_DEBOUNCE_MS)
+}
+
 export function isConfirmSuppressed(key: string): boolean {
   return load().has(key)
 }
@@ -22,7 +42,11 @@ export function isConfirmSuppressed(key: string): boolean {
 export function suppressConfirm(key: string): void {
   const set = load()
   set.add(key)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify([...set]))
+  // Merge with pending set if there's a debounced save in flight
+  if (pendingSet !== null) {
+    pendingSet.add(key)
+  }
+  save(set)
 }
 
 export interface ConfirmOptions {

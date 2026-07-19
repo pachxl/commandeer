@@ -4,6 +4,7 @@ import { claudeUsage, type ClaudeLimit } from '../lib/tauri'
 
 const CACHE_KEY = 'commandeer:claude-usage'
 const STATE_KEY = 'commandeer:claude-poll-state'
+const SAVE_DEBOUNCE_MS = 50
 
 // The usage numbers move on the scale of hours (5h rolling session window, 7d
 // weekly); the only time-sensitive value is the reset countdown, and that's
@@ -16,6 +17,10 @@ const MAX_INTERVAL_MS = 30 * 60_000
 // Small randomisation so our polls don't phase-lock with Claude Code's own
 // usage polling on the same token (they share one rate-limit bucket).
 const JITTER_MS = 15_000
+
+let pendingCache: CachedUsage | null = null
+let pendingState: PollState | null = null
+let saveTimeout: ReturnType<typeof setTimeout> | null = null
 
 // Only the overall session + weekly limits are shown. The per-model
 // (weekly_scoped, e.g. Fable) limit is intentionally omitted.
@@ -114,12 +119,54 @@ function loadState(): PollState {
   return { interval: BASE_INTERVAL_MS, nextAllowedAt: 0 }
 }
 
-function saveState(state: PollState): void {
+function doSaveCache(cache: CachedUsage | null): void {
+  try {
+    if (cache !== null) {
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+    }
+  } catch {
+    /* ignore quota / private-mode failures */
+  }
+}
+
+function doSaveState(state: PollState): void {
   try {
     localStorage.setItem(STATE_KEY, JSON.stringify(state))
   } catch {
     /* ignore quota / private-mode failures */
   }
+}
+
+function saveState(state: PollState): void {
+  pendingState = state
+  if (saveTimeout) clearTimeout(saveTimeout)
+  saveTimeout = setTimeout(() => {
+    if (pendingState !== null) {
+      doSaveState(pendingState)
+      pendingState = null
+    }
+    if (pendingCache !== null) {
+      doSaveCache(pendingCache)
+      pendingCache = null
+    }
+    saveTimeout = null
+  }, SAVE_DEBOUNCE_MS)
+}
+
+function saveCache(cache: CachedUsage | null): void {
+  pendingCache = cache
+  if (saveTimeout) clearTimeout(saveTimeout)
+  saveTimeout = setTimeout(() => {
+    if (pendingCache !== null) {
+      doSaveCache(pendingCache)
+      pendingCache = null
+    }
+    if (pendingState !== null) {
+      doSaveState(pendingState)
+      pendingState = null
+    }
+    saveTimeout = null
+  }, SAVE_DEBOUNCE_MS)
 }
 
 function parseRateLimitSeconds(message: string): number | null {
@@ -176,11 +223,7 @@ export default function ClaudeUsage() {
         const next = { limits: sorted, fetchedAt: Date.now() }
         cacheRef.current = next
         setCache(next)
-        try {
-          localStorage.setItem(CACHE_KEY, JSON.stringify(next))
-        } catch {
-          /* ignore storage failures */
-        }
+        saveCache(next)
 
         // Success: decay the interval back toward the base and hold off until
         // it elapses (+ jitter so we don't re-sync with Claude Code's polling).

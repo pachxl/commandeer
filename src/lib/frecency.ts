@@ -17,8 +17,11 @@ interface LegacyFrecencyEntry {
 
 const STORAGE_KEY = 'commandeer:frecency'
 const MAX_ENTRIES = 200
+const SAVE_DEBOUNCE_MS = 50
 
 let cache: Record<string, FrecencyEntry> | null = null
+let pendingEntries: Record<string, FrecencyEntry> | null = null
+let saveTimeout: ReturnType<typeof setTimeout> | null = null
 
 function migrate(entries: Record<string, unknown>): Record<string, FrecencyEntry> {
   const out: Record<string, FrecencyEntry> = {}
@@ -49,7 +52,7 @@ function load(): Record<string, FrecencyEntry> {
   return cache!
 }
 
-function save(entries: Record<string, FrecencyEntry>) {
+function doSave(entries: Record<string, FrecencyEntry>) {
   // Evict the weakest entries so dynamic ids (files, clipboard) can't grow unbounded
   const keys = Object.keys(entries)
   if (keys.length > MAX_ENTRIES) {
@@ -59,6 +62,19 @@ function save(entries: Record<string, FrecencyEntry>) {
       .forEach(k => delete entries[k])
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
+}
+
+function save(entries: Record<string, FrecencyEntry>) {
+  // Debounce writes to avoid blocking the main thread on every keystroke
+  pendingEntries = entries
+  if (saveTimeout) clearTimeout(saveTimeout)
+  saveTimeout = setTimeout(() => {
+    if (pendingEntries !== null) {
+      doSave(pendingEntries)
+      pendingEntries = null
+    }
+    saveTimeout = null
+  }, SAVE_DEBOUNCE_MS)
 }
 
 function daysSince(entry: FrecencyEntry, now = Date.now()): number {
@@ -82,6 +98,10 @@ export function recordUse(id: string) {
   entries[id] = {
     visitCount: (prev?.visitCount ?? 0) + 1,
     lastVisitedAt: now,
+  }
+  // Merge with any pending entries from a previous debounced save
+  if (pendingEntries !== null) {
+    Object.assign(pendingEntries, entries)
   }
   save(entries)
 }

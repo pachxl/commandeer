@@ -104,3 +104,22 @@ export function fuzzyFilter<T>(
     : fuzzyFilterScored(items, query, getTextOrFields as (item: T) => string)
   return scored.sort((a, b) => b.score - a.score).map(r => r.item)
 }
+
+// Lightweight substring-based position finder for highlighting only.
+// Much faster than Fzf for this use case since we only need character positions,
+// not fuzzy scoring. Used by ResultsGrid for highlight rendering.
+export function getHighlightPositions(query: string, text: string): number[] {
+  if (!query) return []
+  const q = query.toLowerCase()
+  const t = text.toLowerCase()
+  const positions: number[] = []
+  let idx = -1
+  while (true) {
+    idx = t.indexOf(q, idx + 1)
+    if (idx === -1) break
+    for (let i = 0; i < q.length; i++) {
+      positions.push(idx + i)
+    }
+  }
+  return positions
+}

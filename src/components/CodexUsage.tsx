@@ -4,10 +4,15 @@ import { codexUsage, type CodexRateLimit, type CodexRateLimitWindow, type CodexU
 
 const CACHE_KEY = 'commandeer:codex-usage'
 const STATE_KEY = 'commandeer:codex-poll-state'
+const SAVE_DEBOUNCE_MS = 50
 const BASE_INTERVAL_MS = 5 * 60_000
 const MAX_INTERVAL_MS = 30 * 60_000
 const JITTER_MS = 15_000
 const CODEX_GREEN = '#10A37F'
+
+let pendingCache: CachedUsage | null = null
+let pendingState: PollState | null = null
+let saveTimeout: ReturnType<typeof setTimeout> | null = null
 
 interface CachedUsage {
   data: CodexUsageData
@@ -60,12 +65,54 @@ function loadState(): PollState {
   return { interval: BASE_INTERVAL_MS, nextAllowedAt: 0 }
 }
 
-function saveState(state: PollState): void {
+function doSaveCache(cache: CachedUsage | null): void {
+  try {
+    if (cache !== null) {
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+    }
+  } catch {
+    /* ignore quota / private-mode failures */
+  }
+}
+
+function doSaveState(state: PollState): void {
   try {
     localStorage.setItem(STATE_KEY, JSON.stringify(state))
   } catch {
     /* ignore quota / private-mode failures */
   }
+}
+
+function saveState(state: PollState): void {
+  pendingState = state
+  if (saveTimeout) clearTimeout(saveTimeout)
+  saveTimeout = setTimeout(() => {
+    if (pendingState !== null) {
+      doSaveState(pendingState)
+      pendingState = null
+    }
+    if (pendingCache !== null) {
+      doSaveCache(pendingCache)
+      pendingCache = null
+    }
+    saveTimeout = null
+  }, SAVE_DEBOUNCE_MS)
+}
+
+function saveCache(cache: CachedUsage | null): void {
+  pendingCache = cache
+  if (saveTimeout) clearTimeout(saveTimeout)
+  saveTimeout = setTimeout(() => {
+    if (pendingCache !== null) {
+      doSaveCache(pendingCache)
+      pendingCache = null
+    }
+    if (pendingState !== null) {
+      doSaveState(pendingState)
+      pendingState = null
+    }
+    saveTimeout = null
+  }, SAVE_DEBOUNCE_MS)
 }
 
 function parseRateLimitSeconds(message: string): number | null {
@@ -191,11 +238,7 @@ export default function CodexUsage() {
         const next = { data, fetchedAt: Date.now() }
         cacheRef.current = next
         setCache(next)
-        try {
-          localStorage.setItem(CACHE_KEY, JSON.stringify(next))
-        } catch {
-          /* ignore storage failures */
-        }
+        saveCache(next)
 
         const interval = clampInterval(stateRef.current.interval / 2)
         stateRef.current = {

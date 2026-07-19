@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { PaletteItem } from '../types'
-import { fuzzyMatch } from '../lib/fuzzy'
+import { getHighlightPositions } from '../lib/fuzzy'
 import { scrollToReveal } from '../lib/scroll'
 import { getIconSvg, hasIcon } from './Icon'
 
@@ -79,9 +79,9 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
     >
       {items.map((item, i) => {
         const selected = i === selectedIndex
-        const labelMatch = query ? fuzzyMatch(query, item.label) : null
-        const labelSegments = labelMatch
-          ? highlightSegments(item.label, labelMatch.positions)
+        const labelPositions = query ? getHighlightPositions(query, item.label) : []
+        const labelSegments = labelPositions.length > 0
+          ? highlightSegments(item.label, labelPositions)
           : [{ text: item.label, matched: false }]
 
         const isDataUrl = item.icon.startsWith('data:')
