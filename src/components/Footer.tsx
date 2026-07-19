@@ -6,6 +6,8 @@ interface FooterProps {
   primaryAction: string | null
   onOpenSettings?: () => void
   settingsVisible?: boolean
+  onOpenVolumeMixer?: () => void
+  volumeMixerVisible?: boolean
   gameModeEnabled?: boolean
   onToggleGameMode?: () => void
   navigationTitle?: string
@@ -18,6 +20,8 @@ export default function Footer({
   primaryAction,
   onOpenSettings,
   settingsVisible,
+  onOpenVolumeMixer,
+  volumeMixerVisible,
   gameModeEnabled,
   onToggleGameMode,
   navigationTitle,
@@ -152,7 +156,7 @@ export default function Footer({
             <kbd style={kbdStyle}>↵</kbd>
           </div>
         )}
-        {primaryAction && (onToggleGameMode || settingsVisible) && (
+        {primaryAction && (onToggleGameMode || volumeMixerVisible || settingsVisible) && (
           <span
             style={{
               display: 'var(--footer-primary-right-display)',
@@ -200,6 +204,48 @@ export default function Footer({
               />
             </div>
             <span>{gameModeEnabled ? 'Game On' : 'Game'}</span>
+          </button>
+        )}
+
+        {volumeMixerVisible && (
+          <button
+            type="button"
+            onClick={onOpenVolumeMixer}
+            title="Volume Mixer (Ctrl+M)"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: 'var(--footer-button-padding)',
+              borderRadius: 'var(--footer-button-radius)',
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--text-dim)',
+              fontFamily: 'var(--footer-font)',
+              fontSize: 'var(--footer-font-size)',
+              cursor: 'pointer',
+              flexShrink: 0,
+              outline: 'none',
+              boxShadow: 'none',
+              WebkitAppearance: 'none',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = 'var(--footer-hover-bg)'
+              e.currentTarget.style.color = 'var(--text)'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.color = 'var(--text-dim)'
+            }}
+          >
+            <div style={{ width: 14, height: 14, display: 'flex' }}>
+              <div
+                dangerouslySetInnerHTML={{ __html: getIconSvg('volume', 'currentColor', 14) ?? '' }}
+                style={{ display: 'flex' }}
+              />
+            </div>
+            <span>Mixer</span>
+            <kbd style={kbdStyle}>M</kbd>
           </button>
         )}
 

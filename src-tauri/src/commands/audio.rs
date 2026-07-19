@@ -19,6 +19,88 @@ pub struct AudioDevice {
     pub is_default: bool,
 }
 
+/// One application audio session on the current default Windows output.
+///
+/// The id is the Core Audio session-instance identifier, not a process id:
+/// applications can recreate sessions without restarting, and each visible row
+/// must keep controlling the exact session that was listed.
+#[derive(Debug, Clone, Serialize)]
+pub struct AudioSession {
+    pub id: String,
+    pub name: String,
+    pub volume: f32,
+    pub muted: bool,
+    pub active: bool,
+    pub pid: u32,
+    pub exe_path: Option<String>,
+}
+
+/// List the application sessions shown by the Windows volume mixer. Inactive
+/// (for example paused) sessions remain visible until Core Audio expires them,
+/// matching the system mixer rather than making rows disappear immediately.
+#[tauri::command]
+pub async fn list_audio_sessions() -> Result<Vec<AudioSession>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        tokio::task::spawn_blocking(win::list_sessions)
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Err("Application volume mixing is only available on Windows".to_string())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Err("Application volume mixing is only available on Windows".to_string())
+    }
+}
+
+/// Set one Windows application session's volume. Sessions are resolved afresh
+/// for every write because applications may replace them while the mixer is
+/// open.
+#[tauri::command]
+pub async fn set_audio_session_volume(id: String, level: f32) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let level = level.clamp(0.0, 1.0);
+        tokio::task::spawn_blocking(move || win::set_session_volume(&id, level))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (id, level);
+        Err("Application volume mixing is only available on Windows".to_string())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = (id, level);
+        Err("Application volume mixing is only available on Windows".to_string())
+    }
+}
+
+/// Atomically toggle one Windows application session's mute state.
+#[tauri::command]
+pub async fn toggle_audio_session_mute(id: String) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        tokio::task::spawn_blocking(move || win::toggle_session_mute(&id))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = id;
+        Err("Application volume mixing is only available on Windows".to_string())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = id;
+        Err("Application volume mixing is only available on Windows".to_string())
+    }
+}
+
 /// List active output devices, default endpoint first.
 #[tauri::command]
 pub async fn list_audio_devices() -> Result<Vec<AudioDevice>, String> {
@@ -582,12 +664,15 @@ mod mac {
 #[cfg(target_os = "windows")]
 mod win {
     use super::AudioDevice;
-    use windows::core::HSTRING;
+    use super::AudioSession;
+    use std::collections::HashMap;
+    use windows::core::{Interface, HSTRING, PWSTR};
     use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
     use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
     use windows::Win32::Media::Audio::{
-        eMultimedia, eRender, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator,
-        DEVICE_STATE_ACTIVE,
+        eMultimedia, eRender, AudioSessionStateActive, AudioSessionStateExpired,
+        IAudioSessionControl, IAudioSessionControl2, IAudioSessionManager2, IMMDevice,
+        IMMDeviceEnumerator, ISimpleAudioVolume, MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
     };
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_MULTITHREADED,
@@ -623,6 +708,58 @@ mod win {
             device(id)?
                 .Activate(CLSCTX_ALL, None)
                 .map_err(|e| e.to_string())
+        }
+    }
+
+    fn session_manager() -> Result<IAudioSessionManager2, String> {
+        unsafe {
+            device(None)?
+                .Activate(CLSCTX_ALL, None)
+                .map_err(|e| e.to_string())
+        }
+    }
+
+    /// Core Audio allocates session strings with CoTaskMemAlloc.
+    fn take_com_string(value: PWSTR) -> String {
+        unsafe {
+            let text = value.to_string().unwrap_or_default();
+            if !value.is_null() {
+                CoTaskMemFree(Some(value.as_ptr() as *const _));
+            }
+            text
+        }
+    }
+
+    fn session_instance_id(control: &IAudioSessionControl2) -> Result<String, String> {
+        unsafe {
+            control
+                .GetSessionInstanceIdentifier()
+                .map(take_com_string)
+                .map_err(|e| e.to_string())
+        }
+    }
+
+    fn find_session(id: &str) -> Result<(IAudioSessionControl, ISimpleAudioVolume), String> {
+        unsafe {
+            let sessions = session_manager()?
+                .GetSessionEnumerator()
+                .map_err(|e| e.to_string())?;
+            let count = sessions.GetCount().map_err(|e| e.to_string())?;
+            for index in 0..count {
+                let Ok(control) = sessions.GetSession(index) else {
+                    continue;
+                };
+                let Ok(control2) = control.cast::<IAudioSessionControl2>() else {
+                    continue;
+                };
+                if session_instance_id(&control2).as_deref() == Ok(id) {
+                    let volume = control
+                        .cast::<ISimpleAudioVolume>()
+                        .map_err(|e| e.to_string())?;
+                    return Ok((control, volume));
+                }
+            }
+            Err("That application's audio session is no longer active".to_string())
         }
     }
 
@@ -678,6 +815,99 @@ mod win {
         }
     }
 
+    pub fn list_sessions() -> Result<Vec<AudioSession>, String> {
+        unsafe {
+            let process_by_pid: HashMap<_, _> = crate::commands::process::snapshot_processes()
+                .into_iter()
+                .map(|process| (process.pid, process))
+                .collect();
+            let enumerator = session_manager()?
+                .GetSessionEnumerator()
+                .map_err(|e| e.to_string())?;
+            let count = enumerator.GetCount().map_err(|e| e.to_string())?;
+            let mut result = Vec::with_capacity(count as usize);
+
+            for index in 0..count {
+                let Ok(control) = enumerator.GetSession(index) else {
+                    continue;
+                };
+                let Ok(state) = control.GetState() else {
+                    continue;
+                };
+                if state == AudioSessionStateExpired {
+                    continue;
+                }
+                let Ok(control2) = control.cast::<IAudioSessionControl2>() else {
+                    continue;
+                };
+                let Ok(volume) = control.cast::<ISimpleAudioVolume>() else {
+                    continue;
+                };
+                let Ok(id) = session_instance_id(&control2) else {
+                    continue;
+                };
+                let pid = control2.GetProcessId().unwrap_or(0);
+                let system_sounds = control2.IsSystemSoundsSession().0 == 0;
+                let process = process_by_pid.get(&pid);
+                let display_name = control
+                    .GetDisplayName()
+                    .map(take_com_string)
+                    .unwrap_or_default();
+                let process_name = process
+                    .map(|process| process.name.trim_end_matches(".exe").to_string())
+                    .filter(|name| !name.is_empty());
+                let name = if system_sounds {
+                    "System Sounds".to_string()
+                } else {
+                    process_name
+                        .or_else(|| (!display_name.is_empty()).then_some(display_name))
+                        .unwrap_or_else(|| format!("Audio session {pid}"))
+                };
+
+                result.push(AudioSession {
+                    id,
+                    name,
+                    volume: volume.GetMasterVolume().unwrap_or(0.0).clamp(0.0, 1.0),
+                    muted: volume
+                        .GetMute()
+                        .map(|value| value.as_bool())
+                        .unwrap_or(false),
+                    active: state == AudioSessionStateActive,
+                    pid,
+                    exe_path: process.and_then(|process| process.exe_path.clone()),
+                });
+            }
+
+            result.sort_by(|a, b| {
+                b.active
+                    .cmp(&a.active)
+                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+            Ok(result)
+        }
+    }
+
+    pub fn set_session_volume(id: &str, level: f32) -> Result<(), String> {
+        let (_, volume) = find_session(id)?;
+        unsafe {
+            volume
+                .SetMasterVolume(level.clamp(0.0, 1.0), std::ptr::null())
+                .map_err(|e| e.to_string())
+        }
+    }
+
+    pub fn toggle_session_mute(id: &str) -> Result<bool, String> {
+        let (_, volume) = find_session(id)?;
+        unsafe {
+            let muted = volume.GetMute().map_err(|e| e.to_string())?.as_bool();
+            volume
+                .SetMute(!muted, std::ptr::null())
+                .map_err(|e| e.to_string())?;
+            Ok(!muted)
+        }
+    }
+
     pub fn get_volume(id: Option<&str>) -> Result<f32, String> {
         unsafe {
             endpoint(id)?
@@ -728,6 +958,15 @@ mod win {
 
             let default_level = super::get_volume(None).expect("default get_volume");
             assert!((0.0..=1.0).contains(&default_level));
+        }
+
+        #[test]
+        fn smoke_audio_sessions_roundtrip() {
+            let sessions = super::list_sessions().expect("list_sessions");
+            for session in sessions {
+                assert!((0.0..=1.0).contains(&session.volume));
+                super::set_session_volume(&session.id, session.volume).expect("set_session_volume");
+            }
         }
     }
 }

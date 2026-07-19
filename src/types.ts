@@ -155,6 +155,9 @@ export interface Step {
   isFormStep?: boolean
   fields?: FormField[]
   onSubmit?: (values: Record<string, unknown>, config: AppConfig) => Promise<StepResult>
+  // Windows-only application volume mixer. It owns its keyboard navigation
+  // and renders every audio session together instead of using the generic list.
+  isVolumeMixerStep?: boolean
 }
 
 export interface Command {

@@ -3,6 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { recordUse } from '../lib/frecency'
 import { getOverrides } from '../lib/overrides'
 import { SETTINGS_COMMAND_ID } from '../commands/settings'
+import { VOLUME_MIXER_COMMAND_ID } from '../providers/volume'
 import { loadActiveFolderItems, openFileItem } from '../commands/fileSearch'
 import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
@@ -31,6 +32,7 @@ import CodexUsage from './CodexUsage'
 import SystemStatsPanel from './SystemStats'
 import Footer from './Footer'
 import StepBreadcrumb from './StepBreadcrumb'
+import VolumeMixer from './VolumeMixer'
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const LAST_CMD_KEY = 'commandeer:last'
@@ -435,6 +437,7 @@ export default function Palette({
   const isSliderStep = currentStep?.isSliderStep ?? false
   const isFormStep = currentStep?.isFormStep ?? false
   const isGridStep = currentStep?.isGridStep ?? false
+  const isVolumeMixerStep = currentStep?.isVolumeMixerStep ?? false
 
   // Live preview shown on the right side of the search input for calculator /
   // time-zone modes (root prefixes and Tools input steps).
@@ -487,13 +490,22 @@ export default function Palette({
     }
   }, [state.selectedIndex, clampedIndex])
 
-  // Settings is reachable from a fixed footer button instead of the results list
+  // Settings and the Windows mixer are reachable from fixed root-footer buttons.
   const settingsCmd =
     !currentStep && !isInputStep && atRaw === null ? commands.find(c => c.id === SETTINGS_COMMAND_ID) : undefined
   const handleOpenSettings = useCallback(() => {
     if (!settingsCmd?.createRootStep) return
     dispatch({ type: 'PUSH_STEP', step: settingsCmd.createRootStep(configRef.current) })
   }, [settingsCmd])
+  const volumeMixerCmd =
+    !currentStep && !isInputStep && atRaw === null ? commands.find(c => c.id === VOLUME_MIXER_COMMAND_ID) : undefined
+  const handleOpenVolumeMixer = useCallback(() => {
+    if (!volumeMixerCmd?.createRootStep) return
+    dispatch({ type: 'PUSH_STEP', step: volumeMixerCmd.createRootStep(configRef.current) })
+  }, [volumeMixerCmd])
+  const handleVolumeMixerError = useCallback((error: string | null) => {
+    dispatch({ type: 'SET_ERROR', error })
+  }, [])
   const primaryAction = previewResult
     ? 'Copy'
     : selectedItem
@@ -737,6 +749,12 @@ export default function Palette({
         return
       }
 
+      if (e.key.toLowerCase() === 'm' && (e.ctrlKey || e.metaKey) && volumeMixerCmd?.createRootStep) {
+        e.preventDefault()
+        handleOpenVolumeMixer()
+        return
+      }
+
       if (e.key === 'Backspace' && !state.query) {
         e.preventDefault()
         if (state.stepStack.length > 0) {
@@ -840,6 +858,9 @@ export default function Palette({
         return
       }
     },
+    // This central handler intentionally reads the live palette closure; adding
+    // every callback would recreate it without changing the event semantics.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       state,
       currentStep,
@@ -860,7 +881,7 @@ export default function Palette({
       confirmReq,
       confirmFocus,
     ],
-  ) // eslint-disable-line react-hooks/exhaustive-deps
+  )
 
   const handleSelect = useCallback(
     async (item: PaletteItem) => {
@@ -968,8 +989,11 @@ export default function Palette({
       // The ref assignment below keeps the latest closure available to callers;
       // deliberately keyed on currentStep only.
     },
+    // The ref below exposes the latest closure; step changes are the lifecycle
+    // boundary that must recreate the selection handler.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [currentStep],
-  ) // eslint-disable-line react-hooks/exhaustive-deps
+  )
   handleSelectRef.current = handleSelect
 
   // Focus input whenever visible (the container on slider steps, so
@@ -1060,7 +1084,7 @@ export default function Palette({
               })
             }}
           />
-        ) : isFormStep ? null : (
+        ) : isFormStep || isVolumeMixerStep ? null : (
           <SearchInput
             ref={inputRef}
             value={state.query}
@@ -1087,7 +1111,7 @@ export default function Palette({
           </div>
         )}
 
-        {state.stepStack.length > 0 && (
+        {state.stepStack.length > 0 && !isVolumeMixerStep && (
           <div data-step-breadcrumb>
             <StepBreadcrumb steps={state.stepStack} />
           </div>
@@ -1095,6 +1119,7 @@ export default function Palette({
 
         {!isInputStep &&
           !isSliderStep &&
+          !isVolumeMixerStep &&
           !state.loading &&
           noMatches &&
           state.query &&
@@ -1140,7 +1165,7 @@ export default function Palette({
             </div>
           )}
 
-        {!isInputStep && !isSliderStep && !isFormStep && visibleItems.length > 0 && (
+        {!isInputStep && !isSliderStep && !isFormStep && !isVolumeMixerStep && visibleItems.length > 0 && (
           <div style={{ display: 'flex', minHeight: 0 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               {isGridStep ? (
@@ -1164,6 +1189,8 @@ export default function Palette({
             {showPreview && <DetailPane item={selectedItem} />}
           </div>
         )}
+
+        {isVolumeMixerStep && <VolumeMixer onError={handleVolumeMixerError} />}
 
         {isFormStep && currentStep && (
           <FormView
@@ -1211,6 +1238,8 @@ export default function Palette({
           primaryAction={primaryAction}
           onOpenSettings={handleOpenSettings}
           settingsVisible={!!settingsCmd}
+          onOpenVolumeMixer={handleOpenVolumeMixer}
+          volumeMixerVisible={!!volumeMixerCmd}
           gameModeEnabled={gameModeEnabled}
           onToggleGameMode={onToggleGameMode}
           navigationTitle={currentStep?.label}

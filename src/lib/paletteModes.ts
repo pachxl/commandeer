@@ -116,7 +116,7 @@ export function computeMatchedItems(params: MatchedItemsParams): PaletteItem[] {
   const { at, currentStep, isInputStep, isSliderStep, isFormStep, rawItems, query, providerCommands, overrides } =
     params
 
-  if (isInputStep || isSliderStep || isFormStep) {
+  if (isInputStep || isSliderStep || isFormStep || currentStep?.isVolumeMixerStep) {
     return []
   }
   if (at.atSuggestMode) {

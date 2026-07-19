@@ -1,5 +1,18 @@
 import type { Command, CommandProvider, PaletteItem, Step, StepResult } from '../types'
-import { getVolume, setVolume, toggleMute, listAudioDevices, type AudioDevice } from '../lib/tauri'
+import { getVolume, setVolume, toggleMute, listAudioDevices, IS_WINDOWS, type AudioDevice } from '../lib/tauri'
+
+export const VOLUME_MIXER_COMMAND_ID = 'volume:mixer'
+
+function volumeMixerStep(): Step {
+  return {
+    id: 'volume:mixer',
+    label: 'Volume Mixer',
+    placeholder: 'Volume Mixer',
+    icon: 'volume',
+    isVolumeMixerStep: true,
+    onSelect: async () => ({ type: 'stay' }),
+  }
+}
 
 // A slider step (0–100%) that reads and drives one device's volume live.
 function deviceSliderStep(device: AudioDevice): Step {
@@ -51,6 +64,21 @@ export const volumeProvider: CommandProvider = {
   name: 'Volume',
   priority: 40,
   getCommands: (): Command[] => [
+    ...(IS_WINDOWS
+      ? [
+          {
+            id: VOLUME_MIXER_COMMAND_ID,
+            label: 'Volume Mixer',
+            description: 'Adjust every app volume from one keyboard-first page',
+            icon: 'volume',
+            source: 'system' as const,
+            folderName: 'System',
+            keywords: ['volume', 'audio', 'sound', 'mixer', 'application', 'app'],
+            actionLabel: 'Open Mixer',
+            createRootStep: () => volumeMixerStep(),
+          },
+        ]
+      : []),
     {
       id: 'volume:set',
       label: 'Set Volume',

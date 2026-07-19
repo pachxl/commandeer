@@ -391,6 +391,23 @@ export const setVolume = (level: number, device?: string) =>
 // Atomically flips a device's mute and returns the new state
 export const toggleMute = (device?: string) => invoke<boolean>('toggle_mute', { device: device ?? null })
 
+export interface AudioSession {
+  id: string
+  name: string
+  volume: number
+  muted: boolean
+  active: boolean
+  pid: number
+  exe_path: string | null
+}
+
+export const listAudioSessions = () => invoke<AudioSession[]>('list_audio_sessions')
+
+export const setAudioSessionVolume = (id: string, level: number) =>
+  invoke<void>('set_audio_session_volume', { id, level })
+
+export const toggleAudioSessionMute = (id: string) => invoke<boolean>('toggle_audio_session_mute', { id })
+
 export interface Theme {
   name: string
   variables: Record<string, string>
@@ -400,6 +417,7 @@ export const readThemes = () => invoke<Theme[]>('read_themes')
 
 export const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
 export const IS_MAC = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
+export const IS_WINDOWS = typeof navigator !== 'undefined' && navigator.userAgent.includes('Windows')
 
 // Runtime environment facts from the backend (Wayland vs X11 can't be sniffed
 // from the user agent). Fetched once and cached for the session.
