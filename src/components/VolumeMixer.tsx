@@ -26,7 +26,7 @@ function loadAppIcon(path: string): Promise<string | null> {
   return cached
 }
 
-function AppIcon({ path, muted }: { path: string | null; muted: boolean }) {
+function AppIcon({ path, muted, selected }: { path: string | null; muted: boolean; selected: boolean }) {
   const [icon, setIcon] = useState<string | null>(() => (path ? (resolvedIcons.get(path.toLowerCase()) ?? null) : null))
 
   useEffect(() => {
@@ -56,8 +56,8 @@ function AppIcon({ path, muted }: { path: string | null; muted: boolean }) {
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
-        background: 'var(--bg-tab)',
-        color: 'var(--text-dim)',
+        background: selected ? 'transparent' : 'var(--bg-tab)',
+        color: selected ? 'var(--row-selected-fg)' : 'var(--text-dim)',
         opacity: muted ? 0.55 : 1,
         overflow: 'hidden',
       }}
@@ -283,7 +283,7 @@ export default function VolumeMixer({ onError }: VolumeMixerProps) {
           </div>
         )}
 
-        {sessions.map(session => {
+        {sessions.map((session, index) => {
           const selected = session.id === selectedId
           const percent = Math.round(session.volume * 100)
           const fill = session.muted ? 0 : percent
@@ -295,6 +295,7 @@ export default function VolumeMixer({ onError }: VolumeMixerProps) {
                 else rowRefs.current.delete(session.id)
               }}
               data-mixer-session={session.id}
+              data-list-index={index}
               data-selected={selected || undefined}
               onClick={() => {
                 selectedIdRef.current = session.id
@@ -308,19 +309,19 @@ export default function VolumeMixer({ onError }: VolumeMixerProps) {
                 gap: 10,
                 minHeight: 52,
                 padding: '7px 9px',
-                borderRadius: 8,
-                border: `1px solid ${selected ? 'var(--border-strong)' : 'transparent'}`,
-                background: selected ? 'var(--bg-select)' : 'transparent',
-                boxShadow: selected ? 'inset 3px 0 0 var(--accent)' : 'none',
+                borderRadius: 'var(--row-radius)',
+                background: selected ? 'var(--row-selected-bg)' : 'transparent',
+                boxShadow: selected ? 'var(--row-selected-shadow)' : 'none',
+                transition: 'var(--row-transition)',
                 cursor: 'default',
                 userSelect: 'none',
               }}
             >
-              <AppIcon path={session.exe_path} muted={session.muted} />
+              <AppIcon path={session.exe_path} muted={session.muted} selected={selected} />
               <div style={{ minWidth: 0 }}>
                 <div
                   style={{
-                    color: 'var(--text)',
+                    color: selected ? 'var(--row-selected-fg)' : 'var(--text)',
                     fontSize: 12,
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
@@ -334,7 +335,11 @@ export default function VolumeMixer({ onError }: VolumeMixerProps) {
                     display: 'flex',
                     alignItems: 'center',
                     gap: 5,
-                    color: session.active ? 'var(--row-active-indicator-bg)' : 'var(--text-dim)',
+                    color: selected
+                      ? 'var(--row-selected-sublabel-fg)'
+                      : session.active
+                        ? 'var(--row-active-indicator-bg)'
+                        : 'var(--text-dim)',
                     fontSize: 9,
                     marginTop: 3,
                   }}
@@ -345,7 +350,7 @@ export default function VolumeMixer({ onError }: VolumeMixerProps) {
                       height: 5,
                       borderRadius: '50%',
                       background: 'currentColor',
-                      boxShadow: session.active ? '0 0 4px currentColor' : 'none',
+                      boxShadow: session.active && !selected ? '0 0 4px currentColor' : 'none',
                     }}
                   />
                   {session.active ? 'Playing' : 'Ready'}
@@ -372,13 +377,27 @@ export default function VolumeMixer({ onError }: VolumeMixerProps) {
                   cursor: 'pointer',
                 }}
               >
-                <div style={{ width: '100%', height: 4, borderRadius: 999, background: 'var(--border-strong)' }}>
+                <div
+                  style={{
+                    width: '100%',
+                    height: 4,
+                    borderRadius: 999,
+                    background: selected ? 'var(--row-selected-sublabel-fg)' : 'var(--border-strong)',
+                    opacity: selected ? 0.55 : 1,
+                  }}
+                >
                   <div
                     style={{
                       width: `${fill}%`,
                       height: '100%',
                       borderRadius: 999,
-                      background: session.muted ? 'var(--text-dim)' : 'var(--accent)',
+                      background: session.muted
+                        ? selected
+                          ? 'var(--row-selected-sublabel-fg)'
+                          : 'var(--text-dim)'
+                        : selected
+                          ? 'var(--row-selected-fg)'
+                          : 'var(--accent)',
                       transition: 'width 80ms ease-out',
                     }}
                   />
@@ -390,8 +409,14 @@ export default function VolumeMixer({ onError }: VolumeMixerProps) {
                     width: 10,
                     height: 10,
                     borderRadius: '50%',
-                    background: session.muted ? 'var(--text-dim)' : 'var(--accent)',
-                    border: '2px solid var(--bg)',
+                    background: session.muted
+                      ? selected
+                        ? 'var(--row-selected-sublabel-fg)'
+                        : 'var(--text-dim)'
+                      : selected
+                        ? 'var(--row-selected-fg)'
+                        : 'var(--accent)',
+                    border: `2px solid ${selected ? 'var(--row-selected-bg)' : 'var(--bg)'}`,
                     boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
                     transition: 'left 80ms ease-out',
                   }}
@@ -400,7 +425,13 @@ export default function VolumeMixer({ onError }: VolumeMixerProps) {
               <span
                 style={{
                   textAlign: 'right',
-                  color: session.muted ? 'var(--text-dim)' : 'var(--text)',
+                  color: selected
+                    ? session.muted
+                      ? 'var(--row-selected-sublabel-fg)'
+                      : 'var(--row-selected-fg)'
+                    : session.muted
+                      ? 'var(--text-dim)'
+                      : 'var(--text)',
                   fontFamily: 'var(--font-ui)',
                   fontSize: 10,
                 }}
@@ -426,8 +457,18 @@ export default function VolumeMixer({ onError }: VolumeMixerProps) {
                   justifyContent: 'center',
                   border: 'none',
                   borderRadius: 6,
-                  background: session.muted ? 'var(--bg-select)' : 'transparent',
-                  color: session.muted ? '#f7768e' : 'var(--text-dim)',
+                  background: session.muted
+                    ? selected
+                      ? 'rgba(255,255,255,0.12)'
+                      : 'var(--bg-select)'
+                    : 'transparent',
+                  color: session.muted
+                    ? selected
+                      ? 'var(--row-selected-fg)'
+                      : '#f7768e'
+                    : selected
+                      ? 'var(--row-selected-sublabel-fg)'
+                      : 'var(--text-dim)',
                   cursor: 'pointer',
                   outline: 'none',
                 }}
