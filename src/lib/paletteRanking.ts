@@ -45,37 +45,44 @@ const RANK_FIELDS = [
 export function buildQueryResults(items: PaletteItem[], query: string, overrides: Overrides): PaletteItem[] {
   const q = query.trim().toLowerCase()
   const baseScores = fuzzyScoreFieldsBatch(items, query, RANK_FIELDS)
-  const ranked = items
-    .map(item => {
-      const baseScore = baseScores.get(item)
-      if (baseScore === undefined) return null
-      let score = baseScore
-      const label = item.label.toLowerCase()
-      if (label === q) score += 300
-      else if (label.startsWith(q)) score += 120
-      else if (label.includes(q)) score += 40
 
-      const ov = overrides[item.id]
-      const alias = ov?.alias?.toLowerCase()
-      if (alias) {
-        if (alias === q) score += 200
-        else if (alias.startsWith(q)) score += 80
-        else if (alias.includes(q)) score += 25
-      }
+  // Use for-loop instead of map+filter to avoid intermediate array allocations
+  const ranked: Array<{
+    item: PaletteItem
+    score: number
+    aliasRank: { tier: number; len: number } | null
+    scriptTier: number
+  }> = []
 
-      score += frecencyBonus(item.id)
-      if (ov?.pinned) score += 10
+  for (const item of items) {
+    const baseScore = baseScores.get(item)
+    if (baseScore === undefined) continue
 
-      return {
-        item,
-        score,
-        aliasRank: aliasPrefixRank(query, ov),
-        // Scripts/shortcuts from the commands folder always sort above
-        // provider results (calculator, kill, …)
-        scriptTier: item.source === 'script' ? 0 : 1,
-      }
+    let score = baseScore
+    const label = item.label.toLowerCase()
+    if (label === q) score += 300
+    else if (label.startsWith(q)) score += 120
+    else if (label.includes(q)) score += 40
+
+    const ov = overrides[item.id]
+    const alias = ov?.alias?.toLowerCase()
+    if (alias) {
+      if (alias === q) score += 200
+      else if (alias.startsWith(q)) score += 80
+      else if (alias.includes(q)) score += 25
+    }
+
+    score += frecencyBonus(item.id)
+    if (ov?.pinned) score += 10
+
+    ranked.push({
+      item,
+      score,
+      aliasRank: aliasPrefixRank(query, ov),
+      scriptTier: item.source === 'script' ? 0 : 1,
     })
-    .filter((r): r is NonNullable<typeof r> => r !== null)
+  }
+
   ranked.sort((a, b) => {
     if (a.aliasRank && b.aliasRank) {
       if (a.aliasRank.tier !== b.aliasRank.tier) return a.aliasRank.tier - b.aliasRank.tier
@@ -86,5 +93,6 @@ export function buildQueryResults(items: PaletteItem[], query: string, overrides
     if (a.scriptTier !== b.scriptTier) return a.scriptTier - b.scriptTier
     return b.score - a.score
   })
+
   return ranked.map(r => r.item)
 }

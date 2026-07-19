@@ -35,10 +35,30 @@ export interface FuzzyField<T> {
 // callers that only have one item.
 export function fuzzyScoreFieldsBatch<T>(items: T[], query: string, fields: FuzzyField<T>[]): Map<T, number> {
   const best = new Map<T, number>()
+
+  // Fast path for empty query: all items get score 0
   if (!query) {
     for (const item of items) best.set(item, 0)
     return best
   }
+
+  // Fast path for single-character queries: use simple includes check instead of Fzf
+  // This is much faster for very short queries where fuzzy matching adds little value
+  if (query.length === 1) {
+    const q = query.toLowerCase()
+    for (const item of items) {
+      let maxScore = 0
+      for (const field of fields) {
+        const text = field.text(item)
+        if (text && text.toLowerCase().includes(q)) {
+          maxScore = Math.max(maxScore, field.weight * 100)
+        }
+      }
+      best.set(item, maxScore)
+    }
+    return best
+  }
+
   for (const field of fields) {
     const fieldItems = items
       .map(item => ({ item, text: field.text(item) }))

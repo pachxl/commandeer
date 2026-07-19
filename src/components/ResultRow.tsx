@@ -63,11 +63,21 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(({ item, index, sel
     setShellIcon(known ?? null)
     if (known !== undefined) return
     let cancelled = false
-    shellIconFor(item).then(icon => {
-      if (!cancelled && icon) setShellIcon(icon)
-    })
+
+    // Use requestIdleCallback for non-critical icon loading to avoid blocking the main thread
+    const idleCallbackId = requestIdleCallback(
+      () => {
+        if (cancelled) return
+        shellIconFor(item).then(icon => {
+          if (!cancelled && icon) setShellIcon(icon)
+        })
+      },
+      { timeout: 300 }, // Fallback to normal priority after 300ms
+    )
+
     return () => {
       cancelled = true
+      cancelIdleCallback(idleCallbackId)
     }
   }, [item, wantsShellIcon])
 

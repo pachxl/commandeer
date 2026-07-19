@@ -136,38 +136,29 @@ impl FileIndex {
             return like_only_search(&conn, &short, limit);
         }
 
-        // Candidate rowids from the trigram index: AND the long terms as
-        // separate phrases. Over-fetch when short terms will further filter.
+        // Use a JOIN to fetch both rowids and file data in one query, ordered by FTS5 rank.
+        // This is more efficient than the previous two-query approach.
         let match_expr = long
             .iter()
             .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
             .collect::<Vec<_>>()
             .join(" AND ");
         let fetch = if short.is_empty() { limit } else { limit * 5 };
+
+        // Single JOIN query to get rowid, path, modified, size ordered by rank
         let mut stmt = conn
-            .prepare("SELECT rowid FROM path_idx WHERE path MATCH ? ORDER BY rank LIMIT ?")
+            .prepare(
+                "SELECT i.rowid, i.path, i.modified, i.size 
+                 FROM indexed_file i
+                 JOIN path_idx p ON i.rowid = p.rowid
+                 WHERE p.path MATCH ?
+                 ORDER BY p.rank
+                 LIMIT ?",
+            )
             .map_err(|e| e.to_string())?;
-        let rowids: Vec<i64> = stmt
-            .query_map(params![&match_expr, fetch as i64], |row| row.get(0))
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
-        drop(stmt);
 
-        if rowids.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let placeholders: Vec<String> = rowids.iter().map(|_| "?".to_string()).collect();
-        let sql = format!(
-            "SELECT rowid, path, modified, size FROM indexed_file WHERE rowid IN ({})",
-            placeholders.join(",")
-        );
-        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-        let params: Vec<&dyn rusqlite::ToSql> =
-            rowids.iter().map(|r| r as &dyn rusqlite::ToSql).collect();
-        let mut by_rowid: std::collections::HashMap<i64, IndexedFile> = stmt
-            .query_map(&params[..], |row| {
+        let candidates: Vec<(i64, IndexedFile)> = stmt
+            .query_map(params![&match_expr, fetch as i64], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     IndexedFile {
@@ -178,14 +169,18 @@ impl FileIndex {
                 ))
             })
             .map_err(|e| e.to_string())?
-            .collect::<Result<std::collections::HashMap<_, _>, _>>()
+            .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
+        drop(stmt);
 
-        // Preserve FTS5 rank order, drop any candidate missing a short term, and
-        // truncate back to the requested limit.
-        let ordered: Vec<IndexedFile> = rowids
+        if candidates.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Filter by short terms (which trigram can't handle) and truncate to limit
+        let ordered: Vec<IndexedFile> = candidates
             .into_iter()
-            .filter_map(|rowid| by_rowid.remove(&rowid))
+            .map(|(_, file)| file)
             .filter(|f| {
                 let lower = f.path.to_lowercase();
                 short.iter().all(|t| lower.contains(t.as_str()))
