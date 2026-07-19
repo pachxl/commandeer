@@ -58,22 +58,28 @@ export function useInlineScripts(inlineScripts: InlineScript[]): UseInlineScript
 
   // Seed + poll each inline script on its @vicinae.refreshTime interval. Only
   // runs while focused; re-seeds on re-focus.
+  // Add random jitter to avoid thundering herd when multiple scripts poll simultaneously.
   useEffect(() => {
     inlineTimersRef.current.forEach(clearInterval)
     inlineTimersRef.current = []
     if (!windowFocused) return
     for (const s of inlineScripts) {
       void refreshInline(s.path)
-      const id = window.setInterval(
-        () => {
-          void refreshInline(s.path)
-        },
-        Math.max(1, s.refreshSeconds) * 1000,
-      )
-      inlineTimersRef.current.push(id)
+      // Add jitter: random offset between 0-500ms to stagger polling
+      const jitter = Math.random() * 500
+      const interval = Math.max(1, s.refreshSeconds) * 1000
+      const id = window.setInterval(() => {
+        void refreshInline(s.path)
+      }, interval)
+      // Initial call with jitter to spread out the first batch
+      const initialTimeout = window.setTimeout(() => {
+        void refreshInline(s.path)
+      }, jitter)
+      inlineTimersRef.current.push(id, initialTimeout)
     }
     return () => {
       inlineTimersRef.current.forEach(clearInterval)
+      inlineTimersRef.current.forEach(clearTimeout)
       inlineTimersRef.current = []
     }
   }, [inlineScripts, windowFocused, refreshInline])

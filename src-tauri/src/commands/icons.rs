@@ -57,16 +57,16 @@ mod win {
     use super::encode_png;
     use std::collections::HashMap;
     use std::path::Path;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{OnceLock, RwLock};
 
-    fn cache() -> &'static Mutex<HashMap<String, Option<String>>> {
-        static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
-        CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+    fn cache() -> &'static RwLock<HashMap<String, Option<String>>> {
+        static CACHE: OnceLock<RwLock<HashMap<String, Option<String>>>> = OnceLock::new();
+        CACHE.get_or_init(|| RwLock::new(HashMap::new()))
     }
 
-    fn file_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
-        static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
-        CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+    fn file_cache() -> &'static RwLock<HashMap<String, Option<String>>> {
+        static CACHE: OnceLock<RwLock<HashMap<String, Option<String>>>> = OnceLock::new();
+        CACHE.get_or_init(|| RwLock::new(HashMap::new()))
     }
 
     pub fn icon_for_path(path: &str) -> Option<String> {
@@ -80,20 +80,27 @@ mod win {
                 .map(|e| e.to_lowercase())
                 .unwrap_or_default()
         };
-        if let Some(hit) = cache().lock().ok()?.get(&key) {
-            return hit.clone();
+        // Use read lock for cache lookup (fast path)
+        if let Ok(guard) = cache().read() {
+            if let Some(hit) = guard.get(&key) {
+                return hit.clone();
+            }
         }
         let icon = shell_icon(path, is_dir, true);
-        if let Ok(mut c) = cache().lock() {
-            c.insert(key, icon.clone());
+        // Use write lock for cache insert
+        if let Ok(mut guard) = cache().write() {
+            guard.insert(key, icon.clone());
         }
         icon
     }
 
     pub fn icon_for_file(path: &str) -> Option<String> {
         let key = path.to_lowercase();
-        if let Some(hit) = file_cache().lock().ok()?.get(&key) {
-            return hit.clone();
+        // Use read lock for cache lookup
+        if let Ok(guard) = file_cache().read() {
+            if let Some(hit) = guard.get(&key) {
+                return hit.clone();
+            }
         }
         let resolved = if path.to_lowercase().ends_with(".lnk") {
             resolve_lnk_icon_source(path).unwrap_or_else(|| path.to_string())
@@ -101,20 +108,25 @@ mod win {
             path.to_string()
         };
         let icon = shell_icon(&resolved, Path::new(&resolved).is_dir(), false);
-        if let Ok(mut c) = file_cache().lock() {
-            c.insert(key, icon.clone());
+        // Use write lock for cache insert
+        if let Ok(mut guard) = file_cache().write() {
+            guard.insert(key, icon.clone());
         }
         icon
     }
 
     pub fn icon_for_shell_item(parse_path: &str) -> Option<String> {
         let key = parse_path.to_lowercase();
-        if let Some(hit) = file_cache().lock().ok()?.get(&key) {
-            return hit.clone();
+        // Use read lock for cache lookup
+        if let Ok(guard) = file_cache().read() {
+            if let Some(hit) = guard.get(&key) {
+                return hit.clone();
+            }
         }
         let icon = shell_item_icon(parse_path);
-        if let Ok(mut c) = file_cache().lock() {
-            c.insert(key, icon.clone());
+        // Use write lock for cache insert
+        if let Ok(mut guard) = file_cache().write() {
+            guard.insert(key, icon.clone());
         }
         icon
     }

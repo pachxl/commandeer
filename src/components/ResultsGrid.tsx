@@ -80,9 +80,10 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
       {items.map((item, i) => {
         const selected = i === selectedIndex
         const labelPositions = query ? getHighlightPositions(query, item.label) : []
-        const labelSegments = labelPositions.length > 0
-          ? highlightSegments(item.label, labelPositions)
-          : [{ text: item.label, matched: false }]
+        const labelSegments =
+          labelPositions.length > 0
+            ? highlightSegments(item.label, labelPositions)
+            : [{ text: item.label, matched: false }]
 
         const isDataUrl = item.icon.startsWith('data:')
         const isNamedIcon = hasIcon(item.icon)

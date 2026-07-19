@@ -1,4 +1,4 @@
-import { useReducer, useEffect, useRef, useState, useCallback, MutableRefObject } from 'react'
+import { useReducer, useEffect, useRef, useState, useCallback, useMemo, MutableRefObject } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { recordUse } from '../lib/frecency'
 import { getOverrides } from '../lib/overrides'
@@ -450,34 +450,41 @@ export default function Palette({
     timeQuery,
   })
 
-  const matchedItems = computeMatchedItems({
-    at,
-    currentStep,
-    isInputStep,
-    isSliderStep,
-    isFormStep,
-    rawItems,
-    query: state.query,
-    providerCommands,
-    overrides,
-  })
+  const matchedItems = useMemo(
+    () =>
+      computeMatchedItems({
+        at,
+        currentStep,
+        isInputStep,
+        isSliderStep,
+        isFormStep,
+        rawItems,
+        query: state.query,
+        providerCommands,
+        overrides,
+      }),
+    [at, currentStep, isInputStep, isSliderStep, isFormStep, rawItems, state.query, providerCommands, overrides],
+  )
   const noMatches = matchedItems.length === 0
 
-  const visibleItems = matchedItems.slice(0, 50)
+  const visibleItems = useMemo(() => matchedItems.slice(0, 50), [matchedItems])
   // Overlay live inline-script outputs onto the displayed rows: an inline
   // item's sublabel becomes the script's captured stdout (or "…" until the
   // first refresh resolves). Done at render time, outside the ranked search
   // text, so a changing output never re-ranks the list mid-tick.
-  const displayItems =
-    Object.keys(inlineOutputs).length === 0
-      ? visibleItems
-      : visibleItems.map(i => {
-          const key = i.liveOutputKey
-          if (!key) return i
-          const out = inlineOutputs[key]
-          if (out === undefined) return i
-          return { ...i, sublabel: out }
-        })
+  const displayItems = useMemo(
+    () =>
+      Object.keys(inlineOutputs).length === 0
+        ? visibleItems
+        : visibleItems.map(i => {
+            const key = i.liveOutputKey
+            if (!key) return i
+            const out = inlineOutputs[key]
+            if (out === undefined) return i
+            return { ...i, sublabel: out }
+          }),
+    [visibleItems, inlineOutputs],
+  )
   const clampedIndex = clampSelectionIndex(state.selectedIndex, visibleItems.length)
   const selectedItem = displayItems[clampedIndex] ?? null
 
