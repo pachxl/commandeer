@@ -361,6 +361,14 @@ fn selection_after_prune(selected: usize, alive: &[bool]) -> Option<usize> {
     }
 }
 
+/// Whether the cursor has travelled far enough from where it sat when the
+/// switcher opened for hover selection to arm (Chebyshev distance). Guards
+/// against the synthetic WM_MOUSEMOVE Windows sends when the overlay appears
+/// under a stationary cursor, and against incidental jitter.
+fn hover_travelled(origin: (i32, i32), pos: (i32, i32), threshold: i32) -> bool {
+    (pos.0 - origin.0).abs().max((pos.1 - origin.1).abs()) >= threshold
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct GridLayout {
     cols: usize,
@@ -499,10 +507,10 @@ fn is_windows_desktop_class(class_name: &str) -> bool {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::{
-        cycled_index, direct_focus_candidate, grid_card_left, grid_layout, include_for_monitor,
-        initial_selection, is_windows_desktop_class, parse_display_number, promote_original,
-        selection_after_prune, AltTabTheme, Direction, GridLayout, GridMove, HookHost, HookKey,
-        HookState, SessionEvent,
+        cycled_index, direct_focus_candidate, grid_card_left, grid_layout, hover_travelled,
+        include_for_monitor, initial_selection, is_windows_desktop_class, parse_display_number,
+        promote_original, selection_after_prune, AltTabTheme, Direction, GridLayout, GridMove,
+        HookHost, HookKey, HookState, SessionEvent,
     };
     use std::cell::RefCell;
     use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
@@ -1108,6 +1116,12 @@ mod platform {
         visible: bool,
         sticky: bool,
         work: RECT,
+        // Hover selection stays disarmed until the cursor travels a deliberate
+        // distance from where it sat when the switcher opened — Windows
+        // synthesizes WM_MOUSEMOVE when a window appears under a stationary
+        // cursor, which would otherwise steal the keyboard selection.
+        hover_origin: Option<(i32, i32)>,
+        hover_armed: bool,
     }
 
     impl Switcher {
@@ -1122,6 +1136,8 @@ mod platform {
                 visible: false,
                 sticky: false,
                 work: RECT::default(),
+                hover_origin: None,
+                hover_armed: false,
             }
         }
 
@@ -1129,6 +1145,8 @@ mod platform {
             self.hide();
             self.original = GetForegroundWindow();
             self.sticky = sticky;
+            self.hover_origin = None;
+            self.hover_armed = false;
             // Always the monitor under the cursor — where the user is looking
             // and about to interact — not the foreground window's monitor.
             let mut cursor = POINT::default();
@@ -1315,6 +1333,14 @@ mod platform {
         }
 
         unsafe fn hover(&mut self, x: i32, y: i32) {
+            if !self.hover_armed {
+                let origin = *self.hover_origin.get_or_insert((x, y));
+                let dpi = GetDpiForWindow(self.hwnd).max(96) as i32;
+                if !hover_travelled(origin, (x, y), 16 * dpi / 96) {
+                    return;
+                }
+                self.hover_armed = true;
+            }
             if let Some(index) = self.hit_card(x, y) {
                 if index != self.selected {
                     self.set_selected(index);
@@ -2227,6 +2253,17 @@ mod tests {
         // Foreground window not eligible: start at the top.
         assert_eq!(initial_selection(3, false, Direction::Forward), 0);
         assert_eq!(initial_selection(3, false, Direction::Backward), 2);
+    }
+
+    #[test]
+    fn hover_arms_only_after_deliberate_travel() {
+        // The synthetic WM_MOUSEMOVE at open repeats the origin: no travel.
+        assert!(!hover_travelled((100, 100), (100, 100), 16));
+        // Jitter below the threshold stays disarmed.
+        assert!(!hover_travelled((100, 100), (110, 95), 16));
+        // Deliberate movement on either axis arms, in any direction.
+        assert!(hover_travelled((100, 100), (116, 100), 16));
+        assert!(hover_travelled((100, 100), (100, 84), 16));
     }
 
     #[test]
