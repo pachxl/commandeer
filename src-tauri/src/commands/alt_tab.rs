@@ -219,7 +219,10 @@ impl HookState {
                 // Keep swallowing key-repeat downs until the physical key is released.
                 return true;
             }
-            if !self.session && self.ctrl() && (self.alt() || alt_flag) {
+            // LLKHF_ALTDOWN describes the real modifier state for this
+            // keystroke. Do not trust the cached Alt bits here: a lost Alt-up
+            // notification must not turn a later Ctrl+1/2 into our shortcut.
+            if !self.session && self.ctrl() && alt_flag {
                 if host.post(SessionEvent::FocusDisplay(display)) {
                     self.swallow_display_up |= bit;
                     return true;
@@ -231,13 +234,28 @@ impl HookState {
         if key == HookKey::Tab {
             if down {
                 if self.session {
+                    // A normal switcher should only survive while Alt is
+                    // physically down. If its key-up notification was lost,
+                    // recover on the next plain Tab instead of swallowing it
+                    // forever. Sticky Ctrl+Alt+Tab deliberately accepts plain
+                    // Tab, so preserve that mode.
+                    if !self.sticky && !alt_flag {
+                        self.left_alt = false;
+                        self.right_alt = false;
+                        let _ = host.post(SessionEvent::Commit);
+                        self.reset_session();
+                        return false;
+                    }
                     // Also covers sticky mode, where Alt is already up.
                     let _ = host.post(SessionEvent::Cycle {
                         direction: self.direction(),
                     });
                     return true;
                 }
-                if self.alt() || alt_flag {
+                // The event flag is authoritative at the trigger boundary.
+                // Cached Alt state is retained to detect the eventual release,
+                // but it may be stale if Windows omitted a hook notification.
+                if alt_flag {
                     if host.fullscreen_foreground() {
                         return false;
                     }
@@ -252,6 +270,8 @@ impl HookState {
                     self.sticky = sticky;
                     return true;
                 }
+                self.left_alt = false;
+                self.right_alt = false;
                 return false;
             }
             return self.session;
@@ -1921,7 +1941,10 @@ mod tests {
     }
 
     fn key(state: &mut HookState, host: &mut Recorder, key: HookKey, down: bool) -> bool {
-        state.on_key(key, down, false, host)
+        // Match Windows' LLKHF_ALTDOWN flag on non-Alt events. Tests that
+        // exercise a missed Alt-up call `on_key` directly with a false flag.
+        let alt_flag = state.alt();
+        state.on_key(key, down, alt_flag, host)
     }
 
     #[test]
@@ -1961,6 +1984,33 @@ mod tests {
             .filter(|e| **e == SessionEvent::Commit)
             .count();
         assert_eq!(commits, 1);
+    }
+
+    #[test]
+    fn stale_alt_state_does_not_turn_plain_tab_into_alt_tab() {
+        let mut state = HookState {
+            left_alt: true,
+            ..HookState::default()
+        };
+        let mut host = Recorder::new();
+
+        assert!(!state.on_key(HookKey::Tab, true, false, &mut host));
+        assert!(host.events.is_empty());
+        assert!(!state.alt());
+        assert!(!state.session);
+    }
+
+    #[test]
+    fn plain_tab_recovers_non_sticky_session_after_missed_alt_release() {
+        let mut state = HookState::default();
+        let mut host = Recorder::new();
+        key(&mut state, &mut host, HookKey::LeftAlt, true);
+        key(&mut state, &mut host, HookKey::Tab, true);
+
+        assert!(!state.on_key(HookKey::Tab, true, false, &mut host));
+        assert_eq!(host.events.last(), Some(&SessionEvent::Commit));
+        assert!(!state.alt());
+        assert!(!state.session);
     }
 
     #[test]
