@@ -87,7 +87,7 @@ fn is_packaged_install() -> bool {
 }
 
 #[cfg(any(not(debug_assertions), test))]
-fn packaged_path(platform: PlatformKind, executable: &str, appimage: bool) -> bool {
+fn packaged_path(platform: PlatformKind, executable: &str, _appimage: bool) -> bool {
     let normalized = executable.replace('\\', "/").to_ascii_lowercase();
     if normalized.contains("/target/debug/") || normalized.contains("/target/release/") {
         return false;
@@ -98,7 +98,7 @@ fn packaged_path(platform: PlatformKind, executable: &str, appimage: bool) -> bo
         PlatformKind::Macos => normalized.contains(".app/contents/macos/"),
         #[cfg(any(target_os = "linux", test))]
         PlatformKind::Linux => {
-            appimage
+            _appimage
                 || normalized.starts_with("/usr/bin/")
                 || normalized.starts_with("/usr/local/bin/")
                 || normalized.starts_with("/opt/")
