@@ -8,7 +8,7 @@ import { loadActiveFolderItems, openFileItem } from '../commands/fileSearch'
 import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
 import { IS_LINUX, IS_MAC, openUrl } from '../lib/tauri'
-import type { ActionItem, AppConfig, Command, PaletteItem } from '../types'
+import type { ActionItem, AppConfig, Command, PaletteItem, Step } from '../types'
 import { commandsToItems, commandsToFlatItems } from '../lib/paletteItems'
 import { applyOverride, type Overrides } from '../lib/paletteRanking'
 import { parseAtQuery, computeMatchedItems, computePreviewResult } from '../lib/paletteModes'
@@ -33,6 +33,7 @@ import SystemStatsPanel from './SystemStats'
 import Footer from './Footer'
 import StepBreadcrumb from './StepBreadcrumb'
 import VolumeMixer from './VolumeMixer'
+import PaletteStatePanel from './PaletteStatePanel'
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const LAST_CMD_KEY = 'commandeer:last'
@@ -65,6 +66,8 @@ interface PaletteProps {
   claudeUsageVisible: boolean
   codexUsageVisible: boolean
   systemStatsVisible: boolean
+  initialStep?: Step
+  onInitialStepOpened?: () => void
 }
 
 export default function Palette({
@@ -80,6 +83,8 @@ export default function Palette({
   claudeUsageVisible,
   codexUsageVisible,
   systemStatsVisible,
+  initialStep,
+  onInitialStepOpened,
 }: PaletteProps) {
   const [state, dispatch] = useReducer(reducer, config, initialState)
   const [sliderValue, setSliderValue] = useState(0)
@@ -123,6 +128,40 @@ export default function Palette({
     setConfirmFocus,
     resetFeedback,
   } = usePaletteFeedback(dispatch)
+
+  const initialStepHandled = useRef(false)
+  const onInitialStepOpenedRef = useRef(onInitialStepOpened)
+  onInitialStepOpenedRef.current = onInitialStepOpened
+
+  // First-run onboarding opens on the first real focus, not while the hidden
+  // accessory window mounts. This preserves it across startup blur/reset events.
+  useEffect(() => {
+    if (!initialStep || initialStepHandled.current) return
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    const open = () => {
+      if (disposed || initialStepHandled.current) return
+      initialStepHandled.current = true
+      dispatch({ type: 'PUSH_STEP', step: initialStep })
+      onInitialStepOpenedRef.current?.()
+    }
+    const win = getCurrentWindow()
+    void win.isFocused().then(focused => {
+      if (focused) open()
+    })
+    void win
+      .onFocusChanged(({ payload: focused }) => {
+        if (focused) open()
+      })
+      .then(remove => {
+        if (disposed) remove()
+        else unlisten = remove
+      })
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [initialStep])
 
   // Expose a whole-session reset to App. Focus loss must settle confirmations
   // and cancel HUD timers as well as clearing reducer/navigation state.
@@ -424,15 +463,19 @@ export default function Palette({
   // Derived filtered items
   // At root with a query: search the flat list (all scripts across all folders)
   // At root without a query, or inside a step: use the current step's items
-  const rawItems = currentStep
-    ? (state.itemCache[cacheKey] ?? [])
-    : folderMode
-      ? (state.itemCache['__folder__'] ?? [])
-      : findMode
-        ? (state.itemCache['__global__'] ?? [])
-        : state.query
-          ? (state.itemCache['__root_flat__'] ?? [])
-          : (state.itemCache['__root__'] ?? [])
+  const rawItems = useMemo(
+    () =>
+      currentStep
+        ? (state.itemCache[cacheKey] ?? [])
+        : folderMode
+          ? (state.itemCache['__folder__'] ?? [])
+          : findMode
+            ? (state.itemCache['__global__'] ?? [])
+            : state.query
+              ? (state.itemCache['__root_flat__'] ?? [])
+              : (state.itemCache['__root__'] ?? []),
+    [cacheKey, currentStep, findMode, folderMode, state.itemCache, state.query],
+  )
   const isInputStep = currentStep?.isInputStep ?? false
   const isSliderStep = currentStep?.isSliderStep ?? false
   const isFormStep = currentStep?.isFormStep ?? false
@@ -523,6 +566,21 @@ export default function Palette({
   // Preview pane: shown when the selected item has something to preview
   // (image, text file, color swatch, font, or metadata).
   const showPreview = selectedItem != null
+  const showLoadingState =
+    state.loading && visibleItems.length === 0 && !isInputStep && !isSliderStep && !isFormStep && !isVolumeMixerStep
+  const showEmptyState =
+    !state.loading &&
+    !state.error &&
+    noMatches &&
+    !isInputStep &&
+    !isSliderStep &&
+    !isFormStep &&
+    !isVolumeMixerStep &&
+    !(findMode && !findQuery.trim()) &&
+    !(webMode && !webQuery) &&
+    !calcMode &&
+    !timeMode &&
+    (Boolean(state.query) || Boolean(currentStep))
 
   // Forward ref so buildActions (defined before handleSelect) can trigger the
   // normal selection path for step rows
@@ -1104,19 +1162,7 @@ export default function Palette({
           />
         )}
 
-        {state.error && (
-          <div
-            style={{
-              padding: '4px 12px',
-              color: '#f7768e',
-              fontSize: 12,
-              fontFamily: 'var(--font)',
-              borderBottom: '1px solid var(--border)',
-            }}
-          >
-            {state.error}
-          </div>
-        )}
+        {state.error && <PaletteStatePanel kind="error" title="Something went wrong" message={state.error} />}
 
         {state.stepStack.length > 0 && !isVolumeMixerStep && (
           <div data-step-breadcrumb>
@@ -1124,53 +1170,31 @@ export default function Palette({
           </div>
         )}
 
-        {!isInputStep &&
-          !isSliderStep &&
-          !isVolumeMixerStep &&
-          !state.loading &&
-          noMatches &&
-          state.query &&
-          !(findMode && !findQuery.trim()) &&
-          !(webMode && !webQuery) &&
-          !calcMode &&
-          !timeMode && (
-            <div
-              style={{
-                padding: '12px 14px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  color: 'var(--text-dim)',
-                  fontSize: 12,
-                  fontFamily: 'var(--font)',
-                }}
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="m21 21-4.3-4.3" />
-                </svg>
-                {folderMode || findMode
-                  ? `No files matching '${folderMode ? folderQuery : findQuery}'`
-                  : `No commands matching '${state.query}'`}
-              </div>
-            </div>
-          )}
+        {showLoadingState && (
+          <PaletteStatePanel
+            kind="loading"
+            title={`Loading ${currentStep?.label ?? (folderMode || findMode ? 'files' : 'commands')}…`}
+            message="This may take a moment on the first load."
+          />
+        )}
+
+        {showEmptyState && (
+          <PaletteStatePanel
+            kind="empty"
+            title={
+              state.query
+                ? folderMode || findMode
+                  ? `No files matching “${folderMode ? folderQuery : findQuery}”`
+                  : `No commands matching “${state.query}”`
+                : 'Nothing here yet'
+            }
+            message={
+              state.query
+                ? 'Try fewer words, use @find for files, or search for Commandeer Guide.'
+                : 'Add an item or go back to choose another command.'
+            }
+          />
+        )}
 
         {!isInputStep && !isSliderStep && !isFormStep && !isVolumeMixerStep && visibleItems.length > 0 && (
           <div style={{ display: 'flex', minHeight: 0 }}>

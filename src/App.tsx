@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { loadScriptCommands, scriptsToCommands, webSearchCommand } from './commands'
 import { settingsCommand } from './commands/settings'
+import { guideCommand, guideStep } from './commands/guide'
 import { loadProviderCommands } from './providers'
 import { loadBookmarkCommands } from './providers/bookmarks'
 import { loadQuicklinkCommands } from './providers/quicklinks'
@@ -11,6 +12,7 @@ import { toolsFolderCommand, virtualFolderCommand } from './providers/tools'
 import { appEvents } from './lib/appEvents'
 import { applyThemeByName } from './lib/themes'
 import { applyStyle } from './lib/styles'
+import { markOnboardingSeen, shouldShowOnboarding } from './lib/onboarding'
 import { onCommandHotkey, readConfig, setGameMode, setWindowTransparency, type ScriptInfo } from './lib/tauri'
 import type { AppConfig, Command } from './types'
 import Palette, { type InlineScript } from './components/Palette'
@@ -43,10 +45,13 @@ export default function App() {
   // Single mutable config object shared with settings steps: they update it
   // in place (Object.assign) so writes stay visible without re-creating commands.
   const configRef = useRef<AppConfig>({ ...EMPTY_CONFIG })
+  const [welcomePending, setWelcomePending] = useState(() => shouldShowOnboarding(key => localStorage.getItem(key)))
+  const welcomeStepRef = useRef(welcomePending ? guideStep(configRef.current, true) : undefined)
   const [commands, setCommands] = useState<Command[]>(() => [
     ...scriptsToCommands(loadCachedScripts()),
     ...(isWebSearchVisible() ? [webSearchCommand] : []),
     killProcessCommand,
+    guideCommand(configRef.current),
     settingsCommand(configRef.current),
   ])
   const [gameModeEnabled, setGameModeEnabled] = useState(() => localStorage.getItem(GAME_MODE_KEY) === 'true')
@@ -103,6 +108,7 @@ export default function App() {
         ...(toolsChildren.length > 0 ? [toolsFolderCommand(toolsChildren)] : []),
         ...webSearchCmds,
         ...providerCmds,
+        guideCommand(configRef.current),
         settingsCommand(configRef.current),
       ])
     } catch (err) {
@@ -256,6 +262,12 @@ export default function App() {
       claudeUsageVisible={claudeUsageVisible}
       codexUsageVisible={codexUsageVisible}
       systemStatsVisible={systemStatsVisible}
+      initialStep={welcomeStepRef.current}
+      onInitialStepOpened={() => {
+        markOnboardingSeen((key, value) => localStorage.setItem(key, value))
+        welcomeStepRef.current = undefined
+        setWelcomePending(false)
+      }}
     />
   )
 }

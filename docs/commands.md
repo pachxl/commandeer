@@ -25,6 +25,7 @@ for a query.
 | Calculator search |                     10 | Expression result and Google fallback                                     | [`calculator.ts`](../src/providers/calculator.ts)                 |
 | Scripts           | assembled in `App.tsx` | User script commands and folders                                          | [`commands/index.ts`](../src/commands/index.ts), `commands/fs.rs` |
 | Settings          | assembled in `App.tsx` | Appearance, shortcuts, paths, feature toggles                             | [`commands/settings.ts`](../src/commands/settings.ts)             |
+| Commandeer Guide  | assembled in `App.tsx` | First-run welcome, shortcuts, search modes, and workflow help             | [`commands/guide.ts`](../src/commands/guide.ts)                   |
 
 Quick Links, Notes, and Bookmarks are represented as subfolders inside Tools in
 the assembled root. Their children can also appear in flat search through their
@@ -41,6 +42,7 @@ the assembled root. Their children can also appear in flat search through their
 - Time-zone conversion is handled by the Tools input step and copies its result.
 - `Ctrl+K` opens actions for the selected row. Action-panel actions may be leaf
   handlers or nested submenus.
+- `Commandeer Guide` remains searchable after the first-run welcome is complete.
 - `Ctrl+M` opens the Windows Volume Mixer when that feature is available.
 - `commandeer://command/<id>` opens/runs a command; `commandeer://screenshot`
   starts capture; `commandeer://open` only shows the palette.
@@ -76,6 +78,7 @@ arguments and return shapes are in `src/lib/tauri.ts` and `lib.rs`.
 | System/media      | `system_action`, `set_dark_mode`, `list_processes`, `kill_process`, `system_stats`, `list_audio_devices`, `get_volume`, `set_volume`, `toggle_mute`, `list_audio_sessions`, `set_audio_session_volume`, `toggle_audio_session_mute` |
 | Window/shortcuts  | `set_window_transparency`, `set_global_hotkey`, `set_screenshot_hotkey`, `set_command_hotkey`, `set_window_drag`, `set_per_monitor_alt_tab`, `set_alt_tab_theme`                                                                    |
 | Screenshot        | `start_screenshot`, `show_screenshot_overlay`, `reveal_screenshot_overlay`, `hide_screenshot_overlay`, `pick_frame_color`, `finish_screenshot`, `cancel_screenshot`                                                                 |
+| Permissions       | `permission_status`, `open_permission_settings`                                                                                                                                                                                     |
 | External services | `get_rates`, `codex_usage`, `claude_usage`                                                                                                                                                                                          |
 
 ## Keeping this document current

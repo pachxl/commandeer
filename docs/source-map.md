@@ -16,16 +16,18 @@ changes.
 
 ## Frontend commands and hooks
 
-| File                                   | Responsibility                                                       | Detailed page                                            |
-| -------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------- |
-| `src/commands/index.ts`                | Script-to-command conversion, web search, confirmations, live output | [`scripts.md`](scripts.md), [`commands.md`](commands.md) |
-| `src/commands/settings.ts`             | Settings step, previews, persistence, feature toggles                | [`configuration.md`](configuration.md)                   |
-| `src/commands/fileSearch.ts`           | Active-folder `@search` load/filter/open                             | [`features.md`](features.md)                             |
-| `src/commands/globalFileSearch.ts`     | Global `@find` ranking and icon/detail mapping                       | [`features.md`](features.md)                             |
-| `src/hooks/useInlineScripts.ts`        | Polls inline script output                                           | [`scripts.md`](scripts.md)                               |
-| `src/hooks/usePaletteFeedback.ts`      | Toast/feedback subscription and cleanup                              | [`frontend.md`](frontend.md)                             |
-| `src/hooks/usePaletteFeedback.test.ts` | Feedback cleanup regression tests                                    | [`testing.md`](testing.md)                               |
-| `src/hooks/usePaletteWindowSize.ts`    | Measures and resizes the palette, especially Linux                   | [`platforms.md`](platforms.md)                           |
+| File                                   | Responsibility                                                       | Detailed page                                              |
+| -------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `src/commands/index.ts`                | Script-to-command conversion, web search, confirmations, live output | [`scripts.md`](scripts.md), [`commands.md`](commands.md)   |
+| `src/commands/settings.ts`             | Settings step, previews, persistence, feature toggles                | [`configuration.md`](configuration.md)                     |
+| `src/commands/guide.ts`                | First-run welcome and searchable usage guide                         | [`frontend.md`](frontend.md), [`commands.md`](commands.md) |
+| `src/commands/guide.test.ts`           | Guide content and navigation regression tests                        | [`testing.md`](testing.md)                                 |
+| `src/commands/fileSearch.ts`           | Active-folder `@search` load/filter/open                             | [`features.md`](features.md)                               |
+| `src/commands/globalFileSearch.ts`     | Global `@find` ranking and icon/detail mapping                       | [`features.md`](features.md)                               |
+| `src/hooks/useInlineScripts.ts`        | Polls inline script output                                           | [`scripts.md`](scripts.md)                                 |
+| `src/hooks/usePaletteFeedback.ts`      | Toast/feedback subscription and cleanup                              | [`frontend.md`](frontend.md)                               |
+| `src/hooks/usePaletteFeedback.test.ts` | Feedback cleanup regression tests                                    | [`testing.md`](testing.md)                                 |
+| `src/hooks/usePaletteWindowSize.ts`    | Measures and resizes the palette, especially Linux                   | [`platforms.md`](platforms.md)                             |
 
 ## Frontend providers
 
@@ -49,6 +51,7 @@ changes.
 | File                                   | Responsibility                                                          | Detailed page                                                      |
 | -------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | `src/components/Palette.tsx`           | Main state machine, ranking, keyboard/pointer interaction, action panel | [`architecture.md`](architecture.md), [`frontend.md`](frontend.md) |
+| `src/components/PaletteStatePanel.tsx` | Shared loading, empty, and error presentation                           | [`frontend.md`](frontend.md)                                       |
 | `src/components/ScreenshotOverlay.tsx` | Capture selection, annotation, color-pick, finish/cancel UI             | [`features.md`](features.md)                                       |
 | `src/components/VolumeMixer.tsx`       | Windows session mixer interaction                                       | [`features.md`](features.md), [`testing.md`](testing.md)           |
 | `src/components/VolumeMixer.test.ts`   | Mixer rendering/navigation tests                                        | [`testing.md`](testing.md)                                         |
@@ -92,6 +95,8 @@ changes.
 | `src/lib/themes.ts`              | Built-in/user theme loading and CSS variables   | [`configuration.md`](configuration.md)                   |
 | `src/lib/styles.ts`              | Structural UI style presets                     | [`configuration.md`](configuration.md)                   |
 | `src/lib/overrides.ts`           | Per-command override/pin state                  | [`storage.md`](storage.md)                               |
+| `src/lib/onboarding.ts`          | First-run eligibility and version marker        | [`frontend.md`](frontend.md), [`storage.md`](storage.md) |
+| `src/lib/onboarding.test.ts`     | Onboarding eligibility regression tests         | [`testing.md`](testing.md)                               |
 
 ## Rust entry points and command modules
 

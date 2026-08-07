@@ -29,6 +29,7 @@ sorted by descending priority, loaded concurrently, and isolated so one failed
 provider does not remove all root commands. `src/App.tsx` still assembles:
 
 - settings commands;
+- the permanently searchable Commandeer Guide and first-run welcome step;
 - scanned script commands and script folders;
 - the optional web-search command;
 - the Tools virtual folder and its dynamic Quick Links, Notes, and Bookmarks
@@ -46,6 +47,11 @@ loading/error state, and selected index. `paletteModes.ts` distinguishes normal
 steps, `@search`, `@find`, and root search. `paletteNavigation.ts` and
 `paletteActions.ts` keep keyboard transitions and Ctrl+K actions separate from
 rendering.
+
+Loading, empty, and error states share `PaletteStatePanel.tsx`, keeping feedback
+visually consistent across root search and loaded steps. First-run onboarding is
+opened only after the hidden Accessory window receives real focus; existing
+installations are detected through earlier localStorage keys and are not interrupted.
 
 When adding a load path:
 
@@ -87,7 +93,7 @@ retryable.
 
 Small preferences and caches use webview `localStorage`: game mode, widget
 visibility, script/app caches, frecency, confirmation suppression, last command,
-and usage-panel polling caches. Durable user content and configuration belongs
+the onboarding version, and usage-panel polling caches. Durable user content and configuration belongs
 in the Rust-owned files documented in [`storage.md`](storage.md).
 
 ## Keeping this document current

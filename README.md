@@ -58,6 +58,10 @@ and press Enter to run the selected result. Common controls include:
 - Escape to cancel the current confirmation, close the action panel, move back one step, or dismiss the root palette.
 - `Ctrl+K` to open actions for the current result.
 - `@search` to search the active folder and `@find` for indexed global file search.
+- Search for `Commandeer Guide` at any time to revisit shortcuts and core workflows.
+
+Genuinely new installations open a short welcome guide on first use. Existing
+installations are not interrupted when the guide feature is introduced.
 
 The scripts directory is configurable in Settings. Supported entries are
 platform-specific:

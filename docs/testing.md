@@ -32,7 +32,7 @@ package script. Use `npm run format` only when formatting changes are intended.
 ## Frontend tests
 
 Current regression coverage includes Palette reducer transitions, feedback hook
-cleanup, and Windows Volume Mixer rendering/navigation. Put pure ranking,
+cleanup, onboarding eligibility, guide content, and Windows Volume Mixer rendering/navigation. Put pure ranking,
 parsing, reducer, geometry, and serialization tests beside the implementation.
 Mock Tauri calls at the wrapper boundary rather than importing native modules
 into jsdom tests.
@@ -51,6 +51,9 @@ Linux run does not imply Windows/macOS coverage.
 
 - Open/dismiss the palette repeatedly; verify pending confirms and toasts do not
   survive dismissal.
+- With empty localStorage, verify the welcome guide opens on first focus only;
+  with an existing-install key, verify it stays searchable but does not auto-open.
+- Verify loading, empty, and error panels are legible in both UI styles.
 - Navigate list, grid, input, form, slider, and folder steps with keyboard and
   pointer; ensure Enter activates the highlighted row.
 - Run a script, a confirmation-gated script, `@find`, `@search`, Calculator,

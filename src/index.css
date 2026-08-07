@@ -88,6 +88,10 @@
   }
 }
 
+.palette-state-spin {
+  animation: spin 0.8s linear infinite;
+}
+
 /* Onix (Raycast/Vicinae) skin: inset rounded rows and hover feedback. */
 [data-style='onix'] [data-list-index] {
   margin: 0 var(--row-inset);
