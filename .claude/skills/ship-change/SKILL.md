@@ -104,3 +104,11 @@ Start-Process .\bin\commandeer.exe        # or the freshly built target\release\
 Report: the commit hash pushed, that the release build succeeded, and that the app was
 restarted on the new binary. If any step fails (build error, push rejected), stop and
 surface it — do not claim the change is shipped.
+
+## Keeping this skill current
+
+Update this skill when the repository changes its default branch, commit footer
+convention, supported operating systems, release build command, artifact path,
+process name, or restart procedure. Keep the Claude discovery mirror at
+`.claude/skills/ship-change/SKILL.md` byte-identical, then run
+`.agents/hooks/check-agent-sync.mjs` before committing.

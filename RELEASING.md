@@ -27,3 +27,13 @@ Packaged release builds check the latest GitHub Release 30 seconds after launch
 and every six hours afterwards. A newer SemVer package is downloaded, signature
 verified, installed, and Commandeer is restarted. Development builds do not
 check for or install published updates.
+
+## Keeping this document current
+
+Update this document whenever the release workflow, artifact names, versioning
+scheme, signing key, updater endpoint, check cadence, supported targets, or
+restart behavior changes. Verify the claims against
+`.github/workflows/release.yml`, `src-tauri/tauri.conf.json`,
+`src-tauri/src/commands/updater.rs`, and `release.cjs`; never document a secret
+value. If signing or updater key material changes, record the migration plan
+before changing the public key or repository secret.

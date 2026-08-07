@@ -11,6 +11,13 @@
 //! Everything fails open: unless the service reports ready and the overlay
 //! accepts the session-start message, keystrokes pass through to Windows.
 
+// The state machine is kept in this shared module so it can be unit-tested on
+// every OS, while the live service is Windows-only. On Linux/macOS the shared
+// helpers have no production caller; keep their names available for tests and
+// suppress only the platform-specific dead-code lint.
+#![cfg_attr(target_os = "linux", allow(dead_code))]
+#![cfg_attr(target_os = "macos", allow(dead_code))]
+
 #[tauri::command]
 pub async fn set_per_monitor_alt_tab(enabled: bool) -> Result<(), String> {
     if enabled {

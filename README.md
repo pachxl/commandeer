@@ -1,22 +1,28 @@
 # Commandeer
 
-this was made with like 10 different models (gpt 5.6 sol, fable 5, opus 4.7 and 4.8, kimi 2.6 and 2.7, deepseek-v4-pro _maybe_, some cursor stuff too idk).
+Commandeer is a cross-platform desktop command palette and utility suite built
+with Tauri 2, React, TypeScript, and Rust. It provides a keyboard-first launcher
+for applications, scripts, files, system actions, clipboard history, media
+controls, notes, links, calculations, screenshots, and platform-specific window
+management.
 
-we have not looked at a single line of code nor do we understand how it works at all which is always good.
-
-basically its a command palette originally made for windows, with some support for linux, and even less support for mac (just use spotlight). it has some cool window manager stuff for windows that lets you hold alt and right/left click to move, resize and snap windows. it has a weird alt+tab replacement for windows which i think sucks but i still use it cause the windows one sucks even more
-
-press ctrl+space to open it, or if "game mode" is enabled press alt+space (this was because i couldnt crouch and jump on cs without it opening)
-
-oh it also has a quick access "commands" folder where you can put shortcuts and scripts to run directly from here, and you can add icons to them by just putting in a png with the same name as the script or shortcut.
-
-and it has a screenshot tool but i forgot what the default key is (most of the keybinds are configurable through the settings page) it might be insert or prntsc?
+The project is organized around platform parity: features are implemented on
+Windows, Linux/Wayland, and macOS where the operating system allows them, and
+explicitly hidden or documented as unsupported where it does not. The codebase
+is active; the [maintainer documentation](docs/README.md) is the best starting
+point for understanding its moving parts.
 
 ## Contributing
 
-if you have any ideas just add them and make a pr or do it in ur own fork who cares
+Before changing a feature, read the relevant page in [`docs/`](docs/README.md),
+then update that page when behavior, platform support, configuration, storage,
+or verification steps change.
 
-The project is under active development. Platform integrations differ where the operating systems require it, especially for global shortcuts, window management, screenshots, and application discovery.
+Use `bun install` after pulling dependency changes. The normal checks are
+`npm run build`, `npm test`, `npm run lint`, `cargo test` from `src-tauri/`, and
+`cargo clippy --all-targets -- -D warnings`. The complete release and restart
+workflow is documented in [`RELEASING.md`](RELEASING.md) and the shared agent
+instructions in [`AGENTS.md`](AGENTS.md).
 
 ## Highlights
 
@@ -39,25 +45,47 @@ Clipboard history is encrypted at rest on every supported platform.
 | Linux    | `Ctrl+Space` by default on COSMIC | Uses a Wayland layer-shell palette. Re-launching the binary is a reliable palette toggle when global X11-style grabs are unavailable. Alt-drag is left to the compositor. |
 | macOS    | `Cmd+Shift+Space` by default      | Runs as an Accessory app. Screenshot and paste features require Screen Recording and Accessibility permission respectively.                                               |
 
-macOS system actions and Finder-aware search may also cause one-time Automation permission prompts. Some platform-specific behavior can only be fully verified on that operating system.
+macOS system actions and Finder-aware search may also cause one-time Automation
+permission prompts. Some platform-specific behavior can only be fully verified
+on that operating system.
 
 ## Using Commandeer
 
-Open the palette with the platform shortcut or tray icon, type to filter commands, and press Enter to run the selected result. Common controls include:
+Open the palette with the platform shortcut or tray icon, type to filter commands,
+and press Enter to run the selected result. Common controls include:
 
 - Arrow keys to move through results; Enter to select.
 - Escape to cancel the current confirmation, close the action panel, move back one step, or dismiss the root palette.
 - `Ctrl+K` to open actions for the current result.
 - `@search` to search the active folder and `@find` for indexed global file search.
 
-The scripts directory is configurable in Settings. Supported entries are platform-specific:
+The scripts directory is configurable in Settings. Supported entries are
+platform-specific:
 
 - Windows: PowerShell scripts and shortcuts.
 - Linux: shell scripts, desktop entries, AppImages, and executables.
 - macOS: shell/command scripts and executables.
 
+The default palette shortcut is `Ctrl+Space` except on macOS, where it is
+`Cmd+Shift+Space`. Game Mode can switch to `Alt+Space`. Windows uses `Insert`
+as the default screenshot shortcut; macOS has no default screenshot shortcut,
+and Linux uses its compositor-managed binding. All configurable shortcuts are
+available from Settings.
+
 ## Screenshot tool
 
-The screenshot command freezes the current display, lets you drag a region, and then opens an annotation stage. Draw freehand marker strokes, undo with `Ctrl+Z` or Backspace, finish with Enter, or cancel with Escape. The resulting PNG is saved under `~/Pictures/Screenshots` and copied to the clipboard.
+The screenshot command freezes the current display, lets you drag a region, and
+then opens an annotation stage. Draw freehand marker strokes, undo with `Ctrl+Z`
+or Backspace, finish with Enter, or cancel with Escape. The resulting PNG is
+saved under `~/Pictures/Screenshots` and copied to the clipboard.
 
-Holding Alt (Option on macOS) shows the raw frame color beneath the pointer; Alt-click copies its hex value while still saving the crop.
+Holding Alt (Option on macOS) shows the raw frame color beneath the pointer;
+Alt-click copies its hex value while still saving the crop.
+
+## Keeping this documentation current
+
+Update this README when the product’s user-facing capabilities, default
+shortcuts, supported platforms, setup commands, or top-level navigation change.
+Keep implementation detail in [`docs/`](docs/README.md) and agent/build policy
+in [`AGENTS.md`](AGENTS.md); do not let this overview become a second
+architecture specification.

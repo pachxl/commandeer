@@ -5,6 +5,11 @@ Code, Codex) and human contributors working in this repository. `CLAUDE.md`
 redirects here; do not duplicate content between them (a pre-commit check
 enforces it). Keep this file updated as the app evolves.
 
+Feature and subsystem documentation lives in [`docs/README.md`](docs/README.md).
+Read the relevant page before changing behavior; update that page in the same
+change when interfaces, platform support, storage, configuration, or test
+procedures change.
+
 ## Project
 
 Commandeer is a Raycast-style command palette built with Tauri 2 (React/TypeScript
@@ -246,3 +251,12 @@ All OS-specific code is behind `#[cfg(target_os = "windows")]` / `#[cfg(target_o
 - **Global hotkey.** See Linux/macOS notes above; `set_game_mode` in `lib.rs` rewrites the COSMIC custom-shortcut config on Linux and switches the registered base hotkey everywhere.
 
 Config is JSON read/written by the Rust side (`commands/config.rs`; `scripts_dir` defaults per-platform). Lightweight UI prefs (game mode, widget visibility, script cache) live in webview `localStorage`.
+
+## Keeping this document current
+
+Update `AGENTS.md` when repository-wide rules, supported platforms, build
+commands, release mechanics, lifecycle invariants, or agent integration change.
+Keep feature-specific explanations in [`docs/`](docs/README.md), and update the
+relevant docs page alongside the code change. After editing the canonical agent
+skill or hook files, run `.agents/hooks/check-agent-sync.mjs` and keep mirrored
+files byte-identical.

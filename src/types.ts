@@ -34,8 +34,8 @@ export interface AppConfig {
   global_hotkey?: string
   // Alternate global hotkey used in game mode (e.g. 'Alt+Space')
   global_hotkey_game?: string
-  // Global hotkey that starts the region screenshot (default 'PrintScreen';
-  // Windows only — Linux uses a managed COSMIC binding instead)
+  // Global hotkey that starts the region screenshot (default 'Insert' on
+  // Windows; macOS has no default, and Linux uses a managed compositor binding)
   screenshot_hotkey?: string
   // Alt-drag window management: hold Alt to move any window, Alt + right-drag to
   // resize (Windows/macOS only). Default off.

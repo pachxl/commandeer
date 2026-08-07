@@ -88,3 +88,12 @@ gesture natively (Super + drag to move, Super + right-drag to resize floating
 windows), so the Settings entry is hidden on Linux. If X11 support is ever
 wanted, the clean route is `_NET_WM_MOVERESIZE` client messages behind an
 `env_info().wayland == false` check — not implemented here.
+
+## Keeping this document current
+
+Use this file for intentionally unfinished work and platform verification debt,
+not for completed feature descriptions. When a TODO is completed, update or
+remove the item in the same change and move durable behavior details to the
+appropriate page under [`docs/`](docs/README.md). Every new item should name its
+platform, source module, current status, and the test or manual verification
+needed to close it.
