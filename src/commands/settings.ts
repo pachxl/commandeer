@@ -2,13 +2,16 @@ import type { AppConfig, Command, PaletteItem, Step, StepResult } from '../types
 import {
   dataDir,
   getAutostart,
+  getPermissionStatus,
   openPath,
+  openPermissionSettings,
   setAutostart,
   setGlobalHotkey,
   setPerMonitorAltTab,
   setScreenshotHotkey,
   setWindowDrag,
   setWindowTransparency,
+  startScreenshot,
   writeConfig,
 } from '../lib/tauri'
 import { appEvents } from '../lib/appEvents'
@@ -173,6 +176,18 @@ function settingsStep(config: AppConfig): Step {
         icon: 'refresh',
         actionLabel: 'Toggle',
       },
+      ...(IS_MAC
+        ? [
+            {
+              id: 'settings:permissions',
+              label: 'Permissions & Diagnostics…',
+              sublabel: 'Screen Recording, Accessibility, Automation, and feature tests',
+              icon: 'lock',
+              isFolder: true,
+              actionLabel: 'Open',
+            } as PaletteItem,
+          ]
+        : []),
       {
         id: 'settings:toggle-game-mode',
         label: 'Game Mode',
@@ -302,6 +317,9 @@ function settingsStep(config: AppConfig): Step {
       if (item.id === 'settings:game-hotkey') {
         return { type: 'push', step: hotkeyStep(config, 'game') }
       }
+      if (item.id === 'settings:permissions') {
+        return { type: 'push', step: permissionsStep() }
+      }
       if (item.id === 'settings:window-drag') {
         const next = !(config.window_drag ?? false)
         try {
@@ -374,6 +392,105 @@ function settingsStep(config: AppConfig): Step {
         return { type: 'done' }
       }
       return { type: 'done' }
+    },
+  }
+}
+
+function permissionItem(id: string, label: string, granted: boolean | null, featureDescription: string): PaletteItem {
+  const known = granted !== null
+  return {
+    id,
+    label,
+    sublabel: known
+      ? granted
+        ? `Granted — ${featureDescription}`
+        : `Not granted — ${featureDescription}`
+      : `Status unavailable — ${featureDescription}`,
+    icon: granted ? 'lock' : 'settings',
+    iconColor: granted ? '#34c759' : '#ff9f0a',
+    actionLabel: granted ? 'Recheck' : 'Open Settings',
+    accessories: [{ text: granted ? 'Granted' : known ? 'Required' : 'Unknown' }],
+  }
+}
+
+function permissionsStep(): Step {
+  return {
+    id: 'settings:permissions',
+    label: 'Permissions & Diagnostics',
+    placeholder: 'Check a permission or run a test...',
+    load: async (): Promise<PaletteItem[]> => {
+      const status = await getPermissionStatus()
+      return [
+        permissionItem(
+          'permissions:screen-recording',
+          'Screen Recording',
+          status.screen_recording,
+          'needed for screenshots',
+        ),
+        permissionItem(
+          'permissions:accessibility',
+          'Accessibility',
+          status.accessibility,
+          'needed for paste-to-previous and Alt-drag',
+        ),
+        {
+          id: 'permissions:automation',
+          label: 'Automation',
+          sublabel: 'Requested by macOS when Finder or System Events is first used',
+          icon: 'settings',
+          actionLabel: 'Open Settings',
+          accessories: [{ text: 'On demand' }],
+          detailMarkdown:
+            'Automation permission is requested separately for Finder and System Events. Use Finder-aware `@search`, Empty Trash, or a power/session action to exercise the exact integration.',
+        },
+        {
+          id: 'permissions:test-screenshot',
+          label: 'Test Screenshot Capture',
+          sublabel: 'Start a real region capture; press Escape to cancel',
+          icon: 'camera',
+          actionLabel: 'Run Test',
+        },
+        {
+          id: 'permissions:verify-alt-drag',
+          label: 'Verify Alt-Drag',
+          sublabel: 'Enable it in Settings, then Option-drag another window',
+          icon: 'window',
+          actionLabel: 'Show Instructions',
+          detailMarkdown:
+            'With **Alt-Drag Windows** enabled, hold Option and left-drag another window to move it. Option + right-drag resizes from the cursor region. Verify raising, Retina coordinates, and each attached display.',
+        },
+        {
+          id: 'permissions:refresh',
+          label: 'Refresh Permission Status',
+          sublabel: 'Re-read the current macOS grants',
+          icon: 'refresh',
+          actionLabel: 'Refresh',
+        },
+      ]
+    },
+    onSelect: async (item): Promise<StepResult> => {
+      if (item.id === 'permissions:test-screenshot') {
+        try {
+          await startScreenshot()
+          return { type: 'done' }
+        } catch (error) {
+          appEvents.toast?.(`Screenshot test failed: ${String(error)}`, 'error')
+          return { type: 'stay' }
+        }
+      }
+      if (item.id === 'permissions:verify-alt-drag') return { type: 'stay' }
+      if (item.id === 'permissions:refresh') return { type: 'replace', step: permissionsStep() }
+
+      const permission = item.id.replace('permissions:', '')
+      if (permission === 'screen-recording' || permission === 'accessibility' || permission === 'automation') {
+        if (item.accessories?.some(accessory => accessory.text === 'Granted')) {
+          return { type: 'replace', step: permissionsStep() }
+        }
+        await openPermissionSettings(permission)
+        appEvents.toast?.('Opened macOS Privacy & Security', 'success')
+        return { type: 'replace', step: permissionsStep() }
+      }
+      return { type: 'stay' }
     },
   }
 }

@@ -18,6 +18,7 @@ pub mod launcher;
 #[cfg(target_os = "linux")]
 pub mod linux_shortcuts;
 pub mod paste;
+pub mod permissions;
 pub mod process;
 pub mod rates;
 pub mod screenshot;

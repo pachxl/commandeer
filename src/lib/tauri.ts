@@ -194,6 +194,19 @@ export const setScreenshotHotkey = (hotkey: string) => invoke<void>('set_screens
 // (e.g. macOS Accessibility permission not granted).
 export const setWindowDrag = (enabled: boolean) => invoke<void>('set_window_drag', { enabled })
 
+export interface PermissionStatus {
+  supported: boolean
+  screen_recording: boolean | null
+  accessibility: boolean | null
+}
+
+export const getPermissionStatus = () => invoke<PermissionStatus>('permission_status')
+
+export type MacPermission = 'screen-recording' | 'accessibility' | 'automation'
+
+export const openPermissionSettings = (permission: MacPermission) =>
+  invoke<void>('open_permission_settings', { permission })
+
 // Windows-only replacement for Alt+Tab that filters candidates to the monitor
 // under the mouse cursor. The frontend persists the preference only after
 // this command successfully starts/stops the native hook service.

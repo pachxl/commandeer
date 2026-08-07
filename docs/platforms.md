@@ -32,6 +32,11 @@ code and different permissions.
 | Linux `wl-copy` or clipboard backend | Screenshot image copy                                                 | Capture can still be saved, but copy errors are surfaced               |
 | Windows foreground/input APIs        | Alt-drag and Alt+Tab                                                  | Native hook/activation errors are surfaced or feature remains disabled |
 
+On macOS, Settings → Permissions & Diagnostics reads Screen Recording and
+Accessibility grants without prompting, opens the matching Privacy & Security
+pane when remediation is needed, links to Automation settings, and provides a
+real screenshot test plus an Alt-drag verification checklist.
+
 ## Important platform rules
 
 - Linux config overlays replace the whole `app.windows` array. Keep

@@ -80,6 +80,8 @@ Linux run does not imply Windows/macOS coverage.
 - Verify Accessory app/tray behavior and `Cmd+Shift+Space`.
 - Grant Screen Recording and Accessibility; test screenshot, paste-to-previous,
   and Alt-drag. Deny each permission once and verify an explanatory failure.
+- In Settings → Permissions & Diagnostics, verify live grant state, each System
+  Settings link, status refresh, screenshot test, and Alt-drag instructions.
 - Test Automation prompts for Finder-aware search, Empty Trash, and system
   actions; test the Keychain OAuth reads through `/usr/bin/security`.
 - Test `.app` icon identity by path and a Retina/multi-monitor screenshot.

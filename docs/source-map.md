@@ -125,6 +125,7 @@ changes.
 | `src-tauri/src/commands/screenshot.rs`       | Capture, overlay timing, annotation, copy           | [`features.md`](features.md), [`platforms.md`](platforms.md)                          |
 | `src-tauri/src/commands/window.rs`           | Native window transparency                          | [`configuration.md`](configuration.md), [`platforms.md`](platforms.md)                |
 | `src-tauri/src/commands/window_drag.rs`      | Windows/macOS Alt-drag implementations              | [`features.md`](features.md), [`platforms.md`](platforms.md), [`TODO.md`](../TODO.md) |
+| `src-tauri/src/commands/permissions.rs`      | macOS permission status and System Settings links   | [`platforms.md`](platforms.md), [`testing.md`](testing.md)                            |
 | `src-tauri/src/commands/alt_tab.rs`          | Windows monitor-local Alt+Tab hooks/overlay         | [`features.md`](features.md), [`platforms.md`](platforms.md)                          |
 | `src-tauri/src/commands/updater.rs`          | Release-only signed update loop                     | [`features.md`](features.md), [`RELEASING.md`](../RELEASING.md)                       |
 | `src-tauri/src/commands/codex.rs`            | Codex OAuth usage lookup                            | [`features.md`](features.md)                                                          |

@@ -79,6 +79,10 @@ and cached in `OnceLock`s. Someone with a Mac still needs to:
    already does native drag-to-edge tiling, so the gap is smaller than on
    Windows.
 
+Settings → Permissions & Diagnostics now exposes the Accessibility grant and
+an in-app verification checklist. Keep this TODO until the checklist has been
+completed on real Retina and multi-display hardware and the behavior is recorded.
+
 ### Linux — intentionally unsupported
 
 Wayland isolates clients: an app cannot read or change another app's window

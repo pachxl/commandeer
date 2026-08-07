@@ -645,6 +645,8 @@ pub fn run() {
             commands::store::write_overrides,
             commands::store::read_themes,
             commands::paste::paste_to_previous,
+            commands::permissions::permission_status,
+            commands::permissions::open_permission_settings,
             commands::clipboard::read_clipboard_history,
             commands::clipboard::clear_clipboard_history,
             commands::clipboard::write_clipboard_text,
