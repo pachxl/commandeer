@@ -8,8 +8,11 @@ use tauri::AppHandle;
 #[cfg(any(not(debug_assertions), test))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PlatformKind {
+    #[cfg(any(target_os = "windows", test))]
     Windows,
+    #[cfg(any(target_os = "linux", test))]
     Linux,
+    #[cfg(any(target_os = "macos", test))]
     Macos,
 }
 
@@ -91,13 +94,16 @@ fn packaged_path(platform: PlatformKind, executable: &str, appimage: bool) -> bo
     }
 
     match platform {
+        #[cfg(any(target_os = "macos", test))]
         PlatformKind::Macos => normalized.contains(".app/contents/macos/"),
+        #[cfg(any(target_os = "linux", test))]
         PlatformKind::Linux => {
             appimage
                 || normalized.starts_with("/usr/bin/")
                 || normalized.starts_with("/usr/local/bin/")
                 || normalized.starts_with("/opt/")
         }
+        #[cfg(any(target_os = "windows", test))]
         PlatformKind::Windows => {
             normalized.contains("/program files/")
                 || normalized.contains("/appdata/local/commandeer/")

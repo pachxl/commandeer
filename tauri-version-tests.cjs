@@ -1,7 +1,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { buildArgs, resolveBuildVersion } = require('./tauri.cjs')
+const { buildArgs, resolveBuildVersion, tauriInvocation } = require('./tauri.cjs')
 
 test('release environment is the authoritative build version', () => {
   assert.equal(resolveBuildVersion({ releaseVersion: '2.3.4', gitTag: '1.0.14' }), '2.3.4')
@@ -23,4 +23,11 @@ test('build commands receive a Tauri version override', () => {
 test('dev commands and explicit configs are preserved', () => {
   assert.deepEqual(buildArgs(['dev'], '1.0.14'), ['dev'])
   assert.deepEqual(buildArgs(['build', '--config', 'custom.json'], '1.0.14'), ['build', '--config', 'custom.json'])
+})
+
+test('invokes the JavaScript CLI directly instead of a platform shell shim', () => {
+  const invocation = tauriInvocation(['build'], { node: 'node.exe', root: 'C:\\repo' })
+  assert.equal(invocation.executable, 'node.exe')
+  assert.match(invocation.args[0].replaceAll('\\', '/'), /node_modules\/@tauri-apps\/cli\/tauri\.js$/)
+  assert.equal(invocation.args[1], 'build')
 })

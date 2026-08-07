@@ -29,14 +29,21 @@ function buildArgs(args, version = resolveBuildVersion()) {
   return [...args, '--config', JSON.stringify({ version })]
 }
 
+function tauriInvocation(args, { node = process.execPath, root = __dirname } = {}) {
+  return {
+    executable: node,
+    args: [path.join(root, 'node_modules', '@tauri-apps', 'cli', 'tauri.js'), ...args],
+  }
+}
+
 function run() {
-  const executable = path.join(__dirname, 'node_modules', '.bin', process.platform === 'win32' ? 'tauri.cmd' : 'tauri')
   const args = buildArgs(process.argv.slice(2))
-  const result = spawnSync(executable, args, { stdio: 'inherit', env: process.env })
+  const invocation = tauriInvocation(args)
+  const result = spawnSync(invocation.executable, invocation.args, { stdio: 'inherit', env: process.env })
   if (result.error) throw result.error
   process.exitCode = result.status ?? 1
 }
 
 if (require.main === module) run()
 
-module.exports = { buildArgs, resolveBuildVersion }
+module.exports = { buildArgs, resolveBuildVersion, tauriInvocation }
