@@ -70,7 +70,9 @@ pub fn open_permission_settings(permission: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{permission_settings_url, permission_status};
+    use super::permission_settings_url;
+    #[cfg(target_os = "macos")]
+    use super::permission_status;
 
     #[test]
     fn maps_only_known_permission_panes() {
