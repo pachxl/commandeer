@@ -7,9 +7,10 @@
 //!
 //! - **Windows**: a low-level mouse hook (`WH_MOUSE_LL`) on a dedicated
 //!   message-pump thread watches for Alt + mouse button and swallows only the
-//!   button events. During an Alt + one-finger move, that thread also exposes a
-//!   transparent, no-activate touch target across the virtual desktop: adding a
-//!   second contact rebases the gesture into the existing resize path. A
+//!   button events. While Alt is held, that thread also exposes a transparent,
+//!   no-activate touch target across the virtual desktop: one contact moves the
+//!   touched window and adding a second contact rebases the gesture into the
+//!   existing resize path. A
 //!   separate mover thread samples the real cursor or touch gesture point at
 //!   ~200 Hz and repositions the window with `SetWindowPos`
 //!   (same architecture as AltSnap/AltDrag). Mouse-move events are NEVER
@@ -96,17 +97,18 @@ mod platform {
         BeginDeferWindowPos, BringWindowToTop, CallNextHookEx, CreateWindowExW, DefWindowProcW,
         DeferWindowPos, DestroyWindow, DispatchMessageW, EndDeferWindowPos, GetAncestor,
         GetClassNameW, GetCursorPos, GetDesktopWindow, GetForegroundWindow, GetMessageW,
-        GetShellWindow, GetSystemMetrics, GetWindowLongW, GetWindowRect, GetWindowThreadProcessId,
-        IsWindowVisible, IsZoomed, PostThreadMessageW, RegisterClassW, SetForegroundWindow,
-        SetLayeredWindowAttributes, SetTimer, SetWindowPos, SetWindowsHookExW, ShowWindow,
-        TranslateMessage, UnhookWindowsHookEx, UpdateLayeredWindow, WindowFromPoint, GA_ROOT,
-        GWL_STYLE, HHOOK, HWND_TOP, HWND_TOPMOST, LWA_ALPHA, MSG, MSLLHOOKSTRUCT,
-        SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-        SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
-        SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SW_SHOWNA, ULW_ALPHA,
-        WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONDOWN,
-        WM_RBUTTONUP, WM_TIMER, WM_TOUCH, WNDCLASSW, WS_CAPTION, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-        WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WS_THICKFRAME,
+        GetShellWindow, GetSystemMetrics, GetWindow, GetWindowLongW, GetWindowRect,
+        GetWindowThreadProcessId, IsWindowVisible, IsZoomed, PostThreadMessageW, RegisterClassW,
+        SetForegroundWindow, SetLayeredWindowAttributes, SetTimer, SetWindowPos, SetWindowsHookExW,
+        ShowWindow, TranslateMessage, UnhookWindowsHookEx, UpdateLayeredWindow, WindowFromPoint,
+        GA_ROOT, GWL_STYLE, GW_HWNDNEXT, HHOOK, HWND_TOP, HWND_TOPMOST, LWA_ALPHA, MSG,
+        MSLLHOOKSTRUCT, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+        SM_YVIRTUALSCREEN, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
+        SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SW_SHOWNA,
+        ULW_ALPHA, WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT,
+        WM_RBUTTONDOWN, WM_RBUTTONUP, WM_TIMER, WM_TOUCH, WNDCLASSW, WS_CAPTION, WS_EX_LAYERED,
+        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+        WS_THICKFRAME,
     };
 
     #[derive(Clone, Copy, PartialEq)]
@@ -261,10 +263,8 @@ mod platform {
 
     #[derive(Default)]
     struct TouchState {
-        // The primary touch remains routed to the app below us and arrives as
-        // compatibility mouse input. The temporary surface receives only the
-        // additional contacts that land after it appears.
         contacts: Vec<TouchContact>,
+        primary_id: Option<u32>,
     }
 
     static TOUCH_STATE: OnceLock<Mutex<TouchState>> = OnceLock::new();
@@ -584,7 +584,20 @@ mod platform {
     /// run inside the hook callback (LL-hook timeout would silently disable the
     /// whole hook). Only cheap, non-blocking reads happen here.
     unsafe fn begin_target(px: i32, py: i32) -> Option<(HWND, RECT, bool)> {
-        let root = GetAncestor(WindowFromPoint(POINT { x: px, y: py }), GA_ROOT);
+        let point = POINT { x: px, y: py };
+        let mut root = GetAncestor(WindowFromPoint(point), GA_ROOT);
+        // While Alt is held the native-touch surface is the topmost hit target.
+        // Walk downward through the top-level Z-order to find the first real
+        // draggable window whose bounds contain the contact/cursor point.
+        let touch_hwnd = HWND(TOUCH_HWND.load(Ordering::Relaxed) as *mut _);
+        let mut root_pid = 0u32;
+        GetWindowThreadProcessId(root, Some(&mut root_pid));
+        if !touch_hwnd.0.is_null()
+            && TOUCH_VISIBLE.load(Ordering::Relaxed)
+            && root_pid == GetCurrentProcessId()
+        {
+            root = window_below_touch_surface(touch_hwnd, point)?;
+        }
         if !is_draggable_root(root) {
             return None;
         }
@@ -593,6 +606,27 @@ mod platform {
             return None;
         }
         Some((root, rect, IsZoomed(root).as_bool()))
+    }
+
+    unsafe fn window_below_touch_surface(surface: HWND, point: POINT) -> Option<HWND> {
+        let mut candidate = GetWindow(surface, GW_HWNDNEXT).ok()?;
+        while !candidate.0.is_null() {
+            let mut rect = RECT::default();
+            if GetWindowRect(candidate, &mut rect).is_ok()
+                && point.x >= rect.left
+                && point.x < rect.right
+                && point.y >= rect.top
+                && point.y < rect.bottom
+                && is_draggable_root(candidate)
+            {
+                return Some(candidate);
+            }
+            candidate = match GetWindow(candidate, GW_HWNDNEXT) {
+                Ok(next) => next,
+                Err(_) => break,
+            };
+        }
+        None
     }
 
     /// A top-level window we're allowed to move/resize: visible, not one of our
@@ -1133,13 +1167,11 @@ mod platform {
 
     // ---- Touch capture surface --------------------------------------------
     //
-    // The primary touchscreen contact is promoted by Windows to compatibility
-    // mouse input, so the low-level hook starts the ordinary move path. Once
-    // that happens, this almost-transparent surface is placed over the virtual
-    // desktop. The primary contact remains implicitly captured by its original
-    // target; any additional contact lands here as WM_TOUCH and switches the
-    // gesture to resize. Keeping the surface hidden until a qualifying Alt +
-    // touch means ordinary touchscreen input is never intercepted.
+    // Windows does not consistently promote touchscreen contacts into the
+    // low-level mouse hook (modern apps commonly receive native pointer input
+    // only). While Alt is down, place this almost-transparent surface over the
+    // virtual desktop and read WM_TOUCH directly. It is hidden again as soon as
+    // Alt is released and all contacts are up, so ordinary touch is untouched.
     static TOUCH_HWND: AtomicIsize = AtomicIsize::new(0);
     static TOUCH_VISIBLE: AtomicBool = AtomicBool::new(false);
 
@@ -1207,11 +1239,12 @@ mod platform {
             }
             return;
         }
-        let has_secondary = touch_state()
+        let has_contacts = touch_state()
             .lock()
             .map(|touch| !touch.contacts.is_empty())
             .unwrap_or(false);
-        let needed = TOUCH_PRIMARY_DOWN.load(Ordering::Relaxed) || has_secondary;
+        let alt = alt_down();
+        let needed = alt || has_contacts;
         if needed {
             if !TOUCH_VISIBLE.swap(true, Ordering::Relaxed) {
                 let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -1237,10 +1270,7 @@ mod platform {
 
         // Releasing Alt cancels the manipulation, just like releasing the
         // relevant mouse button. Continue capturing until every finger lifts.
-        if !alt_down()
-            && ACTIVE.load(Ordering::Relaxed)
-            && TOUCH_PRIMARY_DOWN.load(Ordering::Relaxed)
-        {
+        if !alt && ACTIVE.load(Ordering::Relaxed) && TOUCH_PRIMARY_DOWN.load(Ordering::Relaxed) {
             finish_touch_drag();
         }
     }
@@ -1260,54 +1290,126 @@ mod platform {
             return;
         }
 
-        let mut touch = match touch_state().lock() {
-            Ok(touch) => touch,
-            Err(_) => return,
-        };
-        for input in inputs {
-            // WM_TOUCH coordinates are hundredths of a physical screen pixel.
-            let contact = TouchContact {
-                id: input.dwID,
-                x: input.x / 100,
-                y: input.y / 100,
+        let (primary, secondary, primary_lifted, contacts_empty) = {
+            let mut touch = match touch_state().lock() {
+                Ok(touch) => touch,
+                Err(_) => return,
             };
-            if input.dwFlags.0 & TOUCHEVENTF_UP.0 != 0 {
-                touch.contacts.retain(|existing| existing.id != contact.id);
-            } else if let Some(existing) = touch
-                .contacts
-                .iter_mut()
-                .find(|existing| existing.id == contact.id)
-            {
-                *existing = contact;
-            } else if input.dwFlags.0 & TOUCHEVENTF_DOWN.0 != 0 {
-                touch.contacts.push(contact);
+            for input in inputs {
+                // WM_TOUCH coordinates are hundredths of a physical screen pixel.
+                let contact = TouchContact {
+                    id: input.dwID,
+                    x: input.x / 100,
+                    y: input.y / 100,
+                };
+                if input.dwFlags.0 & TOUCHEVENTF_UP.0 != 0 {
+                    touch.contacts.retain(|existing| existing.id != contact.id);
+                } else if let Some(existing) = touch
+                    .contacts
+                    .iter_mut()
+                    .find(|existing| existing.id == contact.id)
+                {
+                    *existing = contact;
+                } else if input.dwFlags.0 & TOUCHEVENTF_DOWN.0 != 0 {
+                    touch.contacts.push(contact);
+                }
             }
-        }
 
-        if !TOUCH_PRIMARY_DOWN.load(Ordering::Relaxed) || TOUCH_BLOCKED.load(Ordering::Relaxed) {
-            return;
-        }
-        let Some(secondary) = touch.contacts.first().copied() else {
-            if TOUCH_RESIZE.load(Ordering::Relaxed) {
+            let primary_lifted = touch
+                .primary_id
+                .is_some_and(|id| !touch.contacts.iter().any(|contact| contact.id == id));
+            if primary_lifted {
+                touch.primary_id = None;
+            }
+            if touch.primary_id.is_none()
+                && !touch.contacts.is_empty()
+                && !TOUCH_BLOCKED.load(Ordering::Relaxed)
+                && alt_down()
+            {
+                touch.primary_id = Some(touch.contacts[0].id);
+            }
+            let primary = touch.primary_id.and_then(|id| {
+                touch
+                    .contacts
+                    .iter()
+                    .find(|contact| contact.id == id)
+                    .copied()
+            });
+            let secondary = touch.primary_id.and_then(|primary_id| {
+                touch
+                    .contacts
+                    .iter()
+                    .find(|contact| contact.id != primary_id)
+                    .copied()
+            });
+            (
+                primary,
+                secondary,
+                primary_lifted,
+                touch.contacts.is_empty(),
+            )
+        };
+
+        if primary_lifted {
+            TOUCH_PRIMARY_DOWN.store(false, Ordering::Relaxed);
+            if ACTIVE.load(Ordering::Relaxed) {
                 finish_touch_drag();
             }
+        }
+        if contacts_empty {
+            TOUCH_BLOCKED.store(false, Ordering::Relaxed);
             return;
-        };
-        SECONDARY_X.store(secondary.x, Ordering::Relaxed);
-        SECONDARY_Y.store(secondary.y, Ordering::Relaxed);
-        update_touch_midpoint(secondary.x, secondary.y);
+        }
+        if TOUCH_BLOCKED.load(Ordering::Relaxed) {
+            return;
+        }
+        let Some(primary) = primary else { return };
 
-        if !TOUCH_RESIZE.swap(true, Ordering::Relaxed) {
-            rebase_touch_resize();
+        TOUCH_X.store(primary.x, Ordering::Relaxed);
+        TOUCH_Y.store(primary.y, Ordering::Relaxed);
+        if !TOUCH_PRIMARY_DOWN.load(Ordering::Relaxed) && !begin_touch_move(primary.x, primary.y) {
+            TOUCH_BLOCKED.store(true, Ordering::Relaxed);
+            return;
+        }
+
+        if let Some(secondary) = secondary {
+            SECONDARY_X.store(secondary.x, Ordering::Relaxed);
+            SECONDARY_Y.store(secondary.y, Ordering::Relaxed);
+            TOUCH_X.store((primary.x + secondary.x) / 2, Ordering::Relaxed);
+            TOUCH_Y.store((primary.y + secondary.y) / 2, Ordering::Relaxed);
+            if !TOUCH_RESIZE.swap(true, Ordering::Relaxed) {
+                rebase_touch_resize();
+            }
+        } else if TOUCH_RESIZE.load(Ordering::Relaxed) {
+            finish_touch_drag();
         }
     }
 
-    unsafe fn update_touch_midpoint(secondary_x: i32, secondary_y: i32) {
-        let mut primary = POINT::default();
-        if GetCursorPos(&mut primary).is_ok() {
-            TOUCH_X.store((primary.x + secondary_x) / 2, Ordering::Relaxed);
-            TOUCH_Y.store((primary.y + secondary_y) / 2, Ordering::Relaxed);
+    unsafe fn begin_touch_move(px: i32, py: i32) -> bool {
+        hide_indicator();
+        let mut st = match state().lock() {
+            Ok(st) => st,
+            Err(_) => return false,
+        };
+        // A compatibility mouse-down may have reached the hook just before the
+        // corresponding WM_TOUCH. Adopt that same gesture and switch its point
+        // source to native touch instead of starting it twice.
+        if st.active {
+            if !TOUCH_PRIMARY_DOWN.load(Ordering::Relaxed) {
+                return false;
+            }
+        } else {
+            let Some((hwnd, rect, restore_max)) = begin_target(px, py) else {
+                return false;
+            };
+            configure_drag(&mut st, Mode::Move, hwnd, rect, restore_max, px, py);
+            GEN.fetch_add(1, Ordering::Relaxed);
+            ACTIVE.store(true, Ordering::Relaxed);
         }
+        TOUCH_PRIMARY_DOWN.store(true, Ordering::Relaxed);
+        TOUCH_RESIZE.store(false, Ordering::Relaxed);
+        TOUCH_SOURCE.store(true, Ordering::Relaxed);
+        true
     }
 
     unsafe fn rebase_touch_resize() {
@@ -1502,12 +1604,21 @@ mod platform {
         // If the cursor is over our own window, it's the overlay itself — fall
         // back to the window we last locked onto (still under it).
         let target = if pid == GetCurrentProcessId() {
-            let cached = HWND(IND_TARGET.load(Ordering::Relaxed) as *mut _);
-            if cached.0.is_null() || !IsWindowVisible(cached).as_bool() {
-                hide_indicator();
-                return;
+            if TOUCH_VISIBLE.load(Ordering::Relaxed) {
+                let Some((underlying, _, _)) = begin_target(p.x, p.y) else {
+                    hide_indicator();
+                    return;
+                };
+                IND_TARGET.store(underlying.0 as isize, Ordering::Relaxed);
+                underlying
+            } else {
+                let cached = HWND(IND_TARGET.load(Ordering::Relaxed) as *mut _);
+                if cached.0.is_null() || !IsWindowVisible(cached).as_bool() {
+                    hide_indicator();
+                    return;
+                }
+                cached
             }
-            cached
         } else if is_draggable_root(root) {
             IND_TARGET.store(root.0 as isize, Ordering::Relaxed);
             root
