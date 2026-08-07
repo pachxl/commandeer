@@ -74,26 +74,21 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
-      - name: Set build version
-        shell: bash
-        env:
-          RELEASE_VERSION: ${{ needs.release-version.outputs.version }}
-        run: |
-          printf '{"version":"%s"}\n' "$RELEASE_VERSION" > src-tauri/tauri.release.conf.json
-
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+          # tauri.cjs is the single version resolver for local and CI builds.
+          RELEASE_VERSION: ${{ needs.release-version.outputs.version }}
           # linuxdeploy's bundled strip is older than some modern ELF
           # formats. Skipping that optional size pass keeps AppImage builds
           # portable across runner/toolchain updates.
           NO_STRIP: '1'
         with:
           tauriScript: bun tauri
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config src-tauri/tauri.release.conf.json
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
           tagName: ${{ needs.release-version.outputs.version }}
           releaseName: Commandeer ${{ needs.release-version.outputs.version }}
           generateReleaseNotes: true

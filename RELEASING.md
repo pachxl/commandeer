@@ -5,6 +5,12 @@ Windows x64, Linux x64, and macOS Apple Silicon/Intel packages, publishes them
 under GitHub Releases, and uploads the signed `latest.json` consumed by the
 application updater.
 
+`tauri.cjs` is the single build-version resolver. CI supplies
+`RELEASE_VERSION`; local builds use an exact numeric Git tag when HEAD is tagged,
+then fall back to `package.json` for untagged development commits. All Tauri
+commands run through the package script or `release.cjs`; do not invoke the
+binary under `node_modules/.bin` directly for a release build.
+
 The workflow's first run publishes tag `1.0.0`. Later runs automatically advance
 the patch component (`1.0.1`, `1.0.2`, and so on) using GitHub's persistent
 workflow run number. Update `RELEASE_SERIES` in the workflow when starting a new
@@ -27,6 +33,10 @@ Packaged release builds check the latest GitHub Release 30 seconds after launch
 and every six hours afterwards. A newer SemVer package is downloaded, signature
 verified, installed, and Commandeer is restarted. Development builds do not
 check for or install published updates.
+
+Optimized binaries launched directly from Cargo's `target/debug` or
+`target/release` directories also skip updates. Installed macOS app bundles,
+Linux AppImages/system packages, and Windows installer locations remain eligible.
 
 ## Keeping this document current
 

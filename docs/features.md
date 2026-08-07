@@ -106,9 +106,10 @@ after rate limits. On macOS the backend reads Keychain items through the stable
 
 ## Automatic updates
 
-Release builds wait 30 seconds, then check every six hours. The updater obeys
+Installed release packages wait 30 seconds, then check every six hours. The updater obeys
 `auto_update` on every cycle, verifies the Tauri signature, installs a newer
-SemVer release, and requests a restart. Debug builds do not update themselves.
+SemVer release, and requests a restart. Debug builds and optimized binaries run
+directly from a Cargo build directory do not update themselves.
 Signing and release artifact details belong in [`../RELEASING.md`](../RELEASING.md).
 
 ## Keeping this document current

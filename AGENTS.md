@@ -54,6 +54,10 @@ npm run format:check                 # prettier --check . + cargo fmt --check (C
 Release builds use Tauri's signed updater. The private signing key lives only in
 the `TAURI_SIGNING_PRIVATE_KEY` GitHub Actions secret; never commit or rotate it
 without an explicit migration plan because installed copies embed its public key.
+All Tauri builds run through `tauri.cjs`, which resolves the build version from
+`RELEASE_VERSION` in CI, an exact numeric Git tag locally, then `package.json` as
+a development fallback. Raw Cargo build-directory executables never auto-update;
+only installed packages do.
 
 Linux dev/test notes:
 

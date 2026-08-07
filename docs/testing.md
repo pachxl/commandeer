@@ -22,6 +22,10 @@ Run from the repository root unless noted:
 | Agent sync                | `node .agents/hooks/check-agent-sync.mjs`                   | Canonical/mirrored agent wiring                   |
 | Release binary            | `npm run tauri build -- --no-bundle`                        | Tauri release build, not a Vite-only dev artifact |
 
+The Tauri package script injects the exact numeric Git tag as the local build
+version (or `RELEASE_VERSION` in CI). This keeps a locally built release from
+mistaking the current published tag for an update.
+
 The repository’s `npm run format:check` also checks Rust formatting through its
 package script. Use `npm run format` only when formatting changes are intended.
 

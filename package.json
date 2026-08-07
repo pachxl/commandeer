@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "vitest run",
+    "test": "vitest run && node --test tauri-version-tests.cjs",
     "preview": "vite preview",
-    "tauri": "tauri",
+    "tauri": "node tauri.cjs",
     "release": "node release.cjs",
     "lint": "eslint .",
     "format": "prettier --write . && cargo fmt --manifest-path src-tauri/Cargo.toml",
