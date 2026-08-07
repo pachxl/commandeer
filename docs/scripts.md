@@ -53,7 +53,8 @@ git branch --show-current
 
 `inline` plus `refreshTime` creates a live row whose sublabel is captured stdout.
 The output is kept out of ranking text so refreshing it does not reorder the
-palette.
+palette. Inline scripts start only after the palette is confirmed focused and
+their timers are stopped again while it is hidden.
 
 ## Execution and safety
 

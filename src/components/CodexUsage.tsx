@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { useWindowFocused } from '../hooks/useWindowFocused'
 import { codexUsage, type CodexRateLimit, type CodexRateLimitWindow, type CodexUsageData } from '../lib/tauri'
 
 const CACHE_KEY = 'commandeer:codex-usage'
@@ -209,6 +209,7 @@ function planLabel(plan: string | null | undefined): string {
 }
 
 export default function CodexUsage() {
+  const windowFocused = useWindowFocused()
   const cacheRef = useRef<CachedUsage | null>(loadCached())
   const stateRef = useRef<PollState>(loadState())
   const inFlightRef = useRef<Promise<void> | null>(null)
@@ -219,9 +220,11 @@ export default function CodexUsage() {
   const [now, setNow] = useState(Date.now())
 
   useEffect(() => {
+    if (!windowFocused) return
+    setNow(Date.now())
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
-  }, [])
+  }, [windowFocused])
 
   const refresh = useCallback((): Promise<void> => {
     if (inFlightRef.current) return inFlightRef.current
@@ -275,14 +278,8 @@ export default function CodexUsage() {
   }, [])
 
   useEffect(() => {
-    void refresh()
-    const unlisten = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      if (focused) void refresh()
-    })
-    return () => {
-      void unlisten.then(fn => fn())
-    }
-  }, [refresh])
+    if (windowFocused) void refresh()
+  }, [refresh, windowFocused])
 
   const limits = cache ? displayLimits(cache.data) : []
   const showRateLimit = rateLimitedUntil > now

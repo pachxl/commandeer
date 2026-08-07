@@ -29,6 +29,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 # Self-hosted file index: SQLite + FTS5 (trigram tokenizer)
 rusqlite = { version = "0.32", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
+tempfile = "3"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 arboard = "3"
 # Screenshot tool: crop the frozen frame + PNG encode/decode

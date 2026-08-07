@@ -70,7 +70,16 @@ export const clipboardProvider: CommandProvider = {
       // Findable by search but kept out of the root browse list
       searchOnly: true,
       action: async () => {
+        const confirmed = await appEvents.confirm?.({
+          key: 'clear-clipboard-history',
+          message: 'Clear all clipboard history?',
+          detail: 'This clipboard history cannot be recovered.',
+          confirmLabel: 'Clear',
+          danger: true,
+        })
+        if (!confirmed) return
         await clearClipboardHistory()
+        appEvents.toast?.('Clipboard history cleared', 'success')
       },
     },
   ],

@@ -25,26 +25,30 @@ changes.
 | `src/commands/fileSearch.ts`           | Active-folder `@search` load/filter/open                             | [`features.md`](features.md)                               |
 | `src/commands/globalFileSearch.ts`     | Global `@find` ranking and icon/detail mapping                       | [`features.md`](features.md)                               |
 | `src/hooks/useInlineScripts.ts`        | Polls inline script output                                           | [`scripts.md`](scripts.md)                                 |
+| `src/hooks/useInlineScripts.test.ts`   | Hidden/focused inline polling regression tests                       | [`testing.md`](testing.md)                                 |
+| `src/hooks/useWindowFocused.ts`        | Shared conservative native-window focus lifecycle                    | [`frontend.md`](frontend.md)                               |
+| `src/hooks/useWindowFocused.test.ts`   | Initial focus and late-listener cleanup regression tests             | [`testing.md`](testing.md)                                 |
 | `src/hooks/usePaletteFeedback.ts`      | Toast/feedback subscription and cleanup                              | [`frontend.md`](frontend.md)                               |
 | `src/hooks/usePaletteFeedback.test.ts` | Feedback cleanup regression tests                                    | [`testing.md`](testing.md)                                 |
 | `src/hooks/usePaletteWindowSize.ts`    | Measures and resizes the palette, especially Linux                   | [`platforms.md`](platforms.md)                             |
 
 ## Frontend providers
 
-| File                           | Responsibility                                            | Detailed page                |
-| ------------------------------ | --------------------------------------------------------- | ---------------------------- |
-| `src/providers/index.ts`       | Provider registry, priority ordering, isolation           | [`frontend.md`](frontend.md) |
-| `src/providers/appLauncher.ts` | Installed app cache, running badges, launch commands      | [`features.md`](features.md) |
-| `src/providers/bookmarks.ts`   | Browser bookmark loading/search commands                  | [`commands.md`](commands.md) |
-| `src/providers/calculator.ts`  | Calculator query results and currency warmup              | [`commands.md`](commands.md) |
-| `src/providers/clipboard.ts`   | Clipboard History step and clear action                   | [`features.md`](features.md) |
-| `src/providers/notes.ts`       | Note add/remove/copy commands                             | [`storage.md`](storage.md)   |
-| `src/providers/processes.ts`   | Process grouping, kill step, inline kill search           | [`commands.md`](commands.md) |
-| `src/providers/quicklinks.ts`  | Templated links and CRUD steps                            | [`storage.md`](storage.md)   |
-| `src/providers/screenshot.ts`  | Screenshot palette trigger                                | [`features.md`](features.md) |
-| `src/providers/system.ts`      | Power/session/appearance command definitions              | [`commands.md`](commands.md) |
-| `src/providers/tools.ts`       | Tools folder, calculator/time-zone steps, virtual folders | [`frontend.md`](frontend.md) |
-| `src/providers/volume.ts`      | Output-device sliders and Windows mixer entry             | [`features.md`](features.md) |
+| File                                       | Responsibility                                            | Detailed page                |
+| ------------------------------------------ | --------------------------------------------------------- | ---------------------------- |
+| `src/providers/index.ts`                   | Provider registry, priority ordering, isolation           | [`frontend.md`](frontend.md) |
+| `src/providers/appLauncher.ts`             | Installed app cache, running badges, launch commands      | [`features.md`](features.md) |
+| `src/providers/bookmarks.ts`               | Browser bookmark loading/search commands                  | [`commands.md`](commands.md) |
+| `src/providers/calculator.ts`              | Calculator query results and currency warmup              | [`commands.md`](commands.md) |
+| `src/providers/clipboard.ts`               | Clipboard History step and clear action                   | [`features.md`](features.md) |
+| `src/providers/notes.ts`                   | Note add/remove/copy commands                             | [`storage.md`](storage.md)   |
+| `src/providers/processes.ts`               | Process grouping, kill step, inline kill search           | [`commands.md`](commands.md) |
+| `src/providers/quicklinks.ts`              | Templated links and CRUD steps                            | [`storage.md`](storage.md)   |
+| `src/providers/screenshot.ts`              | Screenshot palette trigger                                | [`features.md`](features.md) |
+| `src/providers/system.ts`                  | Power/session/appearance command definitions              | [`commands.md`](commands.md) |
+| `src/providers/tools.ts`                   | Tools folder, calculator/time-zone steps, virtual folders | [`frontend.md`](frontend.md) |
+| `src/providers/volume.ts`                  | Output-device sliders and Windows mixer entry             | [`features.md`](features.md) |
+| `src/providers/destructiveActions.test.ts` | Destructive provider confirmation regressions             | [`testing.md`](testing.md)   |
 
 ## Frontend components
 
@@ -85,6 +89,7 @@ changes.
 | `src/lib/paletteItems.ts`        | Command-to-item and visible-item helpers        | [`frontend.md`](frontend.md)                             |
 | `src/lib/paletteRanking.ts`      | Fuzzy/relevance/frecency ranking                | [`frontend.md`](frontend.md)                             |
 | `src/lib/fuzzy.ts`               | Fzf matching and highlight helpers              | [`frontend.md`](frontend.md)                             |
+| `src/lib/fuzzy.test.ts`          | Weighted and single-character fuzzy regressions | [`testing.md`](testing.md)                               |
 | `src/lib/frecency.ts`            | Bounded localStorage usage ranking              | [`storage.md`](storage.md)                               |
 | `src/lib/confirm.ts`             | Suppressed-confirm persistence and request API  | [`frontend.md`](frontend.md), [`storage.md`](storage.md) |
 | `src/lib/appEvents.ts`           | Mutable bridge for App-owned callbacks          | [`architecture.md`](architecture.md)                     |
@@ -116,6 +121,7 @@ changes.
 | `src-tauri/src/commands/explorer.rs`         | Active Explorer/Finder folder and recursive listing | [`features.md`](features.md), [`platforms.md`](platforms.md)                          |
 | `src-tauri/src/commands/bookmarks.rs`        | Browser bookmark discovery                          | [`commands.md`](commands.md)                                                          |
 | `src-tauri/src/commands/store.rs`            | Notes, Quick Links, themes, overrides files         | [`storage.md`](storage.md)                                                            |
+| `src-tauri/src/commands/persistence.rs`      | Atomic replacement for app-owned persistent files   | [`storage.md`](storage.md)                                                            |
 | `src-tauri/src/commands/clipboard.rs`        | Clipboard monitor and text IPC                      | [`features.md`](features.md)                                                          |
 | `src-tauri/src/commands/clipboard/db.rs`     | Clipboard SQLite schema, retention, migrations      | [`storage.md`](storage.md)                                                            |
 | `src-tauri/src/commands/clipboard/crypto.rs` | DPAPI/ChaCha encryption and key sources             | [`features.md`](features.md), [`storage.md`](storage.md)                              |

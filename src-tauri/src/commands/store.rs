@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::Manager;
+
+use super::persistence::atomic_write;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Quicklink {
@@ -33,7 +35,7 @@ fn notes_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app_data_dir(app)?.join("notes.json"))
 }
 
-fn read_json_file<T>(path: &PathBuf) -> Result<Vec<T>, String>
+fn read_json_file<T>(path: &Path) -> Result<Vec<T>, String>
 where
     T: for<'de> Deserialize<'de>,
 {
@@ -44,12 +46,12 @@ where
     serde_json::from_str(&raw).map_err(|e| e.to_string())
 }
 
-fn write_json_file<T>(path: &PathBuf, value: &Vec<T>) -> Result<(), String>
+fn write_json_file<T>(path: &Path, value: &[T]) -> Result<(), String>
 where
     T: Serialize,
 {
     let json = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
-    fs::write(path, json).map_err(|e| e.to_string())
+    atomic_write(path, json)
 }
 
 #[tauri::command]
@@ -188,5 +190,5 @@ pub async fn write_overrides(
     overrides: HashMap<String, CommandOverride>,
 ) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&overrides).map_err(|e| e.to_string())?;
-    fs::write(overrides_path(&app)?, json).map_err(|e| e.to_string())
+    atomic_write(&overrides_path(&app)?, json)
 }

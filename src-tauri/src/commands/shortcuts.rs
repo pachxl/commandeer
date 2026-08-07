@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
 use super::config::AppConfig;
+use super::persistence::atomic_write;
 use super::store::CommandOverride;
 
 /// Active command hotkeys so we can unregister them on reload.
@@ -350,7 +351,7 @@ pub async fn set_global_hotkey(
 
     let path = config_path(&app)?;
     let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    atomic_write(&path, json)?;
 
     register_base_hotkey(&app, &config, game_mode)?;
 
@@ -380,7 +381,7 @@ pub async fn set_screenshot_hotkey(app: AppHandle, hotkey: String) -> Result<(),
 
     let path = config_path(&app)?;
     let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    atomic_write(&path, json)?;
 
     #[cfg(target_os = "windows")]
     register_screenshot_hotkey(&app, &config);
@@ -407,7 +408,7 @@ pub async fn set_command_hotkey(
     }
 
     let json = serde_json::to_string_pretty(&overrides).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    atomic_write(&path, json)?;
 
     register_command_hotkeys(&app, &overrides)
 }

@@ -42,7 +42,10 @@ The complete format is documented in [`scripts.md`](scripts.md).
 Everything IPC protocol when available, then a walkdir fallback. The frontend
 adds fuzzy matching, filename substring boosts, and junk-path down-ranking.
 `file_index.rs` scans configured roots at startup and watches them for changes;
-it skips hidden/build-heavy paths and caps scan depth.
+it prunes hidden, dependency, VCS, cache, and generated-output directories before
+descent and caps scan depth. Watcher changes use the same exclusions and
+reconcile directory creates, renames, and removals recursively, so bulk file
+operations do not require a restart to become consistent.
 
 `@search` captures the previously focused Explorer/Finder location before the
 palette appears, lists the folder recursively once, then filters the returned

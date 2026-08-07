@@ -25,6 +25,24 @@ use tauri::{AppHandle, Emitter, Manager};
 const BATCH_SIZE: usize = 256;
 const IO_PACE_MS: u64 = 2;
 const SCAN_DEPTH: usize = 8;
+const WATCH_DEBOUNCE_MS: u64 = 200;
+
+/// Dependency, VCS, and generated-output directories that are pruned before
+/// descent. Hidden entries are handled separately so this list only needs the
+/// visible names that commonly dominate a recursive walk.
+const SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    "bower_components",
+    "vendor",
+    "Pods",
+    "__pycache__",
+    "venv",
+    "target",
+    "build",
+    "dist",
+    "out",
+    "$RECYCLE.BIN",
+];
 
 #[derive(Debug, Clone, Serialize)]
 pub struct IndexedFile {
@@ -192,8 +210,9 @@ impl FileIndex {
 
     /// Remove a path from the index.
     fn remove_path(&self, path: &str) -> Result<(), String> {
-        let conn = self.conn.lock().unwrap();
-        let rowid: Option<i64> = conn
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let rowid: Option<i64> = tx
             .query_row(
                 "SELECT rowid FROM indexed_file WHERE path = ?",
                 [path],
@@ -202,67 +221,56 @@ impl FileIndex {
             .optional()
             .map_err(|e| e.to_string())?;
         if let Some(rowid) = rowid {
-            conn.execute("DELETE FROM path_idx WHERE rowid = ?", [rowid])
+            tx.execute("DELETE FROM path_idx WHERE rowid = ?", [rowid])
                 .map_err(|e| e.to_string())?;
-            conn.execute("DELETE FROM indexed_file WHERE rowid = ?", [rowid])
+            tx.execute("DELETE FROM indexed_file WHERE rowid = ?", [rowid])
                 .map_err(|e| e.to_string())?;
         }
-        Ok(())
+        tx.commit().map_err(|e| e.to_string())
     }
 
     /// Add or update a single path in the index.
     fn upsert_path(&self, path: &str, modified: i64, size: i64) -> Result<(), String> {
-        let conn = self.conn.lock().unwrap();
-        let existing: Option<i64> = conn
-            .query_row(
-                "SELECT rowid FROM indexed_file WHERE path = ?",
-                [path],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?;
-
-        if let Some(rowid) = existing {
-            conn.execute("DELETE FROM path_idx WHERE rowid = ?", [rowid])
-                .map_err(|e| e.to_string())?;
-            conn.execute("DELETE FROM indexed_file WHERE rowid = ?", [rowid])
-                .map_err(|e| e.to_string())?;
-        } else {
-            conn.execute("INSERT INTO path_idx(path) VALUES (?)", [path])
-                .map_err(|e| e.to_string())?;
-            let rowid = conn.last_insert_rowid();
-            conn.execute(
-                "INSERT INTO indexed_file(rowid, path, modified, size) VALUES (?, ?, ?, ?)",
-                params![rowid, path, modified, size],
-            )
-            .map_err(|e| e.to_string())?;
-        }
-        Ok(())
+        flush_batch(self, &[(path.to_string(), modified, size)])
     }
 
-    /// Mark all entries under a directory prefix as needing validation; paths
-    /// whose files no longer exist are removed. Called after a rename/remove.
-    fn invalidate_prefix(&self, prefix: &str) -> Result<(), String> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn
-            .prepare("SELECT rowid, path FROM indexed_file WHERE path LIKE ? || '%'")
+    /// Remove an exact path and every indexed descendant in one transaction.
+    /// This does not inspect the filesystem: remove and rename events arrive
+    /// after the old directory has disappeared, so `Path::is_dir` cannot tell
+    /// whether the event represented a file or a directory.
+    fn remove_prefix(&self, prefix: &str) -> Result<(), String> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let mut stmt = tx
+            .prepare(
+                "SELECT rowid FROM indexed_file
+                 WHERE path = ?1 OR path LIKE ?2 ESCAPE '\\'",
+            )
             .map_err(|e| e.to_string())?;
-        let rows: Vec<(i64, String)> = stmt
-            .query_map([prefix], |row| Ok((row.get(0)?, row.get(1)?)))
+        let descendant_pattern = descendant_like_pattern(prefix);
+        let rowids: Vec<i64> = stmt
+            .query_map(params![prefix, descendant_pattern], |row| row.get(0))
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
         drop(stmt);
 
-        for (rowid, path) in rows {
-            if !Path::new(&path).exists() {
-                conn.execute("DELETE FROM path_idx WHERE rowid = ?", [rowid])
-                    .map_err(|e| e.to_string())?;
-                conn.execute("DELETE FROM indexed_file WHERE rowid = ?", [rowid])
-                    .map_err(|e| e.to_string())?;
-            }
+        for rowid in rowids {
+            tx.execute("DELETE FROM path_idx WHERE rowid = ?", [rowid])
+                .map_err(|e| e.to_string())?;
+            tx.execute("DELETE FROM indexed_file WHERE rowid = ?", [rowid])
+                .map_err(|e| e.to_string())?;
         }
-        Ok(())
+        tx.commit().map_err(|e| e.to_string())
+    }
+}
+
+fn descendant_like_pattern(prefix: &str) -> String {
+    let normalized = prefix.trim_end_matches('/');
+    if normalized.is_empty() {
+        "/%".to_string()
+    } else {
+        format!("{}/%", escape_like(normalized))
     }
 }
 
@@ -331,14 +339,24 @@ fn is_significant_event(event: &notify::Event) -> bool {
     }
 }
 
-fn should_index(path: &Path) -> bool {
-    // Skip hidden files/dirs, obvious temp dirs, and very deep paths.
-    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-        if name.starts_with('.') || name == "$RECYCLE.BIN" || name == "node_modules" {
+fn should_skip_name(name: &std::ffi::OsStr) -> bool {
+    let name = name.to_string_lossy();
+    name.starts_with('.') || SKIP_DIRS.iter().any(|skip| name.eq_ignore_ascii_case(skip))
+}
+
+/// Whether a path is inside a configured root, within the scan-depth cap, and
+/// contains no ignored component below that root. An explicitly configured
+/// hidden root remains valid; only its descendants are evaluated.
+fn should_index_in_roots(path: &Path, roots: &[PathBuf]) -> bool {
+    roots.iter().any(|root| {
+        let Ok(relative) = path.strip_prefix(root) else {
             return false;
-        }
-    }
-    true
+        };
+        relative.components().count() <= SCAN_DEPTH
+            && relative
+                .components()
+                .all(|component| !should_skip_name(component.as_os_str()))
+    })
 }
 
 fn expand_tilde(path: &str) -> PathBuf {
@@ -418,6 +436,7 @@ fn scan_index(index: &FileIndex, roots: &[PathBuf]) -> Result<usize, String> {
             .max_depth(SCAN_DEPTH)
             .follow_links(false)
             .into_iter()
+            .filter_entry(|entry| entry.depth() == 0 || !should_skip_name(entry.file_name()))
             .filter_map(|e| e.ok());
 
         for entry in walker {
@@ -425,7 +444,7 @@ fn scan_index(index: &FileIndex, roots: &[PathBuf]) -> Result<usize, String> {
             if !path.is_file() {
                 continue;
             }
-            if !should_index(path) {
+            if !should_index_in_roots(path, roots) {
                 continue;
             }
             let path_str = path.to_string_lossy().replace('\\', "/");
@@ -460,14 +479,15 @@ fn scan_index(index: &FileIndex, roots: &[PathBuf]) -> Result<usize, String> {
 
     // Remove stale paths.
     let stale: Vec<String> = existing.difference(&seen).cloned().collect();
+    let removed = stale.len();
     for path in stale {
-        let _ = index.remove_path(&path);
+        index.remove_path(&path)?;
     }
 
     eprintln!(
         "File index scan complete: {} inserted/updated, {} removed in {:?}",
         inserted,
-        existing.len().saturating_sub(seen.len()),
+        removed,
         start.elapsed()
     );
     Ok(inserted)
@@ -509,6 +529,121 @@ fn flush_batch(index: &FileIndex, batch: &[(String, i64, i64)]) -> Result<(), St
     tx.commit().map_err(|e| e.to_string())
 }
 
+fn normalized_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn file_metadata(path: &Path) -> Option<(i64, i64)> {
+    let meta = fs::metadata(path).ok()?;
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0);
+    Some((modified, meta.len() as i64))
+}
+
+fn remaining_scan_depth(path: &Path, roots: &[PathBuf]) -> Option<usize> {
+    roots
+        .iter()
+        .filter_map(|root| path.strip_prefix(root).ok())
+        .map(|relative| relative.components().count())
+        .min()
+        .and_then(|depth| SCAN_DEPTH.checked_sub(depth))
+}
+
+fn indexed_paths_under(index: &FileIndex, prefix: &str) -> Result<HashSet<String>, String> {
+    let conn = index.conn.lock().unwrap();
+    let mut stmt = conn
+        .prepare(
+            "SELECT path FROM indexed_file
+             WHERE path = ?1 OR path LIKE ?2 ESCAPE '\\'",
+        )
+        .map_err(|e| e.to_string())?;
+    let descendant_pattern = descendant_like_pattern(prefix);
+    let paths = stmt
+        .query_map(params![prefix, descendant_pattern], |row| row.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<HashSet<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(paths)
+}
+
+/// Reconcile an existing directory and all indexable descendants. Native
+/// watchers are allowed to report only the directory for a bulk create or
+/// rename, so handling just `event.paths` would miss the files below it.
+fn reconcile_subtree(index: &FileIndex, directory: &Path, roots: &[PathBuf]) -> Result<(), String> {
+    let directory_str = normalized_path(directory);
+    let existing = indexed_paths_under(index, &directory_str)?;
+    let mut seen = HashSet::with_capacity(existing.len());
+    let Some(max_depth) = remaining_scan_depth(directory, roots) else {
+        return index.remove_prefix(&directory_str);
+    };
+
+    let walker = walkdir::WalkDir::new(directory)
+        .max_depth(max_depth)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| entry.depth() == 0 || !should_skip_name(entry.file_name()))
+        .filter_map(|entry| entry.ok());
+    let mut batch = Vec::with_capacity(BATCH_SIZE);
+    for entry in walker {
+        let path = entry.path();
+        if !path.is_file() || !should_index_in_roots(path, roots) {
+            continue;
+        }
+        let Some((modified, size)) = file_metadata(path) else {
+            continue;
+        };
+        let path = normalized_path(path);
+        seen.insert(path.clone());
+        batch.push((path, modified, size));
+        if batch.len() >= BATCH_SIZE {
+            flush_batch(index, &batch)?;
+            batch.clear();
+        }
+    }
+    if !batch.is_empty() {
+        flush_batch(index, &batch)?;
+    }
+
+    for stale in existing.difference(&seen) {
+        index.remove_path(stale)?;
+    }
+    Ok(())
+}
+
+fn reconcile_path(index: &FileIndex, path: &Path, roots: &[PathBuf]) -> Result<(), String> {
+    let path_str = normalized_path(path);
+    if !should_index_in_roots(path, roots) {
+        return index.remove_prefix(&path_str);
+    }
+    if path.is_file() {
+        if let Some((modified, size)) = file_metadata(path) {
+            return index.upsert_path(&path_str, modified, size);
+        }
+    } else if path.is_dir() {
+        return reconcile_subtree(index, path, roots);
+    }
+
+    // Missing paths can be either files or directories. Remove the prefix so
+    // both cases are correct without relying on post-removal metadata.
+    index.remove_prefix(&path_str)
+}
+
+fn collect_debounced_events(
+    rx: &std::sync::mpsc::Receiver<notify::Event>,
+    first: notify::Event,
+    quiet_period: Duration,
+) -> Vec<notify::Event> {
+    let mut events = vec![first];
+    while let Ok(event) = rx.recv_timeout(quiet_period) {
+        events.push(event);
+    }
+    events
+}
+
 /// Spawn the index manager: scan once, then watch for changes.
 pub fn start_index_manager(app: AppHandle, index: FileIndex) {
     thread::spawn(move || {
@@ -543,91 +678,57 @@ pub fn start_index_manager(app: AppHandle, index: FileIndex) {
         // Debounce and apply watcher deltas.
         loop {
             if let Ok(event) = rx.recv() {
-                thread::sleep(Duration::from_millis(200));
-                while rx.try_recv().is_ok() {}
-                let _ = apply_event(&index, &event);
-                // Catch any stragglers from rapid renames.
-                thread::sleep(Duration::from_millis(50));
-                while let Ok(event) = rx.try_recv() {
-                    let _ = apply_event(&index, &event);
+                let events =
+                    collect_debounced_events(&rx, event, Duration::from_millis(WATCH_DEBOUNCE_MS));
+                for event in events {
+                    if let Err(error) = apply_event(&index, &roots, &event) {
+                        eprintln!("File watcher event failed: {error}");
+                    }
                 }
             }
         }
     });
 }
 
-fn apply_event(index: &FileIndex, event: &notify::Event) -> Result<(), String> {
+fn apply_event(index: &FileIndex, roots: &[PathBuf], event: &notify::Event) -> Result<(), String> {
+    if event.need_rescan() {
+        scan_index(index, roots)?;
+        return Ok(());
+    }
+
     match &event.kind {
         notify::EventKind::Create(_) => {
             for path in &event.paths {
-                if path.is_file() {
-                    if let Ok(meta) = fs::metadata(path) {
-                        let modified = meta
-                            .modified()
-                            .ok()
-                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                            .map(|d| d.as_secs() as i64)
-                            .unwrap_or(0);
-                        let size = meta.len() as i64;
-                        let path_str = path.to_string_lossy().replace('\\', "/");
-                        index.upsert_path(&path_str, modified, size)?;
-                    }
-                }
+                reconcile_path(index, path, roots)?;
             }
         }
         notify::EventKind::Remove(_) => {
             for path in &event.paths {
-                let path_str = path.to_string_lossy().replace('\\', "/");
-                index.remove_path(&path_str)?;
-                if path.is_dir() {
-                    index.invalidate_prefix(&path_str)?;
-                }
+                index.remove_prefix(&normalized_path(path))?;
             }
         }
         notify::EventKind::Modify(notify::event::ModifyKind::Name(_)) => {
-            // Rename: remove old, add new.
+            // A paired rename has the old path first and new path last. Remove
+            // the entire old subtree, then reconcile the new path recursively.
             if event.paths.len() >= 2 {
-                let old = event.paths[0].to_string_lossy().replace('\\', "/");
-                let new = event.paths[1].to_string_lossy().replace('\\', "/");
-                index.remove_path(&old)?;
-                if Path::new(&new).is_file() {
-                    if let Ok(meta) = fs::metadata(&new) {
-                        let modified = meta
-                            .modified()
-                            .ok()
-                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                            .map(|d| d.as_secs() as i64)
-                            .unwrap_or(0);
-                        let size = meta.len() as i64;
-                        index.upsert_path(&new, modified, size)?;
-                    }
-                }
+                index.remove_prefix(&normalized_path(&event.paths[0]))?;
+                reconcile_path(index, &event.paths[event.paths.len() - 1], roots)?;
             } else {
+                // Some backends emit rename-from and rename-to separately. A
+                // missing path is removed; an existing path is reconciled.
                 for path in &event.paths {
-                    let path_str = path.to_string_lossy().replace('\\', "/");
-                    index.remove_path(&path_str)?;
-                    index.invalidate_prefix(&path_str)?;
+                    reconcile_path(index, path, roots)?;
                 }
             }
         }
-        notify::EventKind::Modify(_) => {
+        notify::EventKind::Modify(_)
+        | notify::EventKind::Any
+        | notify::EventKind::Access(_)
+        | notify::EventKind::Other => {
             for path in &event.paths {
-                if path.is_file() {
-                    if let Ok(meta) = fs::metadata(path) {
-                        let modified = meta
-                            .modified()
-                            .ok()
-                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                            .map(|d| d.as_secs() as i64)
-                            .unwrap_or(0);
-                        let size = meta.len() as i64;
-                        let path_str = path.to_string_lossy().replace('\\', "/");
-                        index.upsert_path(&path_str, modified, size)?;
-                    }
-                }
+                reconcile_path(index, path, roots)?;
             }
         }
-        _ => {}
     }
     Ok(())
 }
@@ -657,8 +758,37 @@ fn read_roots(app: &AppHandle) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use notify::event::{CreateKind, ModifyKind, RemoveKind, RenameMode};
+    use notify::EventKind;
     use rusqlite::Connection;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
+
+    static NEXT_TEMP_DIR: AtomicUsize = AtomicUsize::new(0);
+
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new() -> Self {
+            let id = NEXT_TEMP_DIR.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "commandeer-file-index-test-{}-{id}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     /// Build a FileIndex backed by an in-memory DB with the real schema, so the
     /// DELETE-dependent methods run exactly as they do in production.
@@ -672,6 +802,22 @@ mod tests {
 
     fn paths(items: &[IndexedFile]) -> Vec<String> {
         items.iter().map(|i| i.path.clone()).collect()
+    }
+
+    fn all_paths(index: &FileIndex) -> Vec<String> {
+        let conn = index.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT path FROM indexed_file ORDER BY path")
+            .unwrap();
+        stmt.query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    }
+
+    fn write_test_file(path: &Path) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"test").unwrap();
     }
 
     /// Guards the file-index schema: the FTS5 table MUST support DELETE by
@@ -720,16 +866,128 @@ mod tests {
         assert_eq!(found[0].modified, 999);
         assert_eq!(found[0].size, 55);
 
-        // Watcher-style single upsert then removal.
+        // Watcher-style single upsert, update, then removal.
         index.upsert_path("home/user/notes.md", 300, 30).unwrap();
-        assert_eq!(index.search("notes", 10).unwrap().len(), 1);
+        index.upsert_path("home/user/notes.md", 400, 40).unwrap();
+        let notes = index.search("notes", 10).unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].modified, 400);
+        assert_eq!(notes[0].size, 40);
         index.remove_path("home/user/notes.md").unwrap();
         assert!(index.search("notes", 10).unwrap().is_empty());
 
-        // Prune entries whose files no longer exist on disk (paths above are
-        // synthetic, so invalidate_prefix should clear everything under it).
-        index.invalidate_prefix("home/user").unwrap();
+        // Removing a directory event must clear every descendant without
+        // relying on that now-missing directory's metadata.
+        index.remove_prefix("home/user").unwrap();
         assert!(index.search("report", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn scan_prunes_hidden_and_build_heavy_subtrees() {
+        let root = TestDir::new();
+        write_test_file(&root.path().join("visible/report.txt"));
+        write_test_file(&root.path().join(".hidden/secret.txt"));
+        write_test_file(&root.path().join("node_modules/package/index.js"));
+        write_test_file(&root.path().join("target/debug/binary"));
+        write_test_file(&root.path().join("build/generated.txt"));
+
+        let index = mem_index();
+        scan_index(&index, &[root.path().to_path_buf()]).unwrap();
+
+        assert_eq!(
+            all_paths(&index),
+            vec![normalized_path(&root.path().join("visible/report.txt"))]
+        );
+    }
+
+    #[test]
+    fn watcher_reconciles_directory_create_rename_and_remove() {
+        let root = TestDir::new();
+        let old_dir = root.path().join("old-folder");
+        let old_file = old_dir.join("nested/report.txt");
+        write_test_file(&old_file);
+        let roots = vec![root.path().to_path_buf()];
+        let index = mem_index();
+
+        let create =
+            notify::Event::new(EventKind::Create(CreateKind::Folder)).add_path(old_dir.clone());
+        apply_event(&index, &roots, &create).unwrap();
+        assert_eq!(all_paths(&index), vec![normalized_path(&old_file)]);
+
+        let new_dir = root.path().join("new-folder");
+        fs::rename(&old_dir, &new_dir).unwrap();
+        let new_file = new_dir.join("nested/report.txt");
+        let rename = notify::Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+            .add_path(old_dir)
+            .add_path(new_dir.clone());
+        apply_event(&index, &roots, &rename).unwrap();
+        assert_eq!(all_paths(&index), vec![normalized_path(&new_file)]);
+
+        fs::remove_dir_all(&new_dir).unwrap();
+        let remove = notify::Event::new(EventKind::Remove(RemoveKind::Folder)).add_path(new_dir);
+        apply_event(&index, &roots, &remove).unwrap();
+        assert!(all_paths(&index).is_empty());
+    }
+
+    #[test]
+    fn watcher_uses_the_same_exclusions_as_the_scanner() {
+        let root = TestDir::new();
+        let ignored = root.path().join("node_modules/package/index.js");
+        write_test_file(&ignored);
+        let roots = vec![root.path().to_path_buf()];
+        let index = mem_index();
+
+        let create = notify::Event::new(EventKind::Create(CreateKind::File)).add_path(ignored);
+        apply_event(&index, &roots, &create).unwrap();
+
+        assert!(all_paths(&index).is_empty());
+    }
+
+    #[test]
+    fn prefix_removal_stays_on_directory_boundaries_and_escapes_like_syntax() {
+        let index = mem_index();
+        flush_batch(
+            &index,
+            &[
+                ("home/user/project/file.txt".to_string(), 1, 1),
+                ("home/user/project-copy/keep.txt".to_string(), 1, 1),
+                ("home/user/100%/remove.txt".to_string(), 1, 1),
+                ("home/user/100-percent/keep.txt".to_string(), 1, 1),
+            ],
+        )
+        .unwrap();
+
+        index.remove_prefix("home/user/project").unwrap();
+        index.remove_prefix("home/user/100%").unwrap();
+
+        assert_eq!(
+            all_paths(&index),
+            vec![
+                "home/user/100-percent/keep.txt".to_string(),
+                "home/user/project-copy/keep.txt".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn debounce_preserves_every_queued_event() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let first = notify::Event::new(EventKind::Create(CreateKind::File))
+            .add_path(PathBuf::from("first.txt"));
+        for name in ["second.txt", "third.txt"] {
+            tx.send(
+                notify::Event::new(EventKind::Create(CreateKind::File))
+                    .add_path(PathBuf::from(name)),
+            )
+            .unwrap();
+        }
+
+        let events = collect_debounced_events(&rx, first, Duration::from_millis(1));
+
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0].paths[0], PathBuf::from("first.txt"));
+        assert_eq!(events[1].paths[0], PathBuf::from("second.txt"));
+        assert_eq!(events[2].paths[0], PathBuf::from("third.txt"));
     }
 
     /// Whitespace-separated terms are ANDed independently, so a query whose

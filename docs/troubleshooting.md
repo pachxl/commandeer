@@ -41,7 +41,8 @@ bug.
 ## Global search misses a file
 
 - `@find` indexes the configured roots, defaults to Desktop/Documents/Downloads,
-  skips hidden/build-heavy paths, caps depth, and may still be scanning.
+  prunes hidden, dependency, VCS, cache, and generated-output directories, caps
+  depth, and may still be scanning.
 - Wait for the `file-index-ready` event or restart after changing search roots.
 - The index is a cache; if its schema is stale, stop the app and remove only
   `<app-data>/file_index.db` so it can rebuild. Preserve user data and config.

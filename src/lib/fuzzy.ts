@@ -54,7 +54,7 @@ export function fuzzyScoreFieldsBatch<T>(items: T[], query: string, fields: Fuzz
           maxScore = Math.max(maxScore, field.weight * 100)
         }
       }
-      best.set(item, maxScore)
+      if (maxScore > 0) best.set(item, maxScore)
     }
     return best
   }

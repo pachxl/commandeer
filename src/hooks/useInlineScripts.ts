@@ -6,9 +6,9 @@
 // in Palette) — kept out of the reducer so a changing output never re-ranks
 // the list mid-tick.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { useCallback, useEffect, useState } from 'react'
 import { runScriptCapture } from '../lib/tauri'
+import { useWindowFocused } from './useWindowFocused'
 
 // An inline script the palette polls on a timer: its captured stdout replaces
 // the row's sublabel live (at render time, outside the ranked search text so
@@ -30,8 +30,7 @@ export function useInlineScripts(inlineScripts: InlineScript[]): UseInlineScript
   const [inlineOutputs, setInlineOutputs] = useState<Record<string, string>>({})
   // Whether the palette window is focused — polling pauses while hidden so we
   // don't run user scripts in the background.
-  const [windowFocused, setWindowFocused] = useState(true)
-  const inlineTimersRef = useRef<number[]>([])
+  const windowFocused = useWindowFocused()
 
   // Re-run an inline script and update its live sublabel. Used by the polling
   // timers and by Enter on an inline row (force-refresh). On error the
@@ -45,42 +44,29 @@ export function useInlineScripts(inlineScripts: InlineScript[]): UseInlineScript
     }
   }, [])
 
-  // Pause polling while the palette is hidden (focus loss auto-hides it) so we
-  // don't keep running user scripts in the background.
-  useEffect(() => {
-    const unlistenPromise = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      setWindowFocused(focused)
-    })
-    return () => {
-      void unlistenPromise.then(unlisten => unlisten())
-    }
-  }, [])
-
   // Seed + poll each inline script on its @vicinae.refreshTime interval. Only
   // runs while focused; re-seeds on re-focus.
   // Add random jitter to avoid thundering herd when multiple scripts poll simultaneously.
   useEffect(() => {
-    inlineTimersRef.current.forEach(clearInterval)
-    inlineTimersRef.current = []
     if (!windowFocused) return
+    const timers: number[] = []
     for (const s of inlineScripts) {
-      void refreshInline(s.path)
-      // Add jitter: random offset between 0-500ms to stagger polling
       const jitter = Math.random() * 500
       const interval = Math.max(1, s.refreshSeconds) * 1000
-      const id = window.setInterval(() => {
-        void refreshInline(s.path)
-      }, interval)
-      // Initial call with jitter to spread out the first batch
+      // Seed once after a small jitter, then start the recurring timer from
+      // that point so each focus session cannot execute the script twice.
       const initialTimeout = window.setTimeout(() => {
         void refreshInline(s.path)
+        const intervalId = window.setInterval(() => {
+          void refreshInline(s.path)
+        }, interval)
+        timers.push(intervalId)
       }, jitter)
-      inlineTimersRef.current.push(id, initialTimeout)
+      timers.push(initialTimeout)
     }
     return () => {
-      inlineTimersRef.current.forEach(clearInterval)
-      inlineTimersRef.current.forEach(clearTimeout)
-      inlineTimersRef.current = []
+      timers.forEach(clearTimeout)
+      timers.forEach(clearInterval)
     }
   }, [inlineScripts, windowFocused, refreshInline])
 

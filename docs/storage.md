@@ -31,6 +31,12 @@ The file index is a cache and can be rebuilt. Clipboard keys are not caches:
 losing a key makes encrypted Linux/macOS rows unreadable. Preserve migration
 and key behavior when changing app identifiers or storage formats.
 
+JSON owned by the app (`config.json`, Quick Links, notes, overrides, and the
+currency-rate cache) is written through `commands/persistence.rs`. It writes and
+syncs a temporary file in the same directory before atomically replacing the
+destination, so an interrupted save cannot leave the previous valid file
+partially rewritten.
+
 ## Webview localStorage keys
 
 | Key family                                  | Owner                       | Purpose                                           |

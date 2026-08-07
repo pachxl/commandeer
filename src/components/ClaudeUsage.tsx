@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { useWindowFocused } from '../hooks/useWindowFocused'
 import { claudeUsage, type ClaudeLimit } from '../lib/tauri'
 
 const CACHE_KEY = 'commandeer:claude-usage'
@@ -183,6 +183,7 @@ function formatDuration(ms: number): string {
 }
 
 export default function ClaudeUsage() {
+  const windowFocused = useWindowFocused()
   const cacheRef = useRef<CachedUsage | null>(loadCached())
   const stateRef = useRef<PollState>(loadState())
   // Coalesces concurrent refresh() calls (rapid focus events, StrictMode, a
@@ -198,9 +199,11 @@ export default function ClaudeUsage() {
 
   // Tick every second so the "resets in..." and "retrying in..." countdowns update.
   useEffect(() => {
+    if (!windowFocused) return
+    setNow(Date.now())
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
-  }, [])
+  }, [windowFocused])
 
   const refresh = useCallback((force = false): Promise<void> => {
     // A request is already running — reuse it rather than firing another.
@@ -266,14 +269,8 @@ export default function ClaudeUsage() {
   }, [])
 
   useEffect(() => {
-    refresh()
-    const unlisten = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      if (focused) refresh()
-    })
-    return () => {
-      unlisten.then(fn => fn())
-    }
-  }, [refresh])
+    if (windowFocused) void refresh()
+  }, [refresh, windowFocused])
 
   const showRateLimit = rateLimitedUntil > now
   const hasLimits = !!limits && limits.length > 0

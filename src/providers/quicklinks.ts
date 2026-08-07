@@ -103,9 +103,21 @@ function removeQuicklinkStep(): Step {
       }))
     },
     onSelect: async (item): Promise<StepResult> => {
+      const quicklinkId = item.data as string
       const all = await readQuicklinks()
-      await writeQuicklinks(all.filter(q => q.id !== item.data))
+      const quicklink = all.find(q => q.id === quicklinkId)
+      if (!quicklink) return { type: 'stay' }
+      const confirmed = await appEvents.confirm?.({
+        key: 'delete-quicklink',
+        message: `Delete "${quicklink.name}"?`,
+        detail: 'This quick link cannot be recovered.',
+        confirmLabel: 'Delete',
+        danger: true,
+      })
+      if (!confirmed) return { type: 'stay' }
+      await writeQuicklinks(all.filter(q => q.id !== quicklinkId))
       appEvents.refreshCommands?.()
+      appEvents.toast?.('Quick link deleted', 'success')
       return { type: 'replace', step: removeQuicklinkStep() }
     },
   }

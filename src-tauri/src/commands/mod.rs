@@ -19,6 +19,7 @@ pub mod launcher;
 pub mod linux_shortcuts;
 pub mod paste;
 pub mod permissions;
+pub mod persistence;
 pub mod process;
 pub mod rates;
 pub mod screenshot;

@@ -3,6 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
+use super::persistence::atomic_write;
+
 const LEGACY_IDENTIFIER: &str = "dev.commandeer.app";
 const LEGACY_SEED_MARKER: &str = ".commandeer-seeded";
 
@@ -226,7 +228,7 @@ pub async fn read_config(app: tauri::AppHandle) -> Result<AppConfig, String> {
 pub async fn write_config(app: tauri::AppHandle, config: AppConfig) -> Result<(), String> {
     let path = config_path(&app)?;
     let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    atomic_write(&path, json)
 }
 
 #[cfg(test)]

@@ -79,9 +79,21 @@ function removeNoteStep(): Step {
       }))
     },
     onSelect: async (item): Promise<StepResult> => {
+      const noteId = item.data as string
       const all = await readNotes()
-      await writeNotes(all.filter(n => n.id !== item.data))
+      const note = all.find(n => n.id === noteId)
+      if (!note) return { type: 'stay' }
+      const confirmed = await appEvents.confirm?.({
+        key: 'delete-note',
+        message: `Delete "${note.title}"?`,
+        detail: 'This note cannot be recovered.',
+        confirmLabel: 'Delete',
+        danger: true,
+      })
+      if (!confirmed) return { type: 'stay' }
+      await writeNotes(all.filter(n => n.id !== noteId))
       appEvents.refreshCommands?.()
+      appEvents.toast?.('Note deleted', 'success')
       return { type: 'replace', step: removeNoteStep() }
     },
   }

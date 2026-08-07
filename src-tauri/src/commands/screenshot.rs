@@ -9,7 +9,7 @@
 //! frozen frame is written to `<app-cache>/frame.png` and served to the
 //! overlay webview via the asset protocol.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -59,6 +59,42 @@ fn frame_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join("frame.png"))
+}
+
+/// Atomically reserve a screenshot output file for a formatted timestamp.
+/// The usual name stays unsuffixed; same-second captures receive `-2`, `-3`,
+/// and so on without a check-then-create race between concurrent callers.
+fn reserve_screenshot_file(
+    dir: &Path,
+    timestamp: &str,
+) -> std::io::Result<(PathBuf, std::fs::File)> {
+    let stem = format!("Screenshot-{timestamp}");
+    let mut sequence = 1_u64;
+
+    loop {
+        let name = if sequence == 1 {
+            format!("{stem}.png")
+        } else {
+            format!("{stem}-{sequence}.png")
+        };
+        let path = dir.join(name);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                sequence = sequence.checked_add(1).ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::AlreadyExists,
+                        "exhausted screenshot filename suffixes",
+                    )
+                })?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -601,11 +637,14 @@ pub async fn finish_screenshot(
         .map_err(|e| e.to_string())?
         .join("Screenshots");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let name = chrono::Local::now()
-        .format("Screenshot-%Y-%m-%d-%H%M%S.png")
-        .to_string();
-    let path = dir.join(name);
-    cropped.save(&path).map_err(|e| e.to_string())?;
+    let timestamp = chrono::Local::now().format("%Y-%m-%d-%H%M%S").to_string();
+    let (path, mut file) = reserve_screenshot_file(&dir, &timestamp).map_err(|e| e.to_string())?;
+    if let Err(error) = cropped.write_to(&mut file, image::ImageFormat::Png) {
+        drop(file);
+        let _ = std::fs::remove_file(&path);
+        return Err(error.to_string());
+    }
+    drop(file);
 
     match &copy_color {
         Some(color) => copy_text_to_clipboard(color.clone())?,
@@ -826,6 +865,38 @@ fn draw_stroke_annotation(img: &mut image::RgbaImage, s: &StrokeAnnotation, ox: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screenshot_file_reservation_avoids_same_timestamp_collisions() {
+        use std::io::Write as _;
+
+        let dir = std::env::temp_dir().join(format!(
+            "commandeer-screenshot-name-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let timestamp = "2026-08-07-123456";
+        let (first_path, mut first_file) = reserve_screenshot_file(&dir, timestamp).unwrap();
+        first_file.write_all(b"first").unwrap();
+        let (second_path, mut second_file) = reserve_screenshot_file(&dir, timestamp).unwrap();
+        second_file.write_all(b"second").unwrap();
+        drop(first_file);
+        drop(second_file);
+
+        assert_eq!(
+            first_path.file_name().unwrap(),
+            "Screenshot-2026-08-07-123456.png"
+        );
+        assert_eq!(
+            second_path.file_name().unwrap(),
+            "Screenshot-2026-08-07-123456-2.png"
+        );
+        assert_eq!(std::fs::read(&first_path).unwrap(), b"first");
+        assert_eq!(std::fs::read(&second_path).unwrap(), b"second");
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn stroke_paints_line_not_surroundings() {

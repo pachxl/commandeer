@@ -2,7 +2,7 @@
 // palette is focused. Rendered below the Claude usage panel; toggled in
 // Settings.
 import { useEffect, useState } from 'react'
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { useWindowFocused } from '../hooks/useWindowFocused'
 import { IS_MAC, systemStats, type SystemStats } from '../lib/tauri'
 
 // The backend poll is a few syscalls (~µs); 1s matches Task Manager's cadence
@@ -67,10 +67,11 @@ function StatCell({ label, percent, detail }: { label: string; percent: number |
 
 export default function SystemStatsPanel() {
   const [stats, setStats] = useState<SystemStats | null>(null)
+  const windowFocused = useWindowFocused()
 
   // Poll only while the palette is focused (it's hidden otherwise)
   useEffect(() => {
-    let timer: ReturnType<typeof setInterval> | undefined
+    if (!windowFocused) return
     let disposed = false
 
     const poll = () => {
@@ -80,28 +81,14 @@ export default function SystemStatsPanel() {
         })
         .catch(console.error)
     }
-    const start = () => {
-      if (timer !== undefined) return
-      poll()
-      timer = setInterval(poll, POLL_MS)
-    }
-    const stop = () => {
-      if (timer !== undefined) clearInterval(timer)
-      timer = undefined
-    }
-
-    start()
-    const unlistenPromise = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      if (focused) start()
-      else stop()
-    })
+    poll()
+    const timer = setInterval(poll, POLL_MS)
 
     return () => {
       disposed = true
-      stop()
-      void unlistenPromise.then(unlisten => unlisten())
+      clearInterval(timer)
     }
-  }, [])
+  }, [windowFocused])
 
   return (
     <div

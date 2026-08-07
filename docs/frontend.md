@@ -63,7 +63,9 @@ When adding a load path:
 
 Do not introduce a new effect that leaves a Tauri listener subscribed when
 registration resolves after React cleanup. Chain the unlisten promise or use a
-disposed flag.
+disposed flag. Components that poll or refresh only while the palette is visible
+must use `useWindowFocused`, which defaults to hidden until the native window
+reports its initial state and owns the late-registration cleanup.
 
 ## Common interaction implementations
 

@@ -11,6 +11,8 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
+use super::persistence::atomic_write;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rates {
     /// Base currency the rates are quoted against (always "USD" here).
@@ -96,7 +98,7 @@ pub async fn get_rates(app: tauri::AppHandle) -> Result<Rates, String> {
         Ok(mut fresh) => {
             fresh.fetched_day = today;
             if let Ok(json) = serde_json::to_string(&fresh) {
-                let _ = fs::write(&path, json);
+                let _ = atomic_write(&path, json);
             }
             Ok(fresh)
         }
