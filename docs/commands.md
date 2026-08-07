@@ -38,7 +38,9 @@ the assembled root. Their children can also appear in flat search through their
 - `@search <query>` loads the focused Explorer/Finder folder on Windows/macOS;
   Linux falls back to the home folder.
 - Calculator expressions can be entered through the Tools step or recognized by
-  the calculator provider. Currency needs cached or freshly fetched rates.
+  the calculator provider. Currency needs cached or freshly fetched rates;
+  an initial offline failure is retried by a later query instead of disabling
+  conversion for the rest of the process.
 - Time-zone conversion is handled by the Tools input step and copies its result.
 - `Ctrl+K` opens actions for the selected row. Action-panel actions may be leaf
   handlers or nested submenus.

@@ -4,6 +4,10 @@ Scripts are user-owned commands discovered from `AppConfig.scripts_dir` by
 `src-tauri/src/commands/fs.rs`. The frontend converts `ScriptInfo` records into
 palette commands in `src/commands/index.ts`.
 
+Settings → Scripts Directory accepts an absolute path without requiring a
+native folder picker. Saving it persists the config and reloads script commands
+immediately; Open Scripts Folder remains available as a separate action.
+
 ## Files that are discovered
 
 | Platform | Extensions / rule                                                    |

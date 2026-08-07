@@ -20,6 +20,7 @@ changes.
 | -------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `src/commands/index.ts`                | Script-to-command conversion, web search, confirmations, live output | [`scripts.md`](scripts.md), [`commands.md`](commands.md)   |
 | `src/commands/settings.ts`             | Settings step, previews, persistence, feature toggles                | [`configuration.md`](configuration.md)                     |
+| `src/commands/settingsPaths.test.ts`   | Scripts-directory and search-root Settings regressions               | [`testing.md`](testing.md)                                 |
 | `src/commands/guide.ts`                | First-run welcome and searchable usage guide                         | [`frontend.md`](frontend.md), [`commands.md`](commands.md) |
 | `src/commands/guide.test.ts`           | Guide content and navigation regression tests                        | [`testing.md`](testing.md)                                 |
 | `src/commands/fileSearch.ts`           | Active-folder `@search` load/filter/open                             | [`features.md`](features.md)                               |
@@ -40,6 +41,7 @@ changes.
 | `src/providers/appLauncher.ts`             | Installed app cache, running badges, launch commands      | [`features.md`](features.md) |
 | `src/providers/bookmarks.ts`               | Browser bookmark loading/search commands                  | [`commands.md`](commands.md) |
 | `src/providers/calculator.ts`              | Calculator query results and currency warmup              | [`commands.md`](commands.md) |
+| `src/providers/calculator.test.ts`         | Currency-rate retry and request-coalescing regressions    | [`testing.md`](testing.md)   |
 | `src/providers/clipboard.ts`               | Clipboard History step and clear action                   | [`features.md`](features.md) |
 | `src/providers/notes.ts`                   | Note add/remove/copy commands                             | [`storage.md`](storage.md)   |
 | `src/providers/processes.ts`               | Process grouping, kill step, inline kill search           | [`commands.md`](commands.md) |
@@ -65,6 +67,7 @@ changes.
 | `src/components/ClaudeUsage.tsx`       | Claude rate-limit panel/cache/polling                                   | [`features.md`](features.md), [`storage.md`](storage.md)           |
 | `src/components/CodexUsage.tsx`        | Codex rate-limit panel/cache/polling                                    | [`features.md`](features.md), [`storage.md`](storage.md)           |
 | `src/components/FormView.tsx`          | Multi-field Step form renderer                                          | [`frontend.md`](frontend.md)                                       |
+| `src/components/FormView.test.tsx`     | Multiline form keyboard and submission regressions                      | [`testing.md`](testing.md)                                         |
 | `src/components/Footer.tsx`            | Keyboard hints, settings/status controls                                | [`commands.md`](commands.md)                                       |
 | `src/components/HudOverlay.tsx`        | Optional system/usage heads-up display                                  | [`storage.md`](storage.md)                                         |
 | `src/components/Icon.tsx`              | Built-in, data URL, and lazy native icon rendering                      | [`features.md`](features.md)                                       |
@@ -90,6 +93,8 @@ changes.
 | `src/lib/paletteRanking.ts`      | Fuzzy/relevance/frecency ranking                | [`frontend.md`](frontend.md)                             |
 | `src/lib/fuzzy.ts`               | Fzf matching and highlight helpers              | [`frontend.md`](frontend.md)                             |
 | `src/lib/fuzzy.test.ts`          | Weighted and single-character fuzzy regressions | [`testing.md`](testing.md)                               |
+| `src/lib/configPaths.ts`         | Cross-platform configured-path validation       | [`configuration.md`](configuration.md)                   |
+| `src/lib/configPaths.test.ts`    | Configured-path parsing regressions             | [`testing.md`](testing.md)                               |
 | `src/lib/frecency.ts`            | Bounded localStorage usage ranking              | [`storage.md`](storage.md)                               |
 | `src/lib/confirm.ts`             | Suppressed-confirm persistence and request API  | [`frontend.md`](frontend.md), [`storage.md`](storage.md) |
 | `src/lib/appEvents.ts`           | Mutable bridge for App-owned callbacks          | [`architecture.md`](architecture.md)                     |

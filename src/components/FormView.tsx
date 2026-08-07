@@ -6,11 +6,14 @@ interface FormViewProps {
   values: Record<string, unknown>
   onChange: (id: string, value: unknown) => void
   onSubmit: () => void
+  submitLabel?: string
 }
 
-export default function FormView({ fields, values, onChange, onSubmit }: FormViewProps) {
+export default function FormView({ fields, values, onChange, onSubmit, submitLabel = 'Submit' }: FormViewProps) {
   const [focusedIndex, setFocusedIndex] = useState(0)
-  const inputRefs = useRef<(HTMLInputElement | HTMLSelectElement | HTMLButtonElement | null)[]>([])
+  const inputRefs = useRef<(HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLButtonElement | null)[]>(
+    [],
+  )
 
   useEffect(() => {
     const el = inputRefs.current[focusedIndex]
@@ -18,6 +21,15 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
   }, [focusedIndex])
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.target instanceof HTMLTextAreaElement) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault()
+        onSubmit()
+      }
+      // A textarea owns Enter and arrow keys. Move focus with Tab, or submit
+      // directly with Ctrl/Cmd+Enter.
+      return
+    }
     if (e.key === 'ArrowDown' || (e.key.toLowerCase() === 'n' && e.ctrlKey)) {
       e.preventDefault()
       setFocusedIndex(i => Math.min(i + 1, fields.length))
@@ -60,6 +72,7 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
         return (
           <div key={field.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <label
+              htmlFor={`form-field-${field.id}`}
               style={{
                 fontSize: 11,
                 fontFamily: 'var(--font-ui)',
@@ -71,6 +84,7 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
             </label>
             {field.type === 'text' && (
               <input
+                id={`form-field-${field.id}`}
                 ref={el => (inputRefs.current[i] = el)}
                 type="text"
                 value={String(values[field.id] ?? field.defaultValue ?? '')}
@@ -91,8 +105,35 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
                 autoComplete="off"
               />
             )}
+            {field.type === 'textarea' && (
+              <textarea
+                id={`form-field-${field.id}`}
+                ref={el => (inputRefs.current[i] = el)}
+                value={String(values[field.id] ?? field.defaultValue ?? '')}
+                placeholder={field.placeholder}
+                onChange={e => onChange(field.id, e.target.value)}
+                onFocus={() => setFocusedIndex(i)}
+                rows={6}
+                style={{
+                  background: 'var(--form-field-bg)',
+                  border: `1px solid ${focused ? 'var(--accent)' : 'var(--border)'}`,
+                  borderRadius: 'var(--form-field-radius)',
+                  padding: '8px 10px',
+                  color: 'var(--text)',
+                  fontSize: 13,
+                  fontFamily: 'var(--font)',
+                  lineHeight: 1.45,
+                  outline: 'none',
+                  resize: 'vertical',
+                  minHeight: 96,
+                }}
+                spellCheck={false}
+                autoComplete="off"
+              />
+            )}
             {field.type === 'dropdown' && (
               <select
+                id={`form-field-${field.id}`}
                 ref={el => (inputRefs.current[i] = el)}
                 value={String(values[field.id] ?? field.defaultValue ?? '')}
                 onChange={e => onChange(field.id, e.target.value)}
@@ -126,6 +167,7 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
                 }}
               >
                 <input
+                  id={`form-field-${field.id}`}
                   ref={el => (inputRefs.current[i] = el as HTMLInputElement)}
                   type="checkbox"
                   checked={Boolean(values[field.id] ?? field.defaultValue ?? false)}
@@ -137,6 +179,18 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
                   {field.placeholder ?? 'Enable'}
                 </span>
               </label>
+            )}
+            {field.description && (
+              <span
+                style={{
+                  color: 'var(--text-dim)',
+                  fontSize: 11,
+                  fontFamily: 'var(--font-ui)',
+                  lineHeight: 1.4,
+                }}
+              >
+                {field.description}
+              </span>
             )}
           </div>
         )
@@ -158,7 +212,7 @@ export default function FormView({ fields, values, onChange, onSubmit }: FormVie
           cursor: 'pointer',
         }}
       >
-        Submit
+        {submitLabel}
       </button>
     </div>
   )

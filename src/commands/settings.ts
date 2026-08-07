@@ -15,6 +15,7 @@ import {
   writeConfig,
 } from '../lib/tauri'
 import { appEvents } from '../lib/appEvents'
+import { normalizeAbsolutePath, parseSearchRoots, type PathPlatform } from '../lib/configPaths'
 import { applyTheme, applyThemeByName, getAllThemes, type Theme } from '../lib/themes'
 import { applyStyle, getAllStyles, getStyleName, type UIStyle } from '../lib/styles'
 
@@ -23,6 +24,7 @@ import { applyStyle, getAllStyles, getStyleName, type UIStyle } from '../lib/sty
 const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.includes('Linux')
 const IS_MAC = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
 const IS_WINDOWS = !IS_LINUX && !IS_MAC
+const PATH_PLATFORM: PathPlatform = IS_WINDOWS ? 'windows' : 'unix'
 const DEFAULT_SCREENSHOT_HOTKEY = IS_MAC ? '' : 'Insert'
 // Mirrors the Rust defaults in shortcuts.rs (kept in sync by hand — these are
 // only display fallbacks for an unset config value).
@@ -281,11 +283,29 @@ function settingsStep(config: AppConfig): Step {
         actionLabel: 'Toggle',
       },
       {
+        id: 'settings:scripts-directory',
+        label: 'Scripts Directory…',
+        sublabel: config.scripts_dir || 'Not configured',
+        icon: 'folder',
+        isFolder: true,
+        actionLabel: 'Change',
+      },
+      {
         id: 'settings:open-scripts',
         label: 'Open Scripts Folder',
         sublabel: config.scripts_dir || 'Not configured',
         icon: 'folder',
         actionLabel: 'Open Folder',
+      },
+      {
+        id: 'settings:search-roots',
+        label: 'File Search Roots…',
+        sublabel: config.search_paths?.length
+          ? `${config.search_paths.length} custom ${config.search_paths.length === 1 ? 'root' : 'roots'} — restart after changing`
+          : 'Platform defaults — Desktop, Documents, Downloads',
+        icon: 'search',
+        isFolder: true,
+        actionLabel: 'Configure',
       },
       {
         id: 'settings:open-data',
@@ -382,9 +402,15 @@ function settingsStep(config: AppConfig): Step {
         appEvents.toggleWebSearch?.()
         return { type: 'replace', step: settingsStep(config) }
       }
+      if (item.id === 'settings:scripts-directory') {
+        return { type: 'push', step: scriptsDirectoryForm(config) }
+      }
       if (item.id === 'settings:open-scripts') {
         if (config.scripts_dir) await openPath(config.scripts_dir)
         return { type: 'done' }
+      }
+      if (item.id === 'settings:search-roots') {
+        return { type: 'push', step: searchRootsStep(config) }
       }
       if (item.id === 'settings:open-data') {
         const dir = await dataDir()
@@ -393,6 +419,161 @@ function settingsStep(config: AppConfig): Step {
       }
       return { type: 'done' }
     },
+  }
+}
+
+function scriptsDirectoryForm(config: AppConfig): Step {
+  return {
+    id: 'settings:scripts-directory',
+    label: 'Scripts Directory',
+    placeholder: 'Set the directory Commandeer scans for scripts',
+    isFormStep: true,
+    fields: [
+      {
+        id: 'scripts_dir',
+        label: 'Absolute directory path',
+        type: 'text',
+        defaultValue: config.scripts_dir,
+        placeholder: IS_WINDOWS ? 'C:\\Users\\you\\commandeer\\scripts' : '/Users/you/commandeer/scripts',
+        description: 'Use a full path rather than ~. Script commands reload immediately after saving.',
+      },
+    ],
+    submitLabel: 'Save Directory',
+    onSubmit: async values => {
+      const path = normalizeAbsolutePath(String(values.scripts_dir ?? ''), PATH_PLATFORM)
+      if (!path) {
+        appEvents.toast?.('Enter a full absolute directory path (do not use ~)', 'error')
+        return { type: 'stay' }
+      }
+
+      try {
+        const next: AppConfig = { ...config, scripts_dir: path }
+        await writeConfig(next)
+        Object.assign(config, next)
+        appEvents.refreshCommands?.()
+        appEvents.toast?.('Scripts directory saved and commands reloaded', 'success')
+        return { type: 'done' }
+      } catch (error) {
+        appEvents.toast?.(`Couldn't save scripts directory: ${String(error)}`, 'error')
+        return { type: 'stay' }
+      }
+    },
+    onSelect: async () => ({ type: 'stay' }),
+  }
+}
+
+function searchRootsStep(config: AppConfig): Step {
+  return {
+    id: 'settings:search-roots',
+    label: 'File Search Roots',
+    placeholder: 'Edit, reset, or open a configured root...',
+    load: async (): Promise<PaletteItem[]> => {
+      const configured = config.search_paths ?? []
+      return [
+        {
+          id: 'search-roots:edit',
+          label: configured.length ? 'Edit Search Roots…' : 'Set Custom Search Roots…',
+          sublabel: 'One absolute directory per line; restart required after saving',
+          icon: 'settings',
+          isFolder: true,
+          actionLabel: 'Edit',
+        },
+        ...(configured.length
+          ? [
+              {
+                id: 'search-roots:reset',
+                label: 'Reset to Platform Defaults',
+                sublabel: 'Use Desktop, Documents, and Downloads after restart',
+                icon: 'refresh',
+                actionLabel: 'Reset',
+              } as PaletteItem,
+              ...configured.map((path, index) => ({
+                id: `search-roots:open:${index}`,
+                label: path,
+                sublabel: 'Open in the system file manager',
+                icon: 'folder',
+                data: path,
+                actionLabel: 'Open Folder',
+              })),
+            ]
+          : [
+              {
+                id: 'search-roots:defaults',
+                label: 'Using Platform Defaults',
+                sublabel: 'Desktop, Documents, and Downloads',
+                icon: 'search',
+                actionLabel: 'Current',
+              } as PaletteItem,
+            ]),
+      ]
+    },
+    onSelect: async (item): Promise<StepResult> => {
+      if (item.id === 'search-roots:edit') {
+        return { type: 'push', step: searchRootsForm(config) }
+      }
+      if (item.id === 'search-roots:reset') {
+        try {
+          const next: AppConfig = { ...config }
+          delete next.search_paths
+          await writeConfig(next)
+          delete config.search_paths
+          appEvents.toast?.('Search roots reset — restart Commandeer to rebuild the index', 'success')
+          return { type: 'replace', step: searchRootsStep(config) }
+        } catch (error) {
+          appEvents.toast?.(`Couldn't reset search roots: ${String(error)}`, 'error')
+          return { type: 'stay' }
+        }
+      }
+      if (item.id.startsWith('search-roots:open:') && typeof item.data === 'string') {
+        await openPath(item.data)
+        return { type: 'done' }
+      }
+      return { type: 'stay' }
+    },
+  }
+}
+
+function searchRootsForm(config: AppConfig): Step {
+  return {
+    id: 'settings:search-roots:edit',
+    label: 'Edit File Search Roots',
+    placeholder: 'Enter one absolute directory per line',
+    isFormStep: true,
+    fields: [
+      {
+        id: 'search_paths',
+        label: 'Absolute directory paths',
+        type: 'textarea',
+        defaultValue: config.search_paths?.join('\n') ?? '',
+        placeholder: IS_WINDOWS ? 'C:\\Users\\you\\Desktop\nD:\\Projects' : '/Users/you/Desktop\n/Users/you/Projects',
+        description:
+          'Blank lines and duplicates are ignored. Restart Commandeer after saving so the background index can watch the new roots. Ctrl/Cmd+Enter saves.',
+      },
+    ],
+    submitLabel: 'Save Search Roots',
+    onSubmit: async values => {
+      const parsed = parseSearchRoots(String(values.search_paths ?? ''), PATH_PLATFORM)
+      if (parsed.invalid.length) {
+        appEvents.toast?.(`Every root must be an absolute path. Invalid: ${parsed.invalid[0]}`, 'error')
+        return { type: 'stay' }
+      }
+      if (!parsed.paths.length) {
+        appEvents.toast?.('Enter at least one root, or use Reset to Platform Defaults', 'error')
+        return { type: 'stay' }
+      }
+
+      try {
+        const next: AppConfig = { ...config, search_paths: parsed.paths }
+        await writeConfig(next)
+        Object.assign(config, next)
+        appEvents.toast?.('Search roots saved — restart Commandeer to rebuild the index', 'success')
+        return { type: 'done' }
+      } catch (error) {
+        appEvents.toast?.(`Couldn't save search roots: ${String(error)}`, 'error')
+        return { type: 'stay' }
+      }
+    },
+    onSelect: async () => ({ type: 'stay' }),
   }
 }
 
@@ -673,7 +854,7 @@ function hotkeyStep(config: AppConfig, which: 'toggle' | 'game'): Step {
         appEvents.toast?.(`${label} set to ${binding}`, 'success')
         return { type: 'pop' }
       } catch (err) {
-        appEvents.toast?.(`Invalid hotkey: ${String(err)}`, 'error')
+        appEvents.toast?.(`Couldn't set hotkey: ${String(err)}`, 'error')
         return { type: 'stay' }
       }
     },
@@ -683,8 +864,8 @@ function hotkeyStep(config: AppConfig, which: 'toggle' | 'game'): Step {
 
 // Free-text step to rebind the region-screenshot global hotkey. The binding is
 // validated on the Rust side (set_screenshot_hotkey rejects unparseable
-// strings) and re-registered immediately. Windows only — reached solely from
-// the (Windows-gated) settings entry above.
+// strings) and re-registered immediately. Windows/macOS only — reached solely
+// from the platform-gated settings entry above.
 function screenshotHotkeyStep(config: AppConfig): Step {
   const current = config.screenshot_hotkey || DEFAULT_SCREENSHOT_HOTKEY
   return {
@@ -703,7 +884,7 @@ function screenshotHotkeyStep(config: AppConfig): Step {
         appEvents.toast?.(`Screenshot hotkey set to ${binding}`, 'success')
         return { type: 'pop' }
       } catch (err) {
-        appEvents.toast?.(`Invalid hotkey: ${String(err)}`, 'error')
+        appEvents.toast?.(`Couldn't set hotkey: ${String(err)}`, 'error')
         // Stay on the step so the user can correct it.
         return { type: 'stay' }
       }
@@ -720,7 +901,7 @@ export function settingsCommand(config: AppConfig): Command {
     label: 'Settings',
     description: 'Configure Commandeer',
     icon: 'settings',
-    keywords: ['settings', 'config', 'preferences', 'theme', 'transparency'],
+    keywords: ['settings', 'config', 'preferences', 'theme', 'transparency', 'scripts', 'directory', 'search roots'],
     actionLabel: 'Open Settings',
     createRootStep: () => settingsStep(config),
   }

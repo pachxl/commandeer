@@ -18,7 +18,10 @@ export function currencyRates(): CurrencyRates | undefined {
         ratesCache = r
       })
       .catch(() => {
-        /* offline with no cache: currency stays disabled */
+        /* offline with no cache: retry on a later query */
+      })
+      .finally(() => {
+        ratesPending = false
       })
   }
   return undefined

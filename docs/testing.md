@@ -31,11 +31,13 @@ package script. Use `npm run format` only when formatting changes are intended.
 
 ## Frontend tests
 
-Current regression coverage includes Palette reducer transitions, feedback hook
-cleanup, onboarding eligibility, guide content, and Windows Volume Mixer rendering/navigation. Put pure ranking,
-parsing, reducer, geometry, and serialization tests beside the implementation.
-Mock Tauri calls at the wrapper boundary rather than importing native modules
-into jsdom tests.
+Current regression coverage includes Palette reducer transitions, fuzzy
+ranking, focus-aware polling, feedback cleanup, onboarding and guide behavior,
+destructive confirmations, configured-path parsing and Settings persistence,
+multiline forms, and Windows Volume Mixer rendering/navigation. Put pure
+ranking, parsing, reducer, geometry, and serialization tests beside the
+implementation. Mock Tauri calls at the wrapper boundary rather than importing
+native modules into jsdom tests.
 
 ## Rust tests
 
@@ -56,9 +58,15 @@ Linux run does not imply Windows/macOS coverage.
 - Verify loading, empty, and error panels are legible in both UI styles.
 - Navigate list, grid, input, form, slider, and folder steps with keyboard and
   pointer; ensure Enter activates the highlighted row.
+- Change the Scripts Directory and verify commands reload immediately. Save and
+  reset File Search Roots, restart, then verify `@find` uses only the expected
+  roots.
 - Run a script, a confirmation-gated script, `@find`, `@search`, Calculator,
   Clipboard History, Notes, Quick Links, and a system action.
 - Trigger a screenshot from the command and cancel/finish/retrigger it.
+- Try assigning an OS-owned or duplicate shortcut. Verify the error reaches the
+  palette, the previous binding still fires, and the rejected value is not
+  written to `config.json` or `overrides.json`.
 
 ### Windows
 

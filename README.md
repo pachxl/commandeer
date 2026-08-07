@@ -70,6 +70,10 @@ platform-specific:
 - Linux: shell scripts, desktop entries, AppImages, and executables.
 - macOS: shell/command scripts and executables.
 
+Settings also accepts custom global file-search roots, one absolute directory
+per line. Restart Commandeer after changing them so the background index can
+rebuild and watch the new directories.
+
 The default palette shortcut is `Ctrl+Space` except on macOS, where it is
 `Cmd+Shift+Space`. Game Mode can switch to `Alt+Space`. Windows uses `Insert`
 as the default screenshot shortcut; macOS has no default screenshot shortcut,

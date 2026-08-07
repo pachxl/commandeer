@@ -73,7 +73,7 @@ reports its initial state and owns the late-registration cleanup.
 | -------------------- | ----------------------------------------------------------------------------------- |
 | Fuzzy result ranking | `src/lib/fuzzy.ts`, `paletteRanking.ts`, `frecency.ts`                              |
 | Folder navigation    | `src/providers/tools.ts`, `paletteNavigation.ts`                                    |
-| Forms                | `src/components/FormView.tsx` and `Step.isFormStep`                                 |
+| Forms                | `src/components/FormView.tsx` and `Step.isFormStep`; textareas own Enter/arrows     |
 | Grids                | `src/components/ResultsGrid.tsx` and `Step.isGridStep`                              |
 | Sliders              | `Step.isSliderStep`; apply effects per tick, serialize trailing config writes       |
 | Confirmations        | `src/lib/confirm.ts`, `ConfirmOverlay.tsx`, and the Palette dismissal state machine |

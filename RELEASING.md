@@ -3,7 +3,10 @@
 Every push to `main` runs `.github/workflows/release.yml`. The workflow builds
 Windows x64, Linux x64, and macOS Apple Silicon/Intel packages, publishes them
 under GitHub Releases, and uploads the signed `latest.json` consumed by the
-application updater.
+application updater. Publishing does not begin until a dedicated Linux quality
+job passes the repository's formatting, agent-sync, frontend build/lint/tests,
+and Rust test/Clippy checks. The platform matrix then builds from that same
+commit while preserving the independently resolved release version.
 
 `tauri.cjs` is the single build-version resolver. CI supplies
 `RELEASE_VERSION`; local builds use an exact numeric Git tag when HEAD is tagged,

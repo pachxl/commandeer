@@ -40,7 +40,22 @@ older write can finish after a newer one and roll the setting back.
 Shortcut changes are validated and registered by Rust. On Linux, the managed
 COSMIC/GNOME shortcut path is separate from the global-shortcut plugin path.
 Game Mode updates both the effective registered shortcut and the Linux desktop
-binding when applicable.
+binding when applicable. Live shortcut updates are transactional: a proposed
+binding is registered before it is persisted, and an OS collision leaves the
+previous registration and stored value intact. Per-command bindings are
+validated as a complete, duplicate-free set and rolled back together if any
+registration fails.
+
+The Scripts Directory setting accepts a full absolute path and reloads the root
+command list immediately after it is saved. The adjacent Open Scripts Folder
+action opens the current location in the system file manager.
+
+File Search Roots accepts one absolute directory per line. Blank lines and
+duplicate paths are removed before saving; relative paths and shell-dependent
+`~` expansion are rejected. The index manager reads its roots once during app
+startup, so saving custom roots or resetting to the platform defaults requires
+a restart before the background scan and watcher use the new set. The Settings
+UI keeps this restart requirement visible rather than implying a live re-index.
 
 ## User themes and styles
 

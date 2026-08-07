@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 
 #[cfg(target_os = "windows")]
@@ -109,7 +110,7 @@ use super::desktop::{resolve_desktop_icon, resolve_desktop_name};
 // comment directives — the Raycast script-command metadata format with the
 // vicinae additions (`keywords`, `refreshTime`, `exec`). Any comment marker
 // (`//`, `--`, `#`, `;`) is accepted so bash/python/lua/js all work. Binary
-// files (non-UTF-8 head) yield no metadata.
+// files without recognizable directives yield no metadata.
 
 const METADATA_HEAD_BYTES: usize = 8192;
 
@@ -258,12 +259,21 @@ fn parse_metadata_from_text(head: &str) -> Option<ScriptMetadata> {
     }
 }
 
-/// Read the script head and parse `@raycast.*`/`@vicinae.*` directives.
-/// Returns `None` for binary files or files with no such metadata.
+/// Read at most the metadata-sized prefix and parse `@raycast.*`/`@vicinae.*`
+/// directives. Lossy decoding keeps an otherwise valid header usable when the
+/// byte limit lands in the middle of a UTF-8 code point.
+fn parse_script_metadata_reader(reader: impl Read) -> Option<ScriptMetadata> {
+    let mut bytes = Vec::with_capacity(METADATA_HEAD_BYTES);
+    reader
+        .take(METADATA_HEAD_BYTES as u64)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    parse_metadata_from_text(&String::from_utf8_lossy(&bytes))
+}
+
+/// Open a script and parse only its bounded metadata header.
 fn parse_script_metadata(path: &Path) -> Option<ScriptMetadata> {
-    let bytes = fs::read(path).ok()?;
-    let head = std::str::from_utf8(&bytes[..bytes.len().min(METADATA_HEAD_BYTES)]).ok()?;
-    parse_metadata_from_text(head)
+    parse_script_metadata_reader(fs::File::open(path).ok()?)
 }
 
 fn collect_script_files(dir: &Path, folder: Option<String>) -> Vec<ScriptInfo> {
@@ -337,13 +347,8 @@ fn collect_script_files(dir: &Path, folder: Option<String>) -> Vec<ScriptInfo> {
         .collect()
 }
 
-#[tauri::command]
-pub async fn list_scripts(scripts_dir: String) -> Result<Vec<ScriptInfo>, String> {
-    if scripts_dir.is_empty() {
-        return Ok(vec![]);
-    }
-
-    let dir = Path::new(&scripts_dir);
+fn discover_scripts(scripts_dir: &str) -> Result<Vec<ScriptInfo>, String> {
+    let dir = Path::new(scripts_dir);
     if !dir.exists() {
         return Ok(vec![]);
     }
@@ -389,9 +394,25 @@ pub async fn list_scripts(scripts_dir: String) -> Result<Vec<ScriptInfo>, String
         scripts.extend(collect_script_files(&path, Some(folder_name)));
     }
 
-    // Windows: for .lnk files without a PNG icon, extract the shell icon via PowerShell
+    Ok(scripts)
+}
+
+#[tauri::command]
+pub async fn list_scripts(scripts_dir: String) -> Result<Vec<ScriptInfo>, String> {
+    if scripts_dir.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Directory traversal, metadata parsing, and sibling PNG reads are all
+    // blocking filesystem operations. Keep them off Tauri's async executor.
+    let scripts = tokio::task::spawn_blocking(move || discover_scripts(&scripts_dir))
+        .await
+        .map_err(|e| e.to_string())??;
+
+    // Windows: for .lnk files without a PNG icon, extract the shell icon via PowerShell.
     #[cfg(target_os = "windows")]
-    {
+    let scripts = {
+        let mut scripts = scripts;
         let lnk_indices: Vec<usize> = scripts
             .iter()
             .enumerate()
@@ -414,7 +435,8 @@ pub async fn list_scripts(scripts_dir: String) -> Result<Vec<ScriptInfo>, String
                 }
             }
         }
-    }
+        scripts
+    };
 
     Ok(scripts)
 }
@@ -1015,5 +1037,40 @@ mod tests {
         assert_eq!(m.title.as_deref(), Some("JS Task"));
         assert_eq!(m.author.as_deref(), Some("me"));
         assert_eq!(m.package_name.as_deref(), Some("misc"));
+    }
+
+    #[test]
+    fn metadata_reader_does_not_read_large_script_body() {
+        let mut script = b"#!/bin/sh\n# @vicinae.title Bounded read\n".to_vec();
+        script.resize(METADATA_HEAD_BYTES * 128, b'x');
+        let mut reader = std::io::Cursor::new(script);
+
+        let metadata = parse_script_metadata_reader(&mut reader).expect("metadata should parse");
+
+        assert_eq!(metadata.title.as_deref(), Some("Bounded read"));
+        assert_eq!(reader.position(), METADATA_HEAD_BYTES as u64);
+    }
+
+    #[test]
+    fn metadata_beyond_reader_prefix_is_ignored() {
+        let mut script = vec![b'x'; METADATA_HEAD_BYTES];
+        script.extend_from_slice(b"\n# @vicinae.title Too late\n");
+        let mut reader = std::io::Cursor::new(script);
+
+        assert!(parse_script_metadata_reader(&mut reader).is_none());
+        assert_eq!(reader.position(), METADATA_HEAD_BYTES as u64);
+    }
+
+    #[test]
+    fn metadata_survives_utf8_code_point_split_at_reader_limit() {
+        let mut script = b"# @vicinae.title Unicode boundary\n".to_vec();
+        script.resize(METADATA_HEAD_BYTES - 1, b' ');
+        script.extend_from_slice("é".as_bytes());
+        let mut reader = std::io::Cursor::new(script);
+
+        let metadata = parse_script_metadata_reader(&mut reader).expect("metadata should parse");
+
+        assert_eq!(metadata.title.as_deref(), Some("Unicode boundary"));
+        assert_eq!(reader.position(), METADATA_HEAD_BYTES as u64);
     }
 }

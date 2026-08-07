@@ -46,6 +46,18 @@ function shellIconFor(item: PaletteItem): Promise<string | null> {
   return cached
 }
 
+function scheduleIconLoad(callback: () => void): () => void {
+  if (typeof window.requestIdleCallback === 'function') {
+    const id = window.requestIdleCallback(callback, { timeout: 300 })
+    return () => window.cancelIdleCallback(id)
+  }
+
+  // Older webviews do not expose requestIdleCallback. Defer one task instead
+  // of failing the whole row render and leaving every native icon generic.
+  const id = window.setTimeout(callback, 0)
+  return () => window.clearTimeout(id)
+}
+
 const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(({ item, index, selected, onSelect }, ref) => {
   const wantsShellIcon = !!item.iconPath && !item.icon.startsWith('data:')
   const [shellIcon, setShellIcon] = useState<string | null>(() =>
@@ -65,19 +77,16 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(({ item, index, sel
     let cancelled = false
 
     // Use requestIdleCallback for non-critical icon loading to avoid blocking the main thread
-    const idleCallbackId = requestIdleCallback(
-      () => {
-        if (cancelled) return
-        shellIconFor(item).then(icon => {
-          if (!cancelled && icon) setShellIcon(icon)
-        })
-      },
-      { timeout: 300 }, // Fallback to normal priority after 300ms
-    )
+    const cancelScheduledLoad = scheduleIconLoad(() => {
+      if (cancelled) return
+      shellIconFor(item).then(icon => {
+        if (!cancelled && icon) setShellIcon(icon)
+      })
+    })
 
     return () => {
       cancelled = true
-      cancelIdleCallback(idleCallbackId)
+      cancelScheduledLoad()
     }
   }, [item, wantsShellIcon])
 

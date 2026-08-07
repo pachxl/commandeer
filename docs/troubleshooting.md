@@ -43,7 +43,9 @@ bug.
 - `@find` indexes the configured roots, defaults to Desktop/Documents/Downloads,
   prunes hidden, dependency, VCS, cache, and generated-output directories, caps
   depth, and may still be scanning.
-- Wait for the `file-index-ready` event or restart after changing search roots.
+- Configure roots in Settings → File Search Roots using one absolute directory
+  per line. Restart after saving or resetting them; the background manager reads
+  its root set once at startup.
 - The index is a cache; if its schema is stale, stop the app and remove only
   `<app-data>/file_index.db` so it can rebuild. Preserve user data and config.
 - Windows search falls back to Everything and then walkdir; Linux/macOS use the

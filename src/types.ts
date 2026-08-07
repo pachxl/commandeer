@@ -115,8 +115,9 @@ export interface LivePreview {
 export interface FormField {
   id: string
   label: string
-  type: 'text' | 'dropdown' | 'checkbox'
+  type: 'text' | 'textarea' | 'dropdown' | 'checkbox'
   placeholder?: string
+  description?: string
   defaultValue?: unknown
   options?: FormFieldOption[]
 }
@@ -154,6 +155,7 @@ export interface Step {
   // For form steps: multi-field input resolved by a single submit
   isFormStep?: boolean
   fields?: FormField[]
+  submitLabel?: string
   onSubmit?: (values: Record<string, unknown>, config: AppConfig) => Promise<StepResult>
   // Windows-only application volume mixer. It owns its keyboard navigation
   // and renders every audio session together instead of using the generic list.

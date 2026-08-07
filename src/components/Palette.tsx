@@ -1229,6 +1229,7 @@ export default function Palette({
             values={formValues}
             onChange={(id, value) => setFormValues(prev => ({ ...prev, [id]: value }))}
             onSubmit={handleFormSubmit}
+            submitLabel={currentStep.submitLabel}
           />
         )}
 
