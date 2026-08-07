@@ -88,7 +88,12 @@ jobs:
           NO_STRIP: '1'
         with:
           tauriScript: bun tauri
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          # Keep the version visible to tauri-action as well as tauri.cjs so
+          # artifact discovery uses the same filenames that the CLI produces.
+          args: >-
+            --target ${{ matrix.target }}
+            --bundles ${{ matrix.bundles }}
+            --config '{"version":"${{ needs.release-version.outputs.version }}"}'
           tagName: ${{ needs.release-version.outputs.version }}
           releaseName: Commandeer ${{ needs.release-version.outputs.version }}
           generateReleaseNotes: true
