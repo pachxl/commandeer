@@ -7,8 +7,11 @@
 //!
 //! - **Windows**: a low-level mouse hook (`WH_MOUSE_LL`) on a dedicated
 //!   message-pump thread watches for Alt + mouse button and swallows only the
-//!   button events; a separate mover thread polls the real cursor with
-//!   `GetCursorPos` at ~120 Hz and repositions the window with `SetWindowPos`
+//!   button events. During an Alt + one-finger move, that thread also exposes a
+//!   transparent, no-activate touch target across the virtual desktop: adding a
+//!   second contact rebases the gesture into the existing resize path. A
+//!   separate mover thread samples the real cursor or touch gesture point at
+//!   ~200 Hz and repositions the window with `SetWindowPos`
 //!   (same architecture as AltSnap/AltDrag). Mouse-move events are NEVER
 //!   swallowed: an LL hook runs *before* the system applies the input, so
 //!   returning nonzero for a WM_MOUSEMOVE discards it and the on-screen cursor
@@ -85,19 +88,25 @@ mod platform {
         GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
         KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_MENU,
     };
+    use windows::Win32::UI::Input::Touch::{
+        CloseTouchInputHandle, GetTouchInputInfo, RegisterTouchWindow, HTOUCHINPUT,
+        REGISTER_TOUCH_WINDOW_FLAGS, TOUCHEVENTF_DOWN, TOUCHEVENTF_UP, TOUCHINPUT,
+    };
     use windows::Win32::UI::WindowsAndMessaging::{
         BeginDeferWindowPos, BringWindowToTop, CallNextHookEx, CreateWindowExW, DefWindowProcW,
         DeferWindowPos, DestroyWindow, DispatchMessageW, EndDeferWindowPos, GetAncestor,
         GetClassNameW, GetCursorPos, GetDesktopWindow, GetForegroundWindow, GetMessageW,
-        GetShellWindow, GetWindowLongW, GetWindowRect, GetWindowThreadProcessId, IsWindowVisible,
-        IsZoomed, PostThreadMessageW, RegisterClassW, SetForegroundWindow, SetTimer, SetWindowPos,
-        SetWindowsHookExW, ShowWindow, TranslateMessage, UnhookWindowsHookEx, UpdateLayeredWindow,
-        WindowFromPoint, GA_ROOT, GWL_STYLE, HHOOK, HWND_TOP, MSG, MSLLHOOKSTRUCT,
+        GetShellWindow, GetSystemMetrics, GetWindowLongW, GetWindowRect, GetWindowThreadProcessId,
+        IsWindowVisible, IsZoomed, PostThreadMessageW, RegisterClassW, SetForegroundWindow,
+        SetLayeredWindowAttributes, SetTimer, SetWindowPos, SetWindowsHookExW, ShowWindow,
+        TranslateMessage, UnhookWindowsHookEx, UpdateLayeredWindow, WindowFromPoint, GA_ROOT,
+        GWL_STYLE, HHOOK, HWND_TOP, HWND_TOPMOST, LWA_ALPHA, MSG, MSLLHOOKSTRUCT,
+        SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
         SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
-        SWP_NOZORDER, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SW_SHOWNA, ULW_ALPHA, WH_MOUSE_LL,
-        WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
-        WM_TIMER, WNDCLASSW, WS_CAPTION, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-        WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WS_THICKFRAME,
+        SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SW_SHOWNA, ULW_ALPHA,
+        WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONDOWN,
+        WM_RBUTTONUP, WM_TIMER, WM_TOUCH, WNDCLASSW, WS_CAPTION, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+        WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WS_THICKFRAME,
     };
 
     #[derive(Clone, Copy, PartialEq)]
@@ -231,6 +240,37 @@ mod platform {
     static GEN: AtomicU64 = AtomicU64::new(0);
     // Keeps the mover thread alive while the feature is enabled.
     static MOVER_RUN: AtomicBool = AtomicBool::new(false);
+    // Touch gestures feed their own screen point to the same mover loop. Keep
+    // this source selected through the release frame so snapping uses the exact
+    // lift position rather than the unrelated mouse cursor position.
+    static TOUCH_SOURCE: AtomicBool = AtomicBool::new(false);
+    static TOUCH_X: AtomicI32 = AtomicI32::new(0);
+    static TOUCH_Y: AtomicI32 = AtomicI32::new(0);
+    static SECONDARY_X: AtomicI32 = AtomicI32::new(0);
+    static SECONDARY_Y: AtomicI32 = AtomicI32::new(0);
+    static TOUCH_PRIMARY_DOWN: AtomicBool = AtomicBool::new(false);
+    static TOUCH_RESIZE: AtomicBool = AtomicBool::new(false);
+    static TOUCH_BLOCKED: AtomicBool = AtomicBool::new(false);
+
+    #[derive(Clone, Copy)]
+    struct TouchContact {
+        id: u32,
+        x: i32,
+        y: i32,
+    }
+
+    #[derive(Default)]
+    struct TouchState {
+        // The primary touch remains routed to the app below us and arrives as
+        // compatibility mouse input. The temporary surface receives only the
+        // additional contacts that land after it appears.
+        contacts: Vec<TouchContact>,
+    }
+
+    static TOUCH_STATE: OnceLock<Mutex<TouchState>> = OnceLock::new();
+    fn touch_state() -> &'static Mutex<TouchState> {
+        TOUCH_STATE.get_or_init(|| Mutex::new(TouchState::default()))
+    }
 
     const MIN_SIZE: i32 = 120;
 
@@ -264,6 +304,7 @@ mod platform {
                 // The hover indicator lives on this thread so its timer + paint
                 // messages ride the same pump the hook needs.
                 create_indicator(HINSTANCE(hmod.0));
+                create_touch_surface(HINSTANCE(hmod.0));
 
                 // Message pump: LL hooks are delivered to the thread that
                 // installed them, so this thread must run one; the indicator
@@ -275,6 +316,7 @@ mod platform {
                     DispatchMessageW(&msg);
                 }
 
+                destroy_touch_surface();
                 destroy_indicator();
                 let _ = UnhookWindowsHookEx(hook);
                 HOOK.store(0, Ordering::Relaxed);
@@ -289,7 +331,14 @@ mod platform {
         if let Ok(mut st) = state().lock() {
             st.active = false;
         }
+        if let Ok(mut touch) = touch_state().lock() {
+            *touch = TouchState::default();
+        }
         ACTIVE.store(false, Ordering::Relaxed);
+        TOUCH_SOURCE.store(false, Ordering::Relaxed);
+        TOUCH_PRIMARY_DOWN.store(false, Ordering::Relaxed);
+        TOUCH_RESIZE.store(false, Ordering::Relaxed);
+        TOUCH_BLOCKED.store(false, Ordering::Relaxed);
         let tid = HOOK_THREAD.load(Ordering::Relaxed);
         if tid != 0 {
             unsafe {
@@ -321,13 +370,26 @@ mod platform {
     /// few px of the grab point and snaps back to it when the hand stops — and
     /// the dragged window followed it back to its origin. See module docs.
     unsafe fn handle(msg: u32, lparam: LPARAM) -> bool {
+        let info = &*(lparam.0 as *const MSLLHOOKSTRUCT);
+        let touch_mouse = is_touch_mouse(info);
         if msg == WM_MOUSEMOVE {
             // Fast path out: no lock, no work, and crucially NO swallowing.
-            // The mover thread polls GetCursorPos itself.
+            // The mover thread polls GetCursorPos itself. During a two-finger
+            // gesture, update the midpoint from the promoted primary contact
+            // and the secondary point without ever swallowing the move.
+            if touch_mouse && TOUCH_RESIZE.load(Ordering::Relaxed) {
+                TOUCH_X.store(
+                    (info.pt.x + SECONDARY_X.load(Ordering::Relaxed)) / 2,
+                    Ordering::Relaxed,
+                );
+                TOUCH_Y.store(
+                    (info.pt.y + SECONDARY_Y.load(Ordering::Relaxed)) / 2,
+                    Ordering::Relaxed,
+                );
+            }
             return false;
         }
 
-        let info = &*(lparam.0 as *const MSLLHOOKSTRUCT);
         let (px, py) = (info.pt.x, info.pt.y);
         let mut st = match state().lock() {
             Ok(g) => g,
@@ -337,6 +399,9 @@ mod platform {
         match msg {
             WM_LBUTTONDOWN | WM_RBUTTONDOWN => {
                 if st.active {
+                    return true;
+                }
+                if touch_mouse && TOUCH_BLOCKED.load(Ordering::Relaxed) {
                     return true;
                 }
                 if !alt_down() {
@@ -352,96 +417,12 @@ mod platform {
                 // window. It stays hidden for the duration of the drag.
                 hide_indicator();
                 if let Some((hwnd, rect, restore_max)) = begin_target(px, py) {
-                    st.active = true;
-                    st.mode = mode;
-                    st.hwnd = hwnd.0 as isize;
-                    st.start_x = px;
-                    st.start_y = py;
-                    st.rect = rect;
-                    st.restore_max = restore_max;
-                    st.snap = SnapKind::None;
-                    st.neighbors.clear();
-                    if mode == Mode::Resize {
-                        // Decide how the resize behaves:
-                        //  1. A half-screen snapped window resizes from its one
-                        //     free edge and tiles along it.
-                        //  2. Otherwise, if the edge nearest the cursor is shared
-                        //     with flush neighbors, resize just that edge and tile
-                        //     along it — so a stacked/side-by-side grid (e.g.
-                        //     windows 2 and 3) redistributes space like Windows.
-                        //  3. Failing both, a normal quadrant-corner resize.
-                        // Maximized targets are restored first, so never tile.
-                        let real_snap = if restore_max {
-                            SnapKind::None
-                        } else {
-                            snap_kind(hwnd, &rect)
-                        };
-                        let (snap, raw) = if real_snap != SnapKind::None {
-                            (real_snap, find_neighbors(real_snap, &rect, hwnd))
-                        } else if !restore_max {
-                            // Among the edges cleanly tiled with neighbors, resize
-                            // the one nearest the cursor; the rest (screen borders,
-                            // partially-shared edges) stay locked so the window's
-                            // other dimensions and position are preserved.
-                            let mut best: Option<(SnapKind, Vec<(HWND, RECT)>)> = None;
-                            let mut best_dist = i32::MAX;
-                            for e in [
-                                SnapKind::Left,
-                                SnapKind::Right,
-                                SnapKind::Top,
-                                SnapKind::Bottom,
-                            ] {
-                                if let Some(nb) = clean_tile_edge(e, &rect, hwnd) {
-                                    let d = edge_dist(e, px, py, &rect);
-                                    if d < best_dist {
-                                        best_dist = d;
-                                        best = Some((e, nb));
-                                    }
-                                }
-                            }
-                            match best {
-                                Some((e, nb)) => (e, nb),
-                                None => (SnapKind::None, Vec::new()),
-                            }
-                        } else {
-                            (SnapKind::None, Vec::new())
-                        };
-                        st.snap = snap;
-                        st.edges = if snap == SnapKind::None {
-                            pick_edges(px, py, &rect)
-                        } else {
-                            snap.free_edge()
-                        };
-                        // Every window flush along the resized edge tiles with the
-                        // target: shrinking it grows all of them. Push each
-                        // neighbor's facing edge past the boundary by half the
-                        // combined invisible border to halve the visible gap.
-                        if snap != SnapKind::None {
-                            let ti = border_insets(hwnd, &rect);
-                            for (nh, nrect) in raw {
-                                let ni = border_insets(nh, &nrect);
-                                // Push the neighbor's facing edge 3/4 of the way
-                                // across the combined invisible border, leaving a
-                                // visible gap of 1/4 of it — half of the previous
-                                // 1/2 (i.e. the gap halved once more).
-                                let overlap = match snap {
-                                    SnapKind::Right => (ti.left + ni.right) * 3 / 4,
-                                    SnapKind::Left => (ti.right + ni.left) * 3 / 4,
-                                    SnapKind::Top => (ti.bottom + ni.top) * 3 / 4,
-                                    SnapKind::Bottom => (ti.top + ni.bottom) * 3 / 4,
-                                    SnapKind::None => 0,
-                                };
-                                st.neighbors.push(Neighbor {
-                                    hwnd: nh.0 as isize,
-                                    rect: nrect,
-                                    overlap,
-                                });
-                            }
-                        }
-                    } else {
-                        // Move: capture the border insets so an edge-snap on
-                        // release lines the visible frame up with the work area.
-                        st.border = border_insets(hwnd, &rect);
+                    configure_drag(&mut st, mode, hwnd, rect, restore_max, px, py);
+                    TOUCH_SOURCE.store(false, Ordering::Relaxed);
+                    if touch_mouse && msg == WM_LBUTTONDOWN {
+                        TOUCH_PRIMARY_DOWN.store(true, Ordering::Relaxed);
+                        TOUCH_RESIZE.store(false, Ordering::Relaxed);
+                        TOUCH_BLOCKED.store(false, Ordering::Relaxed);
                     }
                     GEN.fetch_add(1, Ordering::Relaxed);
                     ACTIVE.store(true, Ordering::Relaxed);
@@ -450,6 +431,16 @@ mod platform {
                 false
             }
             WM_LBUTTONUP => {
+                if touch_mouse && TOUCH_PRIMARY_DOWN.swap(false, Ordering::Relaxed) {
+                    if st.active {
+                        st.active = false;
+                        ACTIVE.store(false, Ordering::Relaxed);
+                    }
+                    TOUCH_RESIZE.store(false, Ordering::Relaxed);
+                    TOUCH_BLOCKED.store(true, Ordering::Relaxed);
+                    suppress_alt_menu();
+                    return true;
+                }
                 if st.active && st.mode == Mode::Move {
                     st.active = false;
                     ACTIVE.store(false, Ordering::Relaxed);
@@ -471,8 +462,118 @@ mod platform {
         }
     }
 
+    fn is_touch_mouse(info: &MSLLHOOKSTRUCT) -> bool {
+        // Windows marks touch/pen compatibility-mouse packets in dwExtraInfo.
+        // The low byte carries the device subtype, so compare only the shared
+        // MI_WP signature portion.
+        const MI_WP_SIGNATURE: usize = 0xFF51_5700;
+        const SIGNATURE_MASK: usize = 0xFFFF_FF00;
+        const TOUCH_FLAG: usize = 0x80;
+        info.dwExtraInfo & SIGNATURE_MASK == MI_WP_SIGNATURE
+            && info.dwExtraInfo & TOUCH_FLAG == TOUCH_FLAG
+    }
+
+    /// Fill the shared mover state for either mouse or touch. Touch uses this a
+    /// second time when contact two lands, rebasing the in-progress move into a
+    /// resize at the two-finger midpoint without duplicating the snap/tiling
+    /// rules.
+    unsafe fn configure_drag(
+        st: &mut DragState,
+        mode: Mode,
+        hwnd: HWND,
+        rect: RECT,
+        restore_max: bool,
+        px: i32,
+        py: i32,
+    ) {
+        st.active = true;
+        st.mode = mode;
+        st.hwnd = hwnd.0 as isize;
+        st.start_x = px;
+        st.start_y = py;
+        st.rect = rect;
+        st.restore_max = restore_max;
+        st.snap = SnapKind::None;
+        st.neighbors.clear();
+        if mode == Mode::Resize {
+            // Decide how the resize behaves:
+            //  1. A half-screen snapped window resizes from its one free edge.
+            //  2. A cleanly tiled edge moves only that shared divider.
+            //  3. Otherwise use the normal quadrant-corner resize.
+            let real_snap = if restore_max {
+                SnapKind::None
+            } else {
+                snap_kind(hwnd, &rect)
+            };
+            let (snap, raw) = if real_snap != SnapKind::None {
+                (real_snap, find_neighbors(real_snap, &rect, hwnd))
+            } else if !restore_max {
+                let mut best: Option<(SnapKind, Vec<(HWND, RECT)>)> = None;
+                let mut best_dist = i32::MAX;
+                for edge in [
+                    SnapKind::Left,
+                    SnapKind::Right,
+                    SnapKind::Top,
+                    SnapKind::Bottom,
+                ] {
+                    if let Some(neighbors) = clean_tile_edge(edge, &rect, hwnd) {
+                        let distance = edge_dist(edge, px, py, &rect);
+                        if distance < best_dist {
+                            best_dist = distance;
+                            best = Some((edge, neighbors));
+                        }
+                    }
+                }
+                match best {
+                    Some((edge, neighbors)) => (edge, neighbors),
+                    None => (SnapKind::None, Vec::new()),
+                }
+            } else {
+                (SnapKind::None, Vec::new())
+            };
+            st.snap = snap;
+            st.edges = if snap == SnapKind::None {
+                pick_edges(px, py, &rect)
+            } else {
+                snap.free_edge()
+            };
+            if snap != SnapKind::None {
+                let target_insets = border_insets(hwnd, &rect);
+                for (neighbor_hwnd, neighbor_rect) in raw {
+                    let neighbor_insets = border_insets(neighbor_hwnd, &neighbor_rect);
+                    let overlap = match snap {
+                        SnapKind::Right => (target_insets.left + neighbor_insets.right) * 3 / 4,
+                        SnapKind::Left => (target_insets.right + neighbor_insets.left) * 3 / 4,
+                        SnapKind::Top => (target_insets.bottom + neighbor_insets.top) * 3 / 4,
+                        SnapKind::Bottom => (target_insets.top + neighbor_insets.bottom) * 3 / 4,
+                        SnapKind::None => 0,
+                    };
+                    st.neighbors.push(Neighbor {
+                        hwnd: neighbor_hwnd.0 as isize,
+                        rect: neighbor_rect,
+                        overlap,
+                    });
+                }
+            }
+        } else {
+            st.border = border_insets(hwnd, &rect);
+        }
+    }
+
     unsafe fn alt_down() -> bool {
         (GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000) != 0
+    }
+
+    unsafe fn drag_point() -> Option<POINT> {
+        if TOUCH_SOURCE.load(Ordering::Relaxed) {
+            Some(POINT {
+                x: TOUCH_X.load(Ordering::Relaxed),
+                y: TOUCH_Y.load(Ordering::Relaxed),
+            })
+        } else {
+            let mut point = POINT::default();
+            GetCursorPos(&mut point).ok().map(|_| point)
+        }
     }
 
     /// Resolve the top-level window under the cursor, rejecting our own windows
@@ -1030,6 +1131,226 @@ mod platform {
         )
     }
 
+    // ---- Touch capture surface --------------------------------------------
+    //
+    // The primary touchscreen contact is promoted by Windows to compatibility
+    // mouse input, so the low-level hook starts the ordinary move path. Once
+    // that happens, this almost-transparent surface is placed over the virtual
+    // desktop. The primary contact remains implicitly captured by its original
+    // target; any additional contact lands here as WM_TOUCH and switches the
+    // gesture to resize. Keeping the surface hidden until a qualifying Alt +
+    // touch means ordinary touchscreen input is never intercepted.
+    static TOUCH_HWND: AtomicIsize = AtomicIsize::new(0);
+    static TOUCH_VISIBLE: AtomicBool = AtomicBool::new(false);
+
+    unsafe extern "system" fn touch_proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        if msg == WM_TOUCH {
+            handle_touch_message(wparam, lparam);
+            return LRESULT(0);
+        }
+        DefWindowProcW(hwnd, msg, wparam, lparam)
+    }
+
+    unsafe fn create_touch_surface(hinst: HINSTANCE) {
+        let class = w!("CommandeerDragTouch");
+        let wc = WNDCLASSW {
+            lpfnWndProc: Some(touch_proc),
+            hInstance: hinst,
+            lpszClassName: class,
+            ..Default::default()
+        };
+        RegisterClassW(&wc);
+        let hwnd = CreateWindowExW(
+            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+            class,
+            w!(""),
+            WS_POPUP,
+            0,
+            0,
+            0,
+            0,
+            None,
+            None,
+            hinst,
+            None,
+        );
+        let Ok(hwnd) = hwnd else { return };
+        // Alpha zero makes layered windows hit-test transparent. One is visually
+        // indistinguishable from transparent but still accepts touch contacts.
+        if SetLayeredWindowAttributes(hwnd, COLORREF(0), 1, LWA_ALPHA).is_err()
+            || RegisterTouchWindow(hwnd, REGISTER_TOUCH_WINDOW_FLAGS(0)).is_err()
+        {
+            let _ = DestroyWindow(hwnd);
+            return;
+        }
+        TOUCH_HWND.store(hwnd.0 as isize, Ordering::Relaxed);
+    }
+
+    unsafe fn destroy_touch_surface() {
+        TOUCH_VISIBLE.store(false, Ordering::Relaxed);
+        let hwnd = HWND(TOUCH_HWND.swap(0, Ordering::Relaxed) as *mut _);
+        if !hwnd.0.is_null() {
+            let _ = DestroyWindow(hwnd);
+        }
+    }
+
+    unsafe fn update_touch_surface() {
+        let hwnd = HWND(TOUCH_HWND.load(Ordering::Relaxed) as *mut _);
+        if hwnd.0.is_null() {
+            if !TOUCH_PRIMARY_DOWN.load(Ordering::Relaxed) {
+                TOUCH_BLOCKED.store(false, Ordering::Relaxed);
+            }
+            return;
+        }
+        let has_secondary = touch_state()
+            .lock()
+            .map(|touch| !touch.contacts.is_empty())
+            .unwrap_or(false);
+        let needed = TOUCH_PRIMARY_DOWN.load(Ordering::Relaxed) || has_secondary;
+        if needed {
+            if !TOUCH_VISIBLE.swap(true, Ordering::Relaxed) {
+                let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                let width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                let height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+                let _ = SetWindowPos(
+                    hwnd,
+                    HWND_TOPMOST,
+                    x,
+                    y,
+                    width,
+                    height,
+                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                );
+            }
+        } else {
+            if TOUCH_VISIBLE.swap(false, Ordering::Relaxed) {
+                let _ = ShowWindow(hwnd, SW_HIDE);
+            }
+            TOUCH_BLOCKED.store(false, Ordering::Relaxed);
+        }
+
+        // Releasing Alt cancels the manipulation, just like releasing the
+        // relevant mouse button. Continue capturing until every finger lifts.
+        if !alt_down()
+            && ACTIVE.load(Ordering::Relaxed)
+            && TOUCH_PRIMARY_DOWN.load(Ordering::Relaxed)
+        {
+            finish_touch_drag();
+        }
+    }
+
+    unsafe fn handle_touch_message(wparam: WPARAM, lparam: LPARAM) {
+        let count = wparam.0 & 0xFFFF;
+        let handle = HTOUCHINPUT(lparam.0 as *mut _);
+        let mut inputs = vec![TOUCHINPUT::default(); count];
+        let read = GetTouchInputInfo(
+            handle,
+            &mut inputs,
+            std::mem::size_of::<TOUCHINPUT>() as i32,
+        )
+        .is_ok();
+        let _ = CloseTouchInputHandle(handle);
+        if !read {
+            return;
+        }
+
+        let mut touch = match touch_state().lock() {
+            Ok(touch) => touch,
+            Err(_) => return,
+        };
+        for input in inputs {
+            // WM_TOUCH coordinates are hundredths of a physical screen pixel.
+            let contact = TouchContact {
+                id: input.dwID,
+                x: input.x / 100,
+                y: input.y / 100,
+            };
+            if input.dwFlags.0 & TOUCHEVENTF_UP.0 != 0 {
+                touch.contacts.retain(|existing| existing.id != contact.id);
+            } else if let Some(existing) = touch
+                .contacts
+                .iter_mut()
+                .find(|existing| existing.id == contact.id)
+            {
+                *existing = contact;
+            } else if input.dwFlags.0 & TOUCHEVENTF_DOWN.0 != 0 {
+                touch.contacts.push(contact);
+            }
+        }
+
+        if !TOUCH_PRIMARY_DOWN.load(Ordering::Relaxed) || TOUCH_BLOCKED.load(Ordering::Relaxed) {
+            return;
+        }
+        let Some(secondary) = touch.contacts.first().copied() else {
+            if TOUCH_RESIZE.load(Ordering::Relaxed) {
+                finish_touch_drag();
+            }
+            return;
+        };
+        SECONDARY_X.store(secondary.x, Ordering::Relaxed);
+        SECONDARY_Y.store(secondary.y, Ordering::Relaxed);
+        update_touch_midpoint(secondary.x, secondary.y);
+
+        if !TOUCH_RESIZE.swap(true, Ordering::Relaxed) {
+            rebase_touch_resize();
+        }
+    }
+
+    unsafe fn update_touch_midpoint(secondary_x: i32, secondary_y: i32) {
+        let mut primary = POINT::default();
+        if GetCursorPos(&mut primary).is_ok() {
+            TOUCH_X.store((primary.x + secondary_x) / 2, Ordering::Relaxed);
+            TOUCH_Y.store((primary.y + secondary_y) / 2, Ordering::Relaxed);
+        }
+    }
+
+    unsafe fn rebase_touch_resize() {
+        let (hwnd, px, py) = match state().lock() {
+            Ok(st) if st.active => (
+                HWND(st.hwnd as *mut _),
+                TOUCH_X.load(Ordering::Relaxed),
+                TOUCH_Y.load(Ordering::Relaxed),
+            ),
+            _ => return,
+        };
+        let mut rect = RECT::default();
+        if GetWindowRect(hwnd, &mut rect).is_err() {
+            finish_touch_drag();
+            return;
+        }
+        if let Ok(mut st) = state().lock() {
+            if st.active && st.hwnd == hwnd.0 as isize {
+                configure_drag(
+                    &mut st,
+                    Mode::Resize,
+                    hwnd,
+                    rect,
+                    IsZoomed(hwnd).as_bool(),
+                    px,
+                    py,
+                );
+                TOUCH_SOURCE.store(true, Ordering::Relaxed);
+                GEN.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    unsafe fn finish_touch_drag() {
+        if let Ok(mut st) = state().lock() {
+            st.active = false;
+        }
+        ACTIVE.store(false, Ordering::Relaxed);
+        TOUCH_RESIZE.store(false, Ordering::Relaxed);
+        TOUCH_BLOCKED.store(true, Ordering::Relaxed);
+        suppress_alt_menu();
+    }
+
     // ---- Snap-aware hover indicator ---------------------------------------
     //
     // While Alt is held over a draggable window (and no drag is in progress),
@@ -1074,6 +1395,7 @@ mod platform {
         lparam: LPARAM,
     ) -> LRESULT {
         if msg == WM_TIMER {
+            update_touch_surface();
             update_indicator();
             return LRESULT(0);
         }
@@ -1275,11 +1597,10 @@ mod platform {
             hide_indicator();
             return;
         }
-        let mut p = POINT::default();
-        if GetCursorPos(&mut p).is_err() {
+        let Some(p) = drag_point() else {
             hide_indicator();
             return;
-        }
+        };
         let Some(work) = work_area_at(p) else {
             hide_indicator();
             return;
@@ -1705,12 +2026,12 @@ mod platform {
                 }
             }
 
-            // Ground truth for the drag: the actual on-screen cursor. Never
-            // fall back to (0,0) if the read fails (secure desktop etc.).
-            let mut p = POINT::default();
-            if unsafe { GetCursorPos(&mut p) }.is_err() {
+            // Ground truth for the drag: the real cursor for mouse/one-finger
+            // move, or the two-finger midpoint for touch resize. Never fall
+            // back to (0,0) if the read fails (secure desktop etc.).
+            let Some(p) = (unsafe { drag_point() }) else {
                 continue;
-            }
+            };
             let (cx, cy) = (p.x, p.y);
             let (mut x, mut y, mut w, mut h) = compute_target(mode, sx, sy, rect, edges, cx, cy);
 
@@ -1836,6 +2157,9 @@ mod platform {
                 }
             }
             last = Some((x, y, w, h));
+            if finishing {
+                TOUCH_SOURCE.store(false, Ordering::Relaxed);
+            }
         }
         if hires {
             unsafe { timeEndPeriod(1) };

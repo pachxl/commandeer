@@ -230,7 +230,9 @@ function settingsStep(config: AppConfig): Step {
             {
               id: 'settings:window-drag',
               label: 'Alt-Drag Windows',
-              sublabel: `${config.window_drag ? 'On' : 'Off'} — hold Alt to move, Alt + right-drag to resize any window`,
+              sublabel: IS_WINDOWS
+                ? `${config.window_drag ? 'On' : 'Off'} — Alt + drag/touch to move; right-drag or two-finger touch to resize`
+                : `${config.window_drag ? 'On' : 'Off'} — hold Alt to move, Alt + right-drag to resize any window`,
               icon: 'window',
               actionLabel: 'Toggle',
             } as PaletteItem,
