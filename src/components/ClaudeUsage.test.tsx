@@ -43,17 +43,17 @@ describe('ClaudeUsage', () => {
 
   it('shows credential guidance without a contradictory empty state', async () => {
     mocks.claudeUsage.mockRejectedValue(
-      'Claude Code is signed out or its macOS login Keychain is unavailable. Run claude auth login --claudeai in Terminal, then reopen Commandeer.',
+      "Claude Code's macOS login Keychain is locked. In Terminal, run security unlock-keychain ~/Library/Keychains/login.keychain-db and enter your Mac login password. Then run claude auth login --claudeai and reopen Commandeer.",
     )
 
     const { unmount } = render(<ClaudeUsage />)
 
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('claude auth login --claudeai'))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('security unlock-keychain'))
     expect(screen.queryByText('No usage data available.')).toBeNull()
 
     unmount()
     render(<ClaudeUsage />)
-    expect(screen.getByRole('alert').textContent).toContain('claude auth login --claudeai')
+    expect(screen.getByRole('alert').textContent).toContain('security unlock-keychain')
     expect(screen.queryByText('No usage data available.')).toBeNull()
   })
 })

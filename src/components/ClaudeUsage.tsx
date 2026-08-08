@@ -109,6 +109,11 @@ function loadCached(): CachedUsage | null {
 
 function loadState(): PollState {
   try {
+    // Authentication can be repaired outside Commandeer at any time. Never let
+    // a previous network cooldown delay the first retry after a palette reopen.
+    if (localStorage.getItem(ERROR_KEY)?.startsWith('Claude Code')) {
+      return { interval: BASE_INTERVAL_MS, nextAllowedAt: 0 }
+    }
     const raw = localStorage.getItem(STATE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PollState>
@@ -238,7 +243,6 @@ export default function ClaudeUsage() {
     }
 
     setLoading(true)
-    setError(null)
 
     const run = (async () => {
       try {
@@ -273,6 +277,12 @@ export default function ClaudeUsage() {
           stateRef.current = { interval, nextAllowedAt }
           saveState(stateRef.current)
           setRateLimitedUntil(nextAllowedAt)
+        } else if (message.startsWith('Claude Code')) {
+          stateRef.current = {
+            ...stateRef.current,
+            nextAllowedAt: 0,
+          }
+          saveState(stateRef.current)
         } else {
           // Transient (network) error: brief cooldown, keep the interval as-is.
           stateRef.current = {

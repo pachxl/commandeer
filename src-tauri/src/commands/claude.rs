@@ -3,7 +3,10 @@ use std::path::PathBuf;
 
 #[cfg(target_os = "macos")]
 const CLAUDE_LOGIN_GUIDANCE: &str =
-    "Claude Code is signed out or its macOS login Keychain is unavailable. Run claude auth login --claudeai in Terminal, then reopen Commandeer.";
+    "Claude Code is signed out. Run claude auth login --claudeai in Terminal, then reopen Commandeer.";
+#[cfg(target_os = "macos")]
+const CLAUDE_KEYCHAIN_UNLOCK_GUIDANCE: &str =
+    "Claude Code's macOS login Keychain is locked. In Terminal, run security unlock-keychain ~/Library/Keychains/login.keychain-db and enter your Mac login password. Then run claude auth login --claudeai and reopen Commandeer.";
 
 fn credentials_path() -> Result<PathBuf, String> {
     let home = std::env::var("USERPROFILE")
@@ -56,6 +59,15 @@ fn credentials_from_keychain() -> Result<String, String> {
     Ok(raw)
 }
 
+#[cfg(target_os = "macos")]
+fn credentials_guidance(keychain_error: &str) -> &'static str {
+    if keychain_error.contains("exit status: 51") {
+        CLAUDE_KEYCHAIN_UNLOCK_GUIDANCE
+    } else {
+        CLAUDE_LOGIN_GUIDANCE
+    }
+}
+
 /// The Claude Code OAuth credentials JSON. On macOS the token lives in the login
 /// Keychain (with the file as a fallback for non-default setups); elsewhere it's
 /// the ~/.claude/.credentials.json file.
@@ -65,7 +77,7 @@ fn read_credentials() -> Result<String, String> {
         credentials_from_keychain().or_else(|kc_err| {
             credentials_from_file().map_err(|file_err| {
                 eprintln!("Claude credentials unavailable — keychain: {kc_err}; file: {file_err}");
-                CLAUDE_LOGIN_GUIDANCE.to_string()
+                credentials_guidance(&kc_err).to_string()
             })
         })
     }
@@ -213,5 +225,13 @@ mod tests {
         assert_eq!(limits.len(), 1);
         assert_eq!(limits[0]["kind"], "weekly_all");
         assert_eq!(limits[0]["resets_at"], "");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn keychain_interaction_failure_requires_unlock_before_login() {
+        let guidance = super::credentials_guidance("keychain lookup failed (exit status: 51):");
+        assert!(guidance.contains("security unlock-keychain"));
+        assert!(guidance.contains("claude auth login --claudeai"));
     }
 }

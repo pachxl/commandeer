@@ -75,9 +75,12 @@ bug.
 
 - Run `claude auth status --json` in Terminal. Commandeer cannot display usage
   when Claude Code itself reports `"loggedIn": false`.
-- Sign in with `claude auth login --claudeai`, then reopen Commandeer. On macOS
-  this recreates or unlocks Claude Code's `Claude Code-credentials` login
-  Keychain item; never copy the OAuth token into Commandeer configuration.
+- If Commandeer reports that the login Keychain is locked, run
+  `security unlock-keychain ~/Library/Keychains/login.keychain-db` and enter
+  your Mac login password. Then run `claude auth login --claudeai` and reopen
+  Commandeer. Repeating OAuth login before unlocking cannot update the protected
+  `Claude Code-credentials` item.
+- Never copy the OAuth token into Commandeer configuration.
 - A credential error remains visible across palette sessions. It must not be
   followed by the unrelated “No usage data available” message.
 
