@@ -31,6 +31,14 @@ see `RELEASING.md`. Clippy lints are platform-gated, so a clean local run only
 proves the current OS: treat cross-OS clippy as unverified until the code is
 pulled on the other machines.
 
+Keep verification proportional to the change. During implementation and handoff,
+run the smallest focused test set that directly covers the edited behavior; do not
+run every frontend and backend test for a narrow component, styling, parser, or
+schema change. Expand to a subsystem or full suite only when the change is broad or
+cross-cutting, shared infrastructure is affected, focused coverage is unavailable,
+a regression suggests wider impact, or the user explicitly requests full release
+validation. The mandatory release rebuild in the shipping workflow remains unchanged.
+
 ## Development commands
 
 ```bash
