@@ -25,7 +25,6 @@ let saveTimeout: ReturnType<typeof setTimeout> | null = null
 // Only the overall session + weekly limits are shown. The per-model
 // (weekly_scoped, e.g. Fable) limit is intentionally omitted.
 const KIND_ORDER = ['session', 'weekly_all']
-const CLAUDE_ORANGE = '#D97757'
 
 interface CachedUsage {
   limits: ClaudeLimit[]
@@ -302,11 +301,6 @@ export default function ClaudeUsage() {
           data-usage-brand
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600 }}
         >
-          <span
-            data-usage-mark
-            aria-hidden="true"
-            style={{ width: 7, height: 7, borderRadius: '50%', background: CLAUDE_ORANGE }}
-          />
           <span style={{ color: 'var(--text)' }}>Claude</span>
           <span data-usage-kind style={{ color: 'var(--text-dim)', fontWeight: 500 }}>
             Usage

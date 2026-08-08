@@ -8,8 +8,6 @@ const SAVE_DEBOUNCE_MS = 50
 const BASE_INTERVAL_MS = 5 * 60_000
 const MAX_INTERVAL_MS = 30 * 60_000
 const JITTER_MS = 15_000
-const CODEX_GREEN = '#10A37F'
-
 let pendingCache: CachedUsage | null = null
 let pendingState: PollState | null = null
 let saveTimeout: ReturnType<typeof setTimeout> | null = null
@@ -310,11 +308,6 @@ export default function CodexUsage() {
           data-usage-brand
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600 }}
         >
-          <span
-            data-usage-mark
-            aria-hidden="true"
-            style={{ width: 7, height: 7, borderRadius: '50%', background: CODEX_GREEN }}
-          />
           <span style={{ color: 'var(--text)' }}>Codex</span>
           <span data-usage-kind style={{ color: 'var(--text-dim)', fontWeight: 500 }}>
             Usage

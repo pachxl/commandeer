@@ -401,24 +401,10 @@
   background: rgba(0, 0, 0, 0.08);
 }
 
-[data-style='onix'] [data-usage-panel='codex'] {
-  --usage-panel-glow: rgba(16, 163, 127, 0.055);
-  --usage-mark-border: rgba(114, 235, 198, 0.48);
-  --usage-mark-halo: rgba(16, 163, 127, 0.09);
-  --usage-mark-glow: rgba(16, 163, 127, 0.2);
-}
-
-[data-style='onix'] [data-usage-panel='claude'] {
-  --usage-panel-glow: rgba(217, 119, 87, 0.065);
-  --usage-mark-border: rgba(245, 178, 155, 0.48);
-  --usage-mark-halo: rgba(217, 119, 87, 0.09);
-  --usage-mark-glow: rgba(217, 119, 87, 0.2);
-}
-
 [data-style='onix'] [data-usage-panel] {
   gap: 10px !important;
   padding: 11px 14px 12px !important;
-  background: radial-gradient(70% 150% at 0% 0%, var(--usage-panel-glow), transparent 60%), rgba(0, 0, 0, 0.09);
+  background: rgba(0, 0, 0, 0.09);
   font-family: var(--font) !important;
 }
 
@@ -430,15 +416,6 @@
   gap: 7px !important;
   font-size: 11.5px !important;
   letter-spacing: -0.006em;
-}
-
-[data-style='onix'] [data-usage-mark] {
-  width: 8px !important;
-  height: 8px !important;
-  border: 1px solid var(--usage-mark-border);
-  box-shadow:
-    0 0 0 4px var(--usage-mark-halo),
-    0 0 12px var(--usage-mark-glow);
 }
 
 [data-style='onix'] [data-usage-kind] {
