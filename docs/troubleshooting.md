@@ -71,6 +71,16 @@ bug.
   regenerated. Verify the current process path is not being mistaken for the
   app icon.
 
+## Claude usage says Claude Code is signed out
+
+- Run `claude auth status --json` in Terminal. Commandeer cannot display usage
+  when Claude Code itself reports `"loggedIn": false`.
+- Sign in with `claude auth login --claudeai`, then reopen Commandeer. On macOS
+  this recreates or unlocks Claude Code's `Claude Code-credentials` login
+  Keychain item; never copy the OAuth token into Commandeer configuration.
+- A credential error remains visible across palette sessions. It must not be
+  followed by the unrelated “No usage data available” message.
+
 ## Build or commit failures
 
 - Run `bun install` if TypeScript packages or Husky are missing.

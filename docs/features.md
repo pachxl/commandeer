@@ -109,6 +109,8 @@ after rate limits. On macOS the backend reads Keychain items through the stable
 Claude's backend normalizes both the legacy `limits` array and the current
 top-level `five_hour` / `seven_day` OAuth response into the same frontend model;
 empty legacy cache entries are discarded so schema migrations refresh immediately.
+Credential failures remain visible across palette sessions and direct users to
+`claude auth login --claudeai`; they never fall through to an empty-data message.
 
 ## Automatic updates
 

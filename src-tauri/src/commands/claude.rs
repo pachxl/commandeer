@@ -1,6 +1,10 @@
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
+#[cfg(target_os = "macos")]
+const CLAUDE_LOGIN_GUIDANCE: &str =
+    "Claude Code is signed out or its macOS login Keychain is unavailable. Run claude auth login --claudeai in Terminal, then reopen Commandeer.";
+
 fn credentials_path() -> Result<PathBuf, String> {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
@@ -60,7 +64,8 @@ fn read_credentials() -> Result<String, String> {
     {
         credentials_from_keychain().or_else(|kc_err| {
             credentials_from_file().map_err(|file_err| {
-                format!("Claude credentials not found — keychain: {kc_err}; file: {file_err}")
+                eprintln!("Claude credentials unavailable — keychain: {kc_err}; file: {file_err}");
+                CLAUDE_LOGIN_GUIDANCE.to_string()
             })
         })
     }

@@ -71,6 +71,7 @@ changes.
 | `src/components/ConfirmOverlay.tsx`        | Confirmation prompt UI                                                  | [`frontend.md`](frontend.md)                                       |
 | `src/components/DetailPane.tsx`            | Metadata and Markdown details                                           | [`frontend.md`](frontend.md)                                       |
 | `src/components/ClaudeUsage.tsx`           | Claude rate-limit panel/cache/polling                                   | [`features.md`](features.md), [`storage.md`](storage.md)           |
+| `src/components/ClaudeUsage.test.tsx`      | Claude credential-error persistence and empty-state regressions         | [`testing.md`](testing.md)                                         |
 | `src/components/CodexUsage.tsx`            | Codex rate-limit panel/cache/polling                                    | [`features.md`](features.md), [`storage.md`](storage.md)           |
 | `src/components/FormView.tsx`              | Multi-field Step form renderer                                          | [`frontend.md`](frontend.md)                                       |
 | `src/components/FormView.test.tsx`         | Multiline form keyboard and submission regressions                      | [`testing.md`](testing.md)                                         |

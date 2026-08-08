@@ -3,7 +3,8 @@ import { useWindowFocused } from '../hooks/useWindowFocused'
 import { claudeUsage, type ClaudeLimit } from '../lib/tauri'
 
 const CACHE_KEY = 'commandeer:claude-usage'
-const STATE_KEY = 'commandeer:claude-poll-state'
+const STATE_KEY = 'commandeer:claude-poll-state-v2'
+const ERROR_KEY = 'commandeer:claude-usage-error'
 const SAVE_DEBOUNCE_MS = 50
 
 // The usage numbers move on the scale of hours (5h rolling session window, 7d
@@ -124,6 +125,23 @@ function loadState(): PollState {
   return { interval: BASE_INTERVAL_MS, nextAllowedAt: 0 }
 }
 
+function loadError(): string | null {
+  try {
+    return localStorage.getItem(ERROR_KEY)
+  } catch {
+    return null
+  }
+}
+
+function saveError(error: string | null): void {
+  try {
+    if (error) localStorage.setItem(ERROR_KEY, error)
+    else localStorage.removeItem(ERROR_KEY)
+  } catch {
+    /* ignore quota / private-mode failures */
+  }
+}
+
 function doSaveCache(cache: CachedUsage | null): void {
   try {
     if (cache !== null) {
@@ -197,7 +215,7 @@ export default function ClaudeUsage() {
 
   const [cache, setCache] = useState<CachedUsage | null>(cacheRef.current)
   const [loading, setLoading] = useState(!cacheRef.current && Date.now() >= stateRef.current.nextAllowedAt)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(loadError())
   const [rateLimitedUntil, setRateLimitedUntil] = useState<number>(0)
   const [now, setNow] = useState<number>(Date.now())
   const limits = cache?.limits ?? null
@@ -241,6 +259,8 @@ export default function ClaudeUsage() {
         stateRef.current = { interval, nextAllowedAt: Date.now() + interval + jitter }
         saveState(stateRef.current)
         setRateLimitedUntil(0)
+        setError(null)
+        saveError(null)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         const retrySeconds = parseRateLimitSeconds(message)
@@ -262,6 +282,7 @@ export default function ClaudeUsage() {
           saveState(stateRef.current)
         }
         setError(message)
+        saveError(message)
         console.error('claude usage:', err)
         // Keep showing stale cached data instead of wiping it on error.
       } finally {
@@ -431,19 +452,6 @@ export default function ClaudeUsage() {
           }}
         >
           {error}
-        </div>
-      )}
-
-      {!error && !hasLimits && !loading && !showRateLimit && (
-        <div
-          data-usage-notice
-          style={{
-            padding: '4px 0',
-            color: 'var(--text-dim)',
-            fontSize: 11,
-          }}
-        >
-          No usage data available.
         </div>
       )}
     </div>
