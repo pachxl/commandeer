@@ -7,10 +7,13 @@
 
 use std::sync::Mutex;
 
+#[cfg(target_os = "macos")]
 const DEFAULT_RADIUS_POINTS: f64 = 12.0;
 // Keep these in lockstep with the built-in Onix presentation tokens
 // (`--onix-capsule-radius` / `--onix-panel-radius`).
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 const ONIX_COMPACT_RADIUS_POINTS: f64 = 33.0;
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 const ONIX_EXPANDED_RADIUS_POINTS: f64 = 25.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -56,6 +59,7 @@ fn surface_config(style: &str, expanded: bool, scale: f64) -> SurfaceConfig {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn onix_radius_points(config: SurfaceConfig) -> f64 {
     let radius = if config.expanded {
         ONIX_EXPANDED_RADIUS_POINTS
@@ -466,7 +470,7 @@ fn apply_surface(
     Ok(())
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "linux")]
 fn apply_surface(
     _window: &tauri::WebviewWindow,
     _config: SurfaceConfig,
