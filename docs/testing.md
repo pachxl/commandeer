@@ -120,9 +120,10 @@ Windows/macOS coverage.
 ### macOS
 
 - Verify Accessory app/tray behavior and `Cmd+Shift+Space`.
-- On macOS 26+, verify Onix uses the native Liquid Glass content wrapper in both
-  compact and expanded radii. Test over bright, dark, and high-frequency
-  backgrounds: no translucent rectangular corner may extend beyond the rounded
+- On macOS 26+, verify Onix uses the native Liquid Glass content wrapper inside
+  its rounded clipping container at both compact and expanded radii. Test over
+  bright, dark, and high-frequency backgrounds: no translucent rectangular
+  corner may extend beyond the rounded
   vessel. Verify the 150 ms capsule-to-panel animation keeps its top edge fixed,
   continuously changes the glass radius, and becomes immediate with Reduce
   Motion. On older macOS, verify the vibrancy fallback has matching geometry,

@@ -98,7 +98,7 @@ describe('OnixOpticalShell', () => {
     expect(container.querySelector('[data-onix-morph-guard]')).toBeNull()
   })
 
-  it('covers newly exposed native glass only while the panel blooms', async () => {
+  it('never covers the native material with a transient dark expansion layer', async () => {
     const { container, rerender } = render(
       <div style={{ position: 'relative', width: 700, height: 72 }}>
         <OnixOpticalShell expanded={false} />
@@ -112,9 +112,6 @@ describe('OnixOpticalShell', () => {
       </div>,
     )
 
-    const guard = container.querySelector<HTMLElement>('[data-onix-morph-guard]')
-    expect(guard).not.toBeNull()
-    expect(guard?.style.borderRadius).toBe('inherit')
-    expect(guard?.style.animation).toContain('180ms')
+    expect(container.querySelector('[data-onix-morph-guard]')).toBeNull()
   })
 })

@@ -61,15 +61,18 @@ on the same presentation.
 
 The platform implementations intentionally differ:
 
-- On macOS 26, a runtime-gated `NSGlassEffectView` becomes the `NSWindow`
-  content view and owns the existing Wry/WebKit content through its
-  `contentView` property. Onix uses adaptive Regular glass with no native tint,
-  explicitly keeps the host `NSWindow` non-opaque/clear, and leaves AppKit in
-  charge of backing/sampling resolution; only the public glass `cornerRadius`
-  shapes the native material. Reapplication updates that wrapper in place and
-  preserves the first responder. Removing
-  Onix unwraps it before applying the
-  `NSVisualEffectMaterial::HudWindow` fallback used by Default and older macOS.
+- On macOS 26, a runtime-gated `NSGlassEffectView` owns the existing Wry/WebKit
+  content through its `contentView` property. A dedicated rounded `NSView`
+  clipping container becomes the `NSWindow` content view and contains the
+  glass, preventing its rectangular compositor host from leaking through the
+  transparent window corners. Only that outer container is layer-backed; the
+  glass itself remains under AppKit's native backing/sampling control. Onix
+  uses adaptive Regular glass with no native tint, keeps the host `NSWindow`
+  non-opaque/clear, and updates both public corner radii together while
+  suppressing separate Core Animation actions on the clip and preserving the
+  first responder. Removing Onix unwraps the hierarchy before
+  applying the `NSVisualEffectMaterial::HudWindow` fallback used by Default and
+  older macOS.
 - On Windows, Tauri supplies Acrylic and the module owns only the DPI-aware
   `SetWindowRgn` shape: capsule for compact Onix, rounded panel for expanded
   Onix, and no custom region for Default.
@@ -80,8 +83,10 @@ The platform implementations intentionally differ:
 `commands/window.rs` exposes `resize_palette_window`. Its macOS branch runs on
 the AppKit main thread and animates an Onix expansion for 150 ms while preserving
 the window's top edge; ordinary resize notifications drive
-`refresh_palette_surface`, which interpolates the glass radius over the same
-frame interval. The non-macOS and Reduced Motion paths resize directly. The
+`refresh_palette_surface`. Radius interpolation is armed only when the native
+frame actually leaves the compact capsule. Later result-count/step resizes keep
+the settled panel radius, so its top corners never pulse back toward the capsule
+curve. The non-macOS and Reduced Motion paths resize directly. The
 frontend keeps an expanded Onix surface expanded for the rest of the visible
 session and returns to compact only through whole-session reset/dismiss.
 

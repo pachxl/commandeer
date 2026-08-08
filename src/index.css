@@ -163,19 +163,6 @@
   }
 }
 
-/* The native frame can expose a new strip of system glass one compositor tick
-   before WebGL resizes. This rounded underlay exists only for the short bloom,
-   holds the Black Water density through that hand-off, then disappears. */
-@keyframes onix-morph-guard {
-  0%,
-  70% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
 /* Search capsule / expanded header. */
 [data-style='onix'] [data-search-shell] {
   flex-shrink: 0;

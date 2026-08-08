@@ -43,17 +43,19 @@ Onix shares one dark “Black Water” optical design, but its honest native
 substrate differs by platform:
 
 - **macOS 26:** `commands/palette_surface.rs` finds `NSGlassEffectView` at
-  runtime, assigns Wry's existing WebKit view as the glass view's
-  `contentView`, then installs that wrapper as the `NSWindow` content view.
+  runtime and assigns Wry's existing WebKit view as the glass view's
+  `contentView`. The glass then fills a dedicated rounded clipping view, which
+  becomes the `NSWindow` content view.
   Making the glass a sibling or merely adding blur would not produce the same
   system Liquid Glass behavior. Onix uses adaptive Regular glass for both the
   compact lens and expanded panel. The native tint is unset and the `NSWindow`
   is explicitly non-opaque with a clear background; the rounded frontend
   absorption field supplies the dark Black Water tone without revealing a faint
   rectangular host on bright wallpaper.
-  `NSGlassEffectView.cornerRadius` owns the native optical curve while
-  the transparent web root clips its own content to the coincident CSS curve;
-  the glass view is not forced through a rasterizing Core Animation mask. The
+  `NSGlassEffectView.cornerRadius` owns the native optical curve while the
+  outer clip masks the rectangular compositor host to the same radius and the
+  transparent web root clips its content to the coincident CSS curve. The
+  glass view itself is not forced through a rasterizing Core Animation mask. The
   operation is idempotent and preserves the first responder. Switching to
   Default unwraps the WebKit view; Default and Onix on older macOS then use
   `NSVisualEffectMaterial::HudWindow` through
@@ -70,9 +72,10 @@ substrate differs by platform:
 The compact capsule and expanded panel remain two semantic states. On macOS,
 `resize_palette_window` uses a 150 ms `NSAnimationContext` frame animation that
 keeps the top edge fixed; ordinary `WindowEvent::Resized` callbacks interpolate
-the public glass radius from 33 to 25 points during that bloom. Reduced Motion,
-Windows, X11, and Wayland use their direct native resize paths, while the short
-frontend shape/content transitions keep state changes coherent.
+the clip and glass radii from 33 to 25 points only for that capsule-to-panel
+bloom. Subsequent expanded-panel height changes retain the panel radius.
+Reduced Motion, Windows, X11, and Wayland use their direct native resize paths,
+while the short frontend shape/content transitions keep state changes coherent.
 
 Compactness is scoped to a visible palette session: Onix may open compact only
 at a clean root. Once query, navigation, loading, error, confirmation, action,

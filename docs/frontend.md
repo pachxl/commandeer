@@ -89,12 +89,13 @@ existing selection clamping and movement-guarded pointer rules when changing it.
 `ResizeObserver` phases to the newest geometry. On macOS, an Onix expansion uses
 `resize_palette_window` to animate the borderless AppKit frame downward from a
 fixed top edge over 150 ms. Each normal resize event interpolates the native
-glass radius from capsule to panel while the CSS curve and WebGL SDF follow the
-same short transition. A rounded 180 ms morph guard sits beneath WebGL only
-during expansion, preventing a newly exposed strip of native glass from flashing
-before the canvas backing store repaints; it is gone in the settled panel.
-Reduced Motion takes the direct resize path. Wayland
-sends final geometry through `resize_palette`; Windows and X11 use Tauri window
+glass radius from capsule to panel during that first bloom while the CSS curve
+and WebGL SDF follow the same short transition. Later result-height changes keep
+the settled panel curve.
+The macOS glass sits inside a matching rounded native clip, so WebGL can repaint
+the growing surface without a transient full-panel dark overlay or a rectangular
+glass host appearing at the corners. Reduced Motion takes the direct resize
+path. Wayland sends final geometry through `resize_palette`; Windows and X11 use Tauri window
 size, recentering only for width changes. In parallel, `set_palette_surface`
 sends the applied style, compact/expanded state, and scale; the backend remembers
 it and refreshes native clipping after every host resize. Preserve both sequences

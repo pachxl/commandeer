@@ -47,20 +47,6 @@ export default function OnixOpticalShell({ expanded, radius = 28, className, sty
         userSelect: 'none',
       }}
     >
-      {expanded && !reducedMotion && !accessibilityFallback && (
-        <div
-          data-onix-morph-guard
-          style={{
-            position: 'absolute',
-            inset: 0,
-            borderRadius: 'inherit',
-            background: 'rgba(1, 2, 5, 0.96)',
-            animation: 'onix-morph-guard 180ms linear both',
-            pointerEvents: 'none',
-          }}
-        />
-      )}
-
       <canvas
         ref={canvasRef}
         data-onix-optics-canvas

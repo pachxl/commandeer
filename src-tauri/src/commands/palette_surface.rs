@@ -87,6 +87,21 @@ fn onix_radius_during_morph(
     compact_radius + (expanded_radius - compact_radius) * progress
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn should_morph_onix_radius(config: SurfaceConfig, start_height: f64, target_height: f64) -> bool {
+    if !config.onix
+        || !config.expanded
+        || !start_height.is_finite()
+        || !target_height.is_finite()
+        || target_height <= start_height
+    {
+        return false;
+    }
+
+    let compact_height = 2.0 * ONIX_COMPACT_RADIUS_POINTS * config.scale;
+    start_height <= compact_height + 1.0
+}
+
 #[cfg(any(target_os = "windows", test))]
 fn radius_pixels(config: SurfaceConfig, dpi: u32, height: i32) -> i32 {
     let dpi_scale = f64::from(dpi.max(1)) / 96.0;
@@ -111,12 +126,12 @@ fn remembered_config() -> SurfaceConfig {
 /// interpolation as the window, avoiding a second edge during the bloom.
 #[cfg(target_os = "macos")]
 pub(crate) fn begin_palette_surface_resize(start_height: f64, target_height: f64) {
+    let config = remembered_config();
     let bounds =
-        (start_height.is_finite() && target_height.is_finite() && target_height > start_height)
-            .then_some(MorphBounds {
-                start_height,
-                target_height,
-            });
+        should_morph_onix_radius(config, start_height, target_height).then_some(MorphBounds {
+            start_height,
+            target_height,
+        });
     *MORPH_BOUNDS.lock().unwrap_or_else(|e| e.into_inner()) = bounds;
 }
 
@@ -281,6 +296,26 @@ unsafe fn apply_liquid_glass(
     if root.is_null() {
         return Err("macOS palette content view is null".to_string());
     }
+
+    let clip_class = liquid_glass_clip_class()?;
+    let root_is_clip: bool = objc2::msg_send![root, isKindOfClass: clip_class];
+    if root_is_clip {
+        let subviews: *mut AnyObject = objc2::msg_send![root, subviews];
+        let glass: *mut AnyObject = objc2::msg_send![subviews, firstObject];
+        if glass.is_null() {
+            return Err("Onix clip container lost its glass view".to_string());
+        }
+        let is_glass: bool = objc2::msg_send![glass, isKindOfClass: glass_class];
+        if !is_glass {
+            return Err("Onix clip container contains an invalid glass view".to_string());
+        }
+        configure_liquid_glass_clip(root, radius);
+        configure_liquid_glass_view(glass, radius);
+        let _: () = objc2::msg_send![ns_window, setHasShadow: false];
+        let _: () = objc2::msg_send![ns_window, invalidateShadow];
+        return Ok(());
+    }
+
     let root_is_glass: bool = objc2::msg_send![root, isKindOfClass: glass_class];
     if root_is_glass {
         configure_liquid_glass_view(root, radius);
@@ -290,16 +325,27 @@ unsafe fn apply_liquid_glass(
     }
 
     // `clear_vibrancy` must run while Wry's parent is still the native root;
-    // after wrapping, `ns_view()` resolves to the glass view instead.
+    // after wrapping, `ns_view()` resolves to the clipping container instead.
     clear_vibrancy(window).map_err(|e| e.to_string())?;
 
     let first_responder: *mut AnyObject = objc2::msg_send![ns_window, firstResponder];
     let first_responder = retain(first_responder);
     let root = retain(root);
 
+    let bounds: objc2_foundation::NSRect = objc2::msg_send![root, bounds];
+    let allocated_clip: *mut AnyObject = objc2::msg_send![clip_class, alloc];
+    let clip: *mut AnyObject = objc2::msg_send![allocated_clip, initWithFrame: bounds];
+    if clip.is_null() {
+        release(root);
+        release(first_responder);
+        return Err("failed to create Onix clipping container".to_string());
+    }
+    configure_liquid_glass_clip(clip, radius);
+
     let allocated: *mut AnyObject = objc2::msg_send![glass_class, alloc];
-    let glass: *mut AnyObject = objc2::msg_send![allocated, init];
+    let glass: *mut AnyObject = objc2::msg_send![allocated, initWithFrame: bounds];
     if glass.is_null() {
+        release(clip);
         release(root);
         release(first_responder);
         return Err("failed to create NSGlassEffectView".to_string());
@@ -309,8 +355,10 @@ unsafe fn apply_liquid_glass(
     // placing glass behind WKWebView as a sibling loses adaptive vibrancy and
     // produces an ordinary backdrop effect instead of Liquid Glass.
     configure_liquid_glass_view(glass, radius);
+    let _: () = objc2::msg_send![glass, setAutoresizingMask: 18usize];
     let _: () = objc2::msg_send![glass, setContentView: root];
-    let _: () = objc2::msg_send![ns_window, setContentView: glass];
+    let _: () = objc2::msg_send![clip, addSubview: glass];
+    let _: () = objc2::msg_send![ns_window, setContentView: clip];
 
     if !first_responder.is_null() {
         let _: bool = objc2::msg_send![ns_window, makeFirstResponder: first_responder];
@@ -318,11 +366,50 @@ unsafe fn apply_liquid_glass(
     let _: () = objc2::msg_send![ns_window, setHasShadow: false];
     let _: () = objc2::msg_send![ns_window, invalidateShadow];
 
-    // `setContentView:` retained both objects in their new hierarchy.
+    // The window/container/glass hierarchy retained all three objects.
     release(glass);
+    release(clip);
     release(root);
     release(first_responder);
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn liquid_glass_clip_class() -> Result<&'static objc2::runtime::AnyClass, String> {
+    use objc2::runtime::{AnyClass, ClassBuilder};
+
+    const CLASS_NAME: &str = "CommandeerOnixGlassClipView";
+    if let Some(class) = AnyClass::get(CLASS_NAME) {
+        return Ok(class);
+    }
+    let superclass = AnyClass::get("NSView").ok_or("macOS NSView class is unavailable")?;
+    ClassBuilder::new(CLASS_NAME, superclass)
+        .map(ClassBuilder::register)
+        .ok_or_else(|| "failed to create the Onix clipping view class".to_string())
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn configure_liquid_glass_clip(clip: *mut objc2::runtime::AnyObject, radius: f64) {
+    use objc2::runtime::{AnyClass, AnyObject};
+
+    let _: () = objc2::msg_send![clip, setClipsToBounds: true];
+    let _: () = objc2::msg_send![clip, setWantsLayer: true];
+    let layer: *mut AnyObject = objc2::msg_send![clip, layer];
+    if !layer.is_null() {
+        // Window resize notifications already provide the interpolation.
+        // Suppress CALayer's separate implicit animation so the mask never
+        // trails the live glass curve or makes the anchored top corners pulse.
+        let transaction = AnyClass::get("CATransaction");
+        if let Some(transaction) = transaction {
+            let _: () = objc2::msg_send![transaction, begin];
+            let _: () = objc2::msg_send![transaction, setDisableActions: true];
+        }
+        let _: () = objc2::msg_send![layer, setCornerRadius: radius];
+        let _: () = objc2::msg_send![layer, setMasksToBounds: true];
+        if let Some(transaction) = transaction {
+            let _: () = objc2::msg_send![transaction, commit];
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -377,6 +464,21 @@ unsafe fn unwrap_liquid_glass(
     if glass.is_null() {
         return Err("macOS palette content view is null".to_string());
     }
+
+    let root = glass;
+    let clip_class = liquid_glass_clip_class()?;
+    let root_is_clip: bool = objc2::msg_send![root, isKindOfClass: clip_class];
+    let glass = if root_is_clip {
+        let subviews: *mut AnyObject = objc2::msg_send![root, subviews];
+        let child: *mut AnyObject = objc2::msg_send![subviews, firstObject];
+        if child.is_null() {
+            return Err("Onix clip container lost its glass view".to_string());
+        }
+        child
+    } else {
+        root
+    };
+
     let is_glass: bool = objc2::msg_send![glass, isKindOfClass: glass_class];
     if !is_glass {
         return Ok(());
@@ -517,6 +619,19 @@ mod tests {
         assert_eq!(onix_radius_during_morph(expanded, 66.0, 66.0, 426.0), 33.0);
         assert_eq!(onix_radius_during_morph(expanded, 246.0, 66.0, 426.0), 29.0);
         assert_eq!(onix_radius_during_morph(expanded, 426.0, 66.0, 426.0), 25.0);
+    }
+
+    #[test]
+    fn radius_morph_only_arms_for_the_capsule_to_panel_transition() {
+        let expanded = surface_config("Onix", true, 1.0);
+        let compact = surface_config("Onix", false, 1.0);
+        let default = surface_config("Default", true, 1.0);
+
+        assert!(should_morph_onix_radius(expanded, 66.0, 426.0));
+        assert!(!should_morph_onix_radius(expanded, 260.0, 426.0));
+        assert!(!should_morph_onix_radius(expanded, 426.0, 260.0));
+        assert!(!should_morph_onix_radius(compact, 66.0, 426.0));
+        assert!(!should_morph_onix_radius(default, 66.0, 426.0));
     }
 
     #[test]
