@@ -7,18 +7,18 @@ code and different permissions.
 
 ## Capability matrix
 
-| Capability           | Windows                                                | Linux                                                             | macOS                                                     |
-| -------------------- | ------------------------------------------------------ | ----------------------------------------------------------------- | --------------------------------------------------------- |
-| Palette window       | Transparent undecorated native window                  | GTK layer-shell overlay for Wayland sizing/positioning            | Always-on-top transparent Accessory window with vibrancy  |
-| Palette shortcut     | Global shortcut plugin                                 | Managed COSMIC/GNOME shortcut plus plugin on X11 where applicable | Global shortcut plugin; default `Cmd+Shift+Space`         |
-| Screenshot           | GDI virtual-screen capture; DWM cloak/reveal handshake | CLI fallback chain; transparent stale-frame defense               | `screencapture -R` on cursor monitor                      |
-| Output volume        | Core Audio endpoint APIs                               | `wpctl`, then `pactl`                                             | `osascript` default output                                |
-| Application mixer    | Supported                                              | Unsupported                                                       | Unsupported                                               |
-| Alt-drag windows     | Full move/resize/snap implementation                   | Unsupported by design under Wayland; compositor owns it           | Move/resize/raise with Accessibility; snapping not ported |
-| Per-monitor Alt+Tab  | Supported native switcher                              | Unsupported                                                       | Unsupported                                               |
-| Installed apps       | Shell AppsFolder and shortcut/icon APIs                | Desktop entries, AppImages, executables                           | `.app` bundles and `open`                                 |
-| Active-folder search | Focused Explorer folder                                | Home-folder fallback                                              | Focused Finder folder or home fallback                    |
-| Clipboard history    | DPAPI encryption and native listener                   | ChaCha20-Poly1305; poll monitor                                   | ChaCha20-Poly1305; poll plus pasteboard change count      |
+| Capability           | Windows                                                | Linux                                                             | macOS                                                      |
+| -------------------- | ------------------------------------------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------- |
+| Palette window       | Acrylic; Onix adds a DPI-aware rounded native region   | GTK layer-shell; Onix models its optical material                 | Accessory window; macOS 26 Liquid Glass, vibrancy fallback |
+| Palette shortcut     | Global shortcut plugin                                 | Managed COSMIC/GNOME shortcut plus plugin on X11 where applicable | Global shortcut plugin; default `Cmd+Shift+Space`          |
+| Screenshot           | GDI virtual-screen capture; DWM cloak/reveal handshake | CLI fallback chain; transparent stale-frame defense               | `screencapture -R` on cursor monitor                       |
+| Output volume        | Core Audio endpoint APIs                               | `wpctl`, then `pactl`                                             | `osascript` default output                                 |
+| Application mixer    | Supported                                              | Unsupported                                                       | Unsupported                                                |
+| Alt-drag windows     | Full move/resize/snap implementation                   | Unsupported by design under Wayland; compositor owns it           | Move/resize/raise with Accessibility; snapping not ported  |
+| Per-monitor Alt+Tab  | Supported native switcher                              | Unsupported                                                       | Unsupported                                                |
+| Installed apps       | Shell AppsFolder and shortcut/icon APIs                | Desktop entries, AppImages, executables                           | `.app` bundles and `open`                                  |
+| Active-folder search | Focused Explorer folder                                | Home-folder fallback                                              | Focused Finder folder or home fallback                     |
+| Clipboard history    | DPAPI encryption and native listener                   | ChaCha20-Poly1305; poll monitor                                   | ChaCha20-Poly1305; poll plus pasteboard change count       |
 
 ## Permission matrix
 
@@ -36,6 +36,53 @@ On macOS, Settings → Permissions & Diagnostics reads Screen Recording and
 Accessibility grants without prompting, opens the matching Privacy & Security
 pane when remediation is needed, links to Automation settings, and provides a
 real screenshot test plus an Alt-drag verification checklist.
+
+## Onix palette substrate
+
+Onix shares one dark “Black Water” optical design, but its honest native
+substrate differs by platform:
+
+- **macOS 26:** `commands/palette_surface.rs` finds `NSGlassEffectView` at
+  runtime, assigns Wry's existing WebKit view as the glass view's
+  `contentView`, then installs that wrapper as the `NSWindow` content view.
+  Making the glass a sibling or merely adding blur would not produce the same
+  system Liquid Glass behavior. Onix uses adaptive Regular glass for both the
+  compact lens and expanded panel. The native tint is unset and the `NSWindow`
+  is explicitly non-opaque with a clear background; the rounded frontend
+  absorption field supplies the dark Black Water tone without revealing a faint
+  rectangular host on bright wallpaper.
+  `NSGlassEffectView.cornerRadius` owns the native optical curve while
+  the transparent web root clips its own content to the coincident CSS curve;
+  the glass view is not forced through a rasterizing Core Animation mask. The
+  operation is idempotent and preserves the first responder. Switching to
+  Default unwraps the WebKit view; Default and Onix on older macOS then use
+  `NSVisualEffectMaterial::HudWindow` through
+  `window-vibrancy`.
+- **Windows:** Tauri's Acrylic window effect remains the native backdrop.
+  Onix applies a DPI-aware `CreateRoundRectRgn`/`SetWindowRgn` capsule or panel
+  boundary; switching to Default clears that region.
+- **Linux/Wayland:** there is no portable API for sampling and refracting the
+  desktop behind a layer-shell client. The native surface therefore stays
+  transparent and the frontend models the dark material, edge refraction,
+  Fresnel rim, and moving highlight. This is an intentional optical fallback,
+  not a claim of native backdrop glass.
+
+The compact capsule and expanded panel remain two semantic states. On macOS,
+`resize_palette_window` uses a 150 ms `NSAnimationContext` frame animation that
+keeps the top edge fixed; ordinary `WindowEvent::Resized` callbacks interpolate
+the public glass radius from 33 to 25 points during that bloom. Reduced Motion,
+Windows, X11, and Wayland use their direct native resize paths, while the short
+frontend shape/content transitions keep state changes coherent.
+
+Compactness is scoped to a visible palette session: Onix may open compact only
+at a clean root. Once query, navigation, loading, error, confirmation, action,
+or feedback state expands it, it remains expanded until the whole-session
+reset/dismiss path runs. This prevents resize churn and flashes during ordinary
+query clearing or navigation.
+
+Themes normally supply Commandeer's colors. Onix is the deliberate exception:
+it fixes the neutral material and foreground palette while continuing to use
+the selected theme's accent color for emphasis.
 
 ## Important platform rules
 

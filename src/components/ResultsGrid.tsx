@@ -3,12 +3,14 @@ import type { PaletteItem } from '../types'
 import { getHighlightPositions } from '../lib/fuzzy'
 import { scrollToReveal } from '../lib/scroll'
 import { getIconSvg, hasIcon } from './Icon'
+import SelectionLens from './SelectionLens'
 
 interface ResultsGridProps {
   items: PaletteItem[]
   selectedIndex: number
   query?: string
   columns?: number
+  active?: boolean
   onSelect: (item: PaletteItem) => void
   onHover: (index: number) => void
 }
@@ -27,7 +29,15 @@ function highlightSegments(text: string, positions: number[]): { text: string; m
   return segments
 }
 
-export default function ResultsGrid({ items, selectedIndex, query, columns = 4, onSelect, onHover }: ResultsGridProps) {
+export default function ResultsGrid({
+  items,
+  selectedIndex,
+  query,
+  columns = 4,
+  active = true,
+  onSelect,
+  onHover,
+}: ResultsGridProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<HTMLDivElement>(null)
   const lastMousePos = useRef<{ x: number; y: number } | null>(null)
@@ -61,8 +71,12 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
   return (
     <div
       ref={gridRef}
+      className="palette-results-grid"
       data-results-list
+      data-selection-surface="grid"
+      data-selection-active={active ? 'true' : 'false'}
       style={{
+        position: 'relative',
         flex: 1,
         minHeight: 0,
         overflowY: 'auto',
@@ -93,8 +107,10 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
           <div
             key={item.id}
             ref={selected ? selectedRef : null}
+            className="palette-grid-cell"
             data-grid-index={i}
             data-selected={selected || undefined}
+            data-selection-item="grid"
             onClick={() => onSelect(item)}
             style={{
               display: 'flex',
@@ -109,10 +125,13 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
               border: `1px solid ${selected ? 'var(--grid-cell-selected-border)' : 'var(--grid-cell-border)'}`,
               userSelect: 'none',
               minHeight: 72,
+              position: 'relative',
+              zIndex: 1,
             }}
           >
             {hasIconValue && (
               <div
+                data-grid-icon-well
                 style={{
                   width: 'var(--grid-icon-size)',
                   height: 'var(--grid-icon-size)',
@@ -186,6 +205,7 @@ export default function ResultsGrid({ items, selectedIndex, query, columns = 4, 
           </div>
         )
       })}
+      <SelectionLens containerRef={gridRef} targetRef={selectedRef} surface="grid" active={active} />
     </div>
   )
 }

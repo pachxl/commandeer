@@ -34,6 +34,7 @@ export default function Toast({ message, kind }: ToastProps) {
 
   return (
     <div
+      data-toast
       style={{
         padding: '6px 12px',
         borderRadius: 6,

@@ -729,8 +729,8 @@ function chooseThemeStep(config: AppConfig): Step {
     // since config.theme is updated before the step is replaced)
     onHighlight: item => {
       applyTheme(item.data as Theme)
-      // Re-assert the active style so structural overrides remain in effect;
-      // the previewed theme still owns every color variable.
+      // Re-assert style-owned structural/material overrides. The previewed
+      // theme still supplies inherited colors and Onix's accent.
       applyStyle(config.ui_style)
     },
     onExit: () => {
@@ -744,7 +744,7 @@ function chooseThemeStep(config: AppConfig): Step {
       const next: AppConfig = { ...config, theme: theme.name }
       await writeConfig(next)
       Object.assign(config, next)
-      // Re-assert structural style variables after the theme commit.
+      // Re-assert style-owned structural/material variables after the commit.
       applyStyle(next.ui_style)
       // Replace so the "Current" marker updates while the user previews themes
       return { type: 'replace', step: chooseThemeStep(next) }

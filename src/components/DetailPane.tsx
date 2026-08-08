@@ -118,6 +118,7 @@ export default function DetailPane({ item }: DetailPaneProps) {
 
   return (
     <div
+      data-detail-pane
       style={{
         width: 'var(--detail-width)',
         flexShrink: 0,

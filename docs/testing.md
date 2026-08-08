@@ -34,18 +34,25 @@ package script. Use `npm run format` only when formatting changes are intended.
 Current regression coverage includes Palette reducer transitions, fuzzy
 ranking, focus-aware polling, feedback cleanup, onboarding and guide behavior,
 destructive confirmations, configured-path parsing and Settings persistence,
-multiline forms, and Windows Volume Mixer rendering/navigation. Put pure
-ranking, parsing, reducer, geometry, and serialization tests beside the
+multiline forms, Windows Volume Mixer rendering/navigation, Onix compact-session
+transitions, serialized native sizing, 2× optical render metrics and pointer-ray
+geometry, optical fallback/accessibility policy, bundled footer-logo fallback,
+semantic resource-stat colours, and selection-lens geometry.
+Put pure ranking, parsing, reducer, geometry, and serialization tests beside the
 implementation. Mock Tauri calls at the wrapper boundary rather than importing
-native modules into jsdom tests.
+native modules into jsdom tests. jsdom cannot validate shader output or native
+backdrop material, so WebGL tests prove fallback policy and DOM contracts while
+the final appearance remains a release-build manual check.
 
 ## Rust tests
 
 Rust tests cover command parsing and pure platform calculations such as shortcut
 parsing, file-index schema/search behavior, clipboard crypto round trips,
 screenshot stroke clipping, process snapshots, and window-drag geometry where
-the target OS exposes those modules. Keep OS-gated tests explicit so a green
-Linux run does not imply Windows/macOS coverage.
+the target OS exposes those modules. Onix also tests native radius/DPI math,
+macOS morph interpolation, palette dimension validation, and fixed-top frame
+geometry. Keep OS-gated tests explicit so a green Linux run does not imply
+Windows/macOS coverage.
 
 ## Manual platform checks
 
@@ -56,6 +63,24 @@ Linux run does not imply Windows/macOS coverage.
 - With empty localStorage, verify the welcome guide opens on first focus only;
   with an existing-install key, verify it stays searchable but does not auto-open.
 - Verify loading, empty, and error panels are legible in both UI styles.
+- In Onix, verify a new root session opens as a compact search capsule. Typing,
+  clicking the search surface, or pressing Up/Down/Enter/Tab must expand it;
+  clearing the query and popping a step must keep it expanded until dismissal,
+  and the next invocation must be compact again. The expansion should grow
+  downward from a stationary top edge with no radius snap, dark-layer flash, or
+  second outline; slow-motion capture must not expose a lighter native-glass
+  band beneath the WebGL surface.
+- Exercise list, grid, and Actions selection. Verify exactly one moving lens is
+  visible on the active surface, it follows keyboard and real pointer movement,
+  and opening Actions deactivates the result lens. Repeat while results load,
+  shrink, rerank, and scroll so Enter still targets the rendered highlight.
+- Test Onix at 50%, 100%, and 150% scale, at low and high window transparency,
+  and with dark and light themes. The shell must remain dark/readable while the
+  theme accent continues to tint highlights and semantic states.
+- Disable WebGL2 or force a context loss and verify the CSS optical fallback is
+  seamless and interactive. Enable reduced motion, reduced transparency, and
+  forced-colors independently: motion must stop, reduced transparency must be
+  opaque, and system colors must remain legible without decorative caustics.
 - Navigate list, grid, input, form, slider, and folder steps with keyboard and
   pointer; ensure Enter activates the highlighted row.
 - Change the Scripts Directory and verify commands reload immediately. Save and
@@ -71,6 +96,9 @@ Linux run does not imply Windows/macOS coverage.
 ### Windows
 
 - Test global palette/screenshot shortcuts and per-command shortcut dispatch.
+- In Onix, verify Acrylic is clipped to the compact capsule and expanded panel
+  at 100%, 150%, and a non-integer display scale. Expansion must not expose a
+  rectangular native backing frame or briefly restore the older corner radius.
 - Test screenshot overlay across all monitors for stale/black-frame flashes.
 - Test Alt-drag move/resize, clean tiled dividers, games/fullscreen exclusion,
   indicator, Aero-Snap, Alt+Tab, `Ctrl+Alt+1`, `Ctrl+Alt+2`, and Volume Mixer.
@@ -81,6 +109,9 @@ Linux run does not imply Windows/macOS coverage.
 - Verify COSMIC/GNOME shortcut installation and removal, including screenshot
   deep link; re-launch the binary to test the single-instance toggle.
 - Verify the layer-shell palette resizes without stale composite flashes.
+- Repeatedly expand Onix while results and widgets change height. Verify the
+  serialized newest geometry wins and the transparent CSS optical fallback has
+  clean capsule/panel corners without resize oscillation.
 - Test `wpctl` and `pactl` fallback behavior, `wl-copy`, and screenshot capture
   fallback tools in the documented order.
 - Confirm Alt-drag is hidden and the compositor’s native gesture remains the
@@ -89,6 +120,13 @@ Linux run does not imply Windows/macOS coverage.
 ### macOS
 
 - Verify Accessory app/tray behavior and `Cmd+Shift+Space`.
+- On macOS 26+, verify Onix uses the native Liquid Glass content wrapper in both
+  compact and expanded radii. Test over bright, dark, and high-frequency
+  backgrounds: no translucent rectangular corner may extend beyond the rounded
+  vessel. Verify the 150 ms capsule-to-panel animation keeps its top edge fixed,
+  continuously changes the glass radius, and becomes immediate with Reduce
+  Motion. On older macOS, verify the vibrancy fallback has matching geometry,
+  remains focusable, and does not acquire a rectangular shadow.
 - Grant Screen Recording and Accessibility; test screenshot, paste-to-previous,
   and Alt-drag. Deny each permission once and verify an explanatory failure.
 - In Settings → Permissions & Diagnostics, verify live grant state, each System
@@ -103,6 +141,12 @@ Judge screenshot latency, icon warmup, and large file search from a release
 build. Dev builds are intentionally much slower and may load from Vite. Do not
 eagerly resolve all installed application icons as a test shortcut; that would
 hide the production caching behavior.
+
+Judge Onix optics from a release build as well. Pointer movement should schedule
+frames only until its light settles, the canvas backing store must remain capped
+at 2× device pixel ratio, and repeated idle openings must not show continuous
+GPU activity. Test the CSS fallback separately rather than treating a working
+shader as proof of fallback quality.
 
 ## Keeping this document current
 

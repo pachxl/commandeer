@@ -11,6 +11,7 @@ interface HudOverlayProps {
 export default function HudOverlay({ message, icon }: HudOverlayProps) {
   return (
     <div
+      data-hud-overlay
       style={{
         position: 'absolute',
         inset: 0,

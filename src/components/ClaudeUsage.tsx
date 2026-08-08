@@ -277,6 +277,9 @@ export default function ClaudeUsage() {
 
   return (
     <div
+      data-usage-panel="claude"
+      role="region"
+      aria-label="Claude usage"
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -288,15 +291,32 @@ export default function ClaudeUsage() {
       }}
     >
       <div
+        data-usage-header
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
         }}
       >
-        <span style={{ fontSize: 11, fontWeight: 600, color: CLAUDE_ORANGE }}>Claude Usage</span>
+        <span
+          data-usage-brand
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600 }}
+        >
+          <span
+            data-usage-mark
+            aria-hidden="true"
+            style={{ width: 7, height: 7, borderRadius: '50%', background: CLAUDE_ORANGE }}
+          />
+          <span style={{ color: 'var(--text)' }}>Claude</span>
+          <span data-usage-kind style={{ color: 'var(--text-dim)', fontWeight: 500 }}>
+            Usage
+          </span>
+        </span>
         {loading && (
           <svg
+            data-usage-spinner
+            role="status"
+            aria-label="Refreshing Claude usage"
             style={{ animation: 'spin 1s linear infinite' }}
             width="12"
             height="12"
@@ -315,13 +335,16 @@ export default function ClaudeUsage() {
       {/* Show the last-known bars whenever we have them — even while rate
           limited or erroring — so the widget stays as informative as possible. */}
       {hasLimits && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div data-usage-limits style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {limits!.map(limit => {
             const pct = Math.min(100, Math.max(0, Math.round(limit.percent)))
             const color = barColor(limit)
+            const label = limitLabel(limit)
+            const reset = formatReset(limit.resets_at, now)
             return (
-              <div key={limit.kind + (limit.scope?.model?.display_name ?? '')}>
+              <div key={limit.kind + (limit.scope?.model?.display_name ?? '')} data-usage-limit>
                 <div
+                  data-usage-limit-header
                   style={{
                     display: 'flex',
                     alignItems: 'baseline',
@@ -329,16 +352,31 @@ export default function ClaudeUsage() {
                     marginBottom: 4,
                   }}
                 >
-                  <span style={{ fontSize: 11, color: 'var(--text)' }}>{limitLabel(limit)}</span>
-                  <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>
+                  <span data-usage-label style={{ fontSize: 11, color: 'var(--text)' }}>
+                    {label}
+                  </span>
+                  <span
+                    data-usage-metrics
+                    style={{ fontSize: 10, color: 'var(--text-dim)', fontVariantNumeric: 'tabular-nums' }}
+                  >
                     <span style={{ color: pct >= 75 ? color : 'var(--text)' }}>{pct}% used</span>
-                    <span style={{ opacity: 0.5, margin: '0 4px' }}>·</span>
-                    <span style={{ color: 'var(--text)', opacity: 0.9, fontVariantNumeric: 'tabular-nums' }}>
-                      {formatReset(limit.resets_at, now)}
-                    </span>
+                    {reset && (
+                      <>
+                        <span style={{ opacity: 0.5, margin: '0 4px' }}>·</span>
+                        <span style={{ color: 'var(--text)', opacity: 0.9, fontVariantNumeric: 'tabular-nums' }}>
+                          {reset}
+                        </span>
+                      </>
+                    )}
                   </span>
                 </div>
                 <div
+                  data-usage-track
+                  role="progressbar"
+                  aria-label={`${label} usage`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={pct}
                   style={{
                     height: 4,
                     borderRadius: 2,
@@ -347,11 +385,13 @@ export default function ClaudeUsage() {
                   }}
                 >
                   <div
+                    data-usage-fill
                     style={{
                       height: '100%',
                       width: `${pct}%`,
                       borderRadius: 2,
                       background: color,
+                      color,
                       transition: 'width 0.4s ease',
                     }}
                   />
@@ -366,6 +406,7 @@ export default function ClaudeUsage() {
           just informational; the stale numbers above remain useful. */}
       {showRateLimit && (
         <div
+          data-usage-notice
           style={{
             padding: '2px 0',
             color: 'var(--text-dim)',
@@ -379,6 +420,8 @@ export default function ClaudeUsage() {
       {/* Hard error with nothing cached to fall back on. */}
       {error && !showRateLimit && !hasLimits && (
         <div
+          data-usage-notice
+          role="alert"
           style={{
             padding: '4px 0',
             color: '#f7768e',
@@ -392,6 +435,7 @@ export default function ClaudeUsage() {
 
       {!error && !hasLimits && !loading && !showRateLimit && (
         <div
+          data-usage-notice
           style={{
             padding: '4px 0',
             color: 'var(--text-dim)',

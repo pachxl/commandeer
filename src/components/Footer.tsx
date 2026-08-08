@@ -1,5 +1,8 @@
 import type { PaletteItem } from '../types'
 import { getIconSvg, hasIcon } from './Icon'
+import commandeerLogoMarkup from '../../favicon.svg?raw'
+
+const COMMANDEER_LOGO = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(commandeerLogoMarkup)}`
 
 interface FooterProps {
   selectedItem: PaletteItem | null
@@ -30,12 +33,18 @@ export default function Footer({
   const icon = selectedItem?.icon ?? ''
   const isDataUrl = icon.startsWith('data:')
   const isNamedIcon = hasIcon(icon)
-  const navIcon = navigationIcon ?? '/favicon.svg'
+  const requestedNavIcon = navigationIcon ?? ''
+  const requestedNavIsImage = requestedNavIcon.startsWith('data:') || requestedNavIcon.startsWith('/')
+  const requestedNavIsNamedIcon = hasIcon(requestedNavIcon)
+  const navIcon = requestedNavIsImage || requestedNavIsNamedIcon ? requestedNavIcon : COMMANDEER_LOGO
   const navIsImage = navIcon.startsWith('data:') || navIcon.startsWith('/')
   const navIsNamedIcon = hasIcon(navIcon)
 
   return (
     <div
+      data-palette-footer
+      data-navigation={navigationTitle ? 'true' : 'false'}
+      data-primary-action={primaryAction ? 'true' : 'false'}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -98,6 +107,7 @@ export default function Footer({
           </div>
         )}
         <div
+          data-footer-navigation
           style={{
             display: 'var(--footer-nav-display)',
             alignItems: 'center',
@@ -106,6 +116,7 @@ export default function Footer({
           }}
         >
           <div
+            aria-hidden="true"
             style={{
               width: 20,
               height: 20,
@@ -116,15 +127,13 @@ export default function Footer({
             }}
           >
             {navIsImage ? (
-              <img src={navIcon} width={20} height={20} style={{ objectFit: 'contain' }} />
+              <img src={navIcon} alt="" width={20} height={20} style={{ objectFit: 'contain' }} />
             ) : navIsNamedIcon ? (
               <div
                 dangerouslySetInnerHTML={{ __html: getIconSvg(navIcon, 'var(--text-dim)', 18) ?? '' }}
                 style={{ display: 'flex' }}
               />
-            ) : (
-              navIcon
-            )}
+            ) : null}
           </div>
           {navigationTitle && (
             <span
@@ -169,6 +178,7 @@ export default function Footer({
         {onToggleGameMode && (
           <button
             type="button"
+            data-footer-action="game-mode"
             onClick={onToggleGameMode}
             title={gameModeEnabled ? 'Disable game mode' : 'Enable game mode'}
             style={{
@@ -210,6 +220,7 @@ export default function Footer({
         {volumeMixerVisible && (
           <button
             type="button"
+            data-footer-action="volume-mixer"
             onClick={onOpenVolumeMixer}
             title="Volume Mixer (Ctrl+M)"
             style={{
@@ -252,6 +263,7 @@ export default function Footer({
         {settingsVisible && (
           <button
             type="button"
+            data-footer-action="settings"
             onClick={onOpenSettings}
             title="Settings (Ctrl+,)"
             style={{

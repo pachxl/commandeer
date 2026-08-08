@@ -219,7 +219,13 @@ export default function VolumeMixer({ onError }: VolumeMixerProps) {
   }
 
   return (
-    <div ref={rootRef} tabIndex={0} onKeyDown={handleKeyDown} style={{ outline: 'none', minHeight: 0 }}>
+    <div
+      ref={rootRef}
+      data-volume-mixer
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      style={{ outline: 'none', minHeight: 0 }}
+    >
       <div
         style={{
           display: 'flex',

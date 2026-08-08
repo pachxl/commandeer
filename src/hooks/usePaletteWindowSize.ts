@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
-import { IS_LINUX, envInfo, recenterPalette, resizePalette } from '../lib/tauri'
+import { IS_LINUX, IS_MAC, envInfo, recenterPalette, resizePalette, resizePaletteWindow } from '../lib/tauri'
 
 // Base (unscaled) logical widths of the palette window. The scale factor
 // multiplies the active style's width and is applied as a CSS zoom on the
@@ -32,7 +32,11 @@ export interface UsePaletteWindowSize {
   containerRef: RefObject<HTMLDivElement>
 }
 
-export function usePaletteWindowSize(scale: number, baseWidth = DEFAULT_PALETTE_WIDTH): UsePaletteWindowSize {
+export function usePaletteWindowSize(
+  scale: number,
+  baseWidth = DEFAULT_PALETTE_WIDTH,
+  animateMacHeight = false,
+): UsePaletteWindowSize {
   // sizeRef is the *unscaled* wrapper we measure; its height already includes
   // the inner zoom (the zoomed content lays out scaled in the wrapper), so it is
   // the final logical window height. Width is derived from the scale directly.
@@ -44,14 +48,48 @@ export function usePaletteWindowSize(scale: number, baseWidth = DEFAULT_PALETTE_
   baseWidthRef.current = baseWidth
   const lastHeightRef = useRef(0)
   const lastWidthRef = useRef(0)
+  const pendingSizeRef = useRef<{ width: number; height: number; recenter: boolean; animated: boolean } | null>(null)
+  const applyingSizeRef = useRef(false)
 
-  const applySize = useCallback(async () => {
+  // ResizeObserver can report several layout phases for one render. Serialize
+  // native operations and collapse any queued phases to the newest geometry so
+  // a slow Wayland IPC/setSize cannot finish after a newer capsule/panel size.
+  const flushPendingSize = useCallback(async () => {
+    if (applyingSizeRef.current) return
+    applyingSizeRef.current = true
+    try {
+      while (pendingSizeRef.current) {
+        const next = pendingSizeRef.current
+        pendingSizeRef.current = null
+        if (IS_LINUX && (await envInfo()).wayland) {
+          await resizePalette(next.height, next.width)
+          continue
+        }
+        if (IS_MAC && next.animated) {
+          await resizePaletteWindow(next.width, next.height, true)
+          continue
+        }
+        await getCurrentWindow().setSize(new LogicalSize(next.width, next.height))
+        if (next.recenter) await recenterPalette()
+      }
+    } catch (error) {
+      console.error('Failed to resize palette window:', error)
+    } finally {
+      applyingSizeRef.current = false
+      // A final ResizeObserver callback may land between the loop condition and
+      // the flag reset. Start one more drain rather than strand that geometry.
+      if (pendingSizeRef.current) void flushPendingSize()
+    }
+  }, [])
+
+  const applySize = useCallback(() => {
     const el = sizeRef.current
     if (!el) return
     const h = Math.ceil(el.getBoundingClientRect().height)
     if (!h) return
     const w = Math.round(baseWidthRef.current * scaleRef.current)
     const widthChanged = w !== lastWidthRef.current
+    const previousHeight = lastHeightRef.current
     // Skip only when nothing meaningful changed (small height churn while typing
     // is absorbed by the dead-band; a width change always goes through).
     if (!widthChanged && Math.abs(h - lastHeightRef.current) < 2) return
@@ -60,19 +98,13 @@ export function usePaletteWindowSize(scale: number, baseWidth = DEFAULT_PALETTE_
     // churn from typing. Guard against the first apply (no prior width yet).
     const shouldRecenter = widthChanged && lastWidthRef.current > 0
     lastWidthRef.current = w
-    if (IS_LINUX && (await envInfo()).wayland) {
-      await resizePalette(h, w)
-      return
-    }
-    await getCurrentWindow().setSize(new LogicalSize(w, h))
-    // setSize keeps the top-left corner fixed, so a width change grows the
-    // window rightward and drifts off-center. Let Rust re-center on the current
-    // monitor (authoritative, reads the live size — no frontend DPI/position
-    // races), matching the show-time centering.
-    if (shouldRecenter) {
-      await recenterPalette()
-    }
-  }, [])
+    const reducedMotion =
+      typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const shouldAnimate =
+      animateMacHeight && IS_MAC && !reducedMotion && !widthChanged && previousHeight > 0 && h - previousHeight >= 8
+    pendingSizeRef.current = { width: w, height: h, recenter: shouldRecenter, animated: shouldAnimate }
+    void flushPendingSize()
+  }, [animateMacHeight, flushPendingSize])
 
   // Re-apply the window size whenever the scale changes, even if the measured
   // height happens to land within the dead-band (width still needs updating).

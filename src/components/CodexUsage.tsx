@@ -292,6 +292,9 @@ export default function CodexUsage() {
 
   return (
     <div
+      data-usage-panel="codex"
+      role="region"
+      aria-label="Codex usage"
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -302,14 +305,32 @@ export default function CodexUsage() {
         userSelect: 'none',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: CODEX_GREEN }}>Codex Usage</span>
+      <div data-usage-header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span
+          data-usage-brand
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600 }}
+        >
+          <span
+            data-usage-mark
+            aria-hidden="true"
+            style={{ width: 7, height: 7, borderRadius: '50%', background: CODEX_GREEN }}
+          />
+          <span style={{ color: 'var(--text)' }}>Codex</span>
+          <span data-usage-kind style={{ color: 'var(--text-dim)', fontWeight: 500 }}>
+            Usage
+          </span>
+        </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
           {cache?.data.plan_type && (
-            <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>{planLabel(cache.data.plan_type)}</span>
+            <span data-usage-pill style={{ fontSize: 9, color: 'var(--text-dim)' }}>
+              {planLabel(cache.data.plan_type)}
+            </span>
           )}
           {loading && (
             <svg
+              data-usage-spinner
+              role="status"
+              aria-label="Refreshing Codex usage"
               style={{ animation: 'spin 1s linear infinite' }}
               width="12"
               height="12"
@@ -327,14 +348,15 @@ export default function CodexUsage() {
       </div>
 
       {limits.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div data-usage-limits style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {limits.map(limit => {
             const percent = Math.min(100, Math.max(0, Math.round(limit.percent)))
             const color = barColor(limit)
             const reset = formatReset(limit.resetAt, now)
             return (
-              <div key={limit.key}>
+              <div key={limit.key} data-usage-limit>
                 <div
+                  data-usage-limit-header
                   style={{
                     display: 'flex',
                     alignItems: 'baseline',
@@ -342,8 +364,13 @@ export default function CodexUsage() {
                     marginBottom: 4,
                   }}
                 >
-                  <span style={{ fontSize: 11, color: 'var(--text)' }}>{limit.label}</span>
-                  <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>
+                  <span data-usage-label style={{ fontSize: 11, color: 'var(--text)' }}>
+                    {limit.label}
+                  </span>
+                  <span
+                    data-usage-metrics
+                    style={{ fontSize: 10, color: 'var(--text-dim)', fontVariantNumeric: 'tabular-nums' }}
+                  >
                     <span style={{ color: percent >= 75 ? color : 'var(--text)' }}>{percent}% used</span>
                     {reset && (
                       <>
@@ -356,6 +383,12 @@ export default function CodexUsage() {
                   </span>
                 </div>
                 <div
+                  data-usage-track
+                  role="progressbar"
+                  aria-label={`${limit.label} usage`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={percent}
                   style={{
                     height: 4,
                     borderRadius: 2,
@@ -364,11 +397,13 @@ export default function CodexUsage() {
                   }}
                 >
                   <div
+                    data-usage-fill
                     style={{
                       height: '100%',
                       width: `${percent}%`,
                       borderRadius: 2,
                       background: color,
+                      color,
                       transition: 'width 0.4s ease',
                     }}
                   />
@@ -379,20 +414,32 @@ export default function CodexUsage() {
         </div>
       )}
 
-      {creditsText && <div style={{ color: 'var(--text-dim)', fontSize: 10 }}>{creditsText}</div>}
+      {creditsText && (
+        <div data-usage-credit style={{ color: 'var(--text-dim)', fontSize: 10 }}>
+          {creditsText}
+        </div>
+      )}
 
       {showRateLimit && (
-        <div style={{ padding: '2px 0', color: 'var(--text-dim)', fontSize: 10 }}>
+        <div data-usage-notice style={{ padding: '2px 0', color: 'var(--text-dim)', fontSize: 10 }}>
           Rate limited — retrying in {formatDuration(rateLimitedUntil - now)}
         </div>
       )}
 
       {error && !showRateLimit && limits.length === 0 && (
-        <div style={{ padding: '4px 0', color: '#f7768e', fontSize: 11, lineHeight: 1.4 }}>{error}</div>
+        <div
+          data-usage-notice
+          role="alert"
+          style={{ padding: '4px 0', color: '#f7768e', fontSize: 11, lineHeight: 1.4 }}
+        >
+          {error}
+        </div>
       )}
 
       {!error && limits.length === 0 && !loading && !showRateLimit && (
-        <div style={{ padding: '4px 0', color: 'var(--text-dim)', fontSize: 11 }}>No usage data available.</div>
+        <div data-usage-notice style={{ padding: '4px 0', color: 'var(--text-dim)', fontSize: 11 }}>
+          No usage data available.
+        </div>
       )}
     </div>
   )

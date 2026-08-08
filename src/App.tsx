@@ -129,8 +129,8 @@ export default function App() {
         // Palette always see the same, current config.
         Object.assign(configRef.current, cfg)
         if (!disposed) setConfig(configRef.current)
-        // Apply theme first, then the UI style so structural variables win
-        // while all color variables continue to come from the theme.
+        // Apply theme first, then the UI style so structural/material variables
+        // win. Onix owns its neutral glass palette but keeps the theme accent.
         applyThemeByName(cfg.theme)
           .then(() => applyStyle(cfg.ui_style))
           .catch(console.error)

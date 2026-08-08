@@ -2,15 +2,17 @@ import { useEffect, useRef } from 'react'
 import type { PaletteItem } from '../types'
 import { scrollToReveal } from '../lib/scroll'
 import ResultRow from './ResultRow'
+import SelectionLens from './SelectionLens'
 
 interface ResultsListProps {
   items: PaletteItem[]
   selectedIndex: number
+  active?: boolean
   onSelect: (item: PaletteItem) => void
   onHover: (index: number) => void
 }
 
-export default function ResultsList({ items, selectedIndex, onSelect, onHover }: ResultsListProps) {
+export default function ResultsList({ items, selectedIndex, active = true, onSelect, onHover }: ResultsListProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<HTMLDivElement>(null)
   const lastMousePos = useRef<{ x: number; y: number } | null>(null)
@@ -49,9 +51,13 @@ export default function ResultsList({ items, selectedIndex, onSelect, onHover }:
   return (
     <div
       ref={listRef}
+      className="palette-results-list"
+      data-selection-surface="list"
+      data-selection-active={active ? 'true' : 'false'}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       style={{
+        position: 'relative',
         maxHeight: 360,
         overflowY: 'auto',
         padding: 'var(--results-list-padding)',
@@ -69,6 +75,7 @@ export default function ResultsList({ items, selectedIndex, onSelect, onHover }:
           onSelect={() => onSelect(item)}
         />
       ))}
+      <SelectionLens containerRef={listRef} targetRef={selectedRef} surface="list" active={active} />
     </div>
   )
 }

@@ -1,6 +1,7 @@
-// UI style presets: structural skins (spacing, fonts, radii, and component
-// treatment) applied as CSS variables on :root. Themes exclusively own color;
-// styles reference theme variables instead of replacing them.
+// UI style presets applied as CSS variables on :root. Default is deliberately
+// theme-owned. Onix is the one intentional exception: its "Black Water"
+// material owns dark neutral surfaces/foregrounds while the selected theme
+// continues to supply the accent colour.
 
 export interface UIStyle {
   name: string
@@ -11,6 +12,7 @@ const DEFAULT_VARIABLES: Record<string, string> = {
   // Typography
   '--font': "'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif",
   '--font-ui': "'JetBrains Mono', 'Fira Code', Consolas, monospace",
+  '--font-mono': "'JetBrains Mono', 'Fira Code', Consolas, monospace",
 
   // Window surface
   '--palette-border': 'transparent',
@@ -136,75 +138,96 @@ const defaultStyle: UIStyle = {
   variables: DEFAULT_VARIABLES,
 }
 
-// Raycast/Vicinae-inspired skin: generous spacing, larger icons, rounded/inset
-// list selections, and Inter/SF typography. Its surfaces and states derive from
-// the selected theme, so changing styles never changes the user's colorway.
+// Black Water: a compact optical search capsule that blooms into a dark,
+// liquid-glass command panel. The `--onix-*` tokens are consumed only by the
+// scoped Onix CSS/optical renderer; the ordinary component tokens below keep
+// every existing view (list, grid, form, slider, mixer) functional.
 const onixStyle: UIStyle = {
   name: 'Onix',
   variables: {
     ...DEFAULT_VARIABLES,
 
-    // Layered window treatment: theme surface, one-pixel rim, and inset
-    // highlights that remain visible even though the native window clips any
-    // exterior CSS shadow.
-    '--palette-border': 'var(--border-strong)',
-    '--palette-shadow': 'inset 0 1px 0 rgba(255,255,255,0.035), inset 0 -1px 0 rgba(0,0,0,0.30)',
-    '--divider': 'var(--border)',
-    '--surface-muted': 'var(--bg-tab)',
-    '--detail-bg': 'var(--surface-muted)',
-    '--form-field-bg': 'var(--surface-muted)',
+    // Optical material. The procedural rim and native material share one
+    // coincident edge; an inset shell reads as a nested capsule and makes
+    // compositor shadows tear at the lower corners.
+    '--onix-window-gutter': '0px',
+    '--onix-capsule-height': '66px',
+    '--onix-capsule-radius': '33px',
+    '--onix-panel-radius': '25px',
+    '--onix-material': 'rgba(7, 9, 12, 0.82)',
+    '--onix-material-deep': 'rgba(2, 3, 5, 0.94)',
+    '--onix-material-raised': 'rgba(18, 21, 27, 0.86)',
+    '--onix-material-soft': 'rgba(255, 255, 255, 0.045)',
+    '--onix-material-hover': 'rgba(255, 255, 255, 0.055)',
+    '--onix-material-selected': 'rgba(255, 255, 255, 0.082)',
+    '--onix-foreground': 'rgba(247, 249, 252, 0.96)',
+    '--onix-foreground-muted': 'rgba(189, 197, 209, 0.64)',
+    '--onix-foreground-faint': 'rgba(174, 184, 198, 0.40)',
+    '--onix-rim': 'rgba(225, 238, 255, 0.28)',
+    '--onix-rim-hot': 'rgba(255, 255, 255, 0.60)',
+    '--onix-rim-cool': 'rgba(112, 174, 255, 0.18)',
+    '--onix-absorption': 'rgba(0, 0, 0, 0.72)',
+    '--onix-shadow': 'inset 0 1px 0 rgba(255,255,255,0.055), inset 0 -1px 0 rgba(0,0,0,0.52)',
+    '--onix-lens-shadow':
+      'inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -1px 0 rgba(0,0,0,0.48), 0 7px 22px rgba(0,0,0,0.22)',
+    '--palette-border': 'transparent',
+    '--palette-shadow': 'none',
+    '--divider': 'rgba(255,255,255,0.075)',
+    '--surface-muted': 'rgba(255,255,255,0.025)',
+    '--detail-bg': 'rgba(1,3,6,0.20)',
+    '--form-field-bg': 'rgba(255,255,255,0.045)',
 
     // Typography
-    '--font': "Inter, 'SF Pro Text', 'Segoe UI Variable', system-ui, sans-serif",
-    '--font-ui': "'SF Mono', 'JetBrains Mono', Consolas, monospace",
+    '--font': "'SF Pro Text', Inter, 'Segoe UI Variable', system-ui, sans-serif",
+    '--font-ui': "'SF Pro Text', Inter, 'Segoe UI Variable', system-ui, sans-serif",
+    '--font-mono': "'SF Mono', 'JetBrains Mono', Consolas, monospace",
 
-    // List rows: 38 px effective height, 12 px horizontal padding, inset selection
-    '--row-padding': '6px 12px',
-    '--row-gap': '10px',
-    '--row-radius': '10px',
-    '--row-inset': '6px',
-    '--row-selected-bg': 'var(--bg-select)',
-    '--row-selected-fg': 'var(--text)',
-    '--row-selected-sublabel-fg': 'var(--text-dim)',
-    '--row-hover-bg': 'var(--bg-hover)',
-    '--row-active-indicator-bg': '#3A9C61',
-    '--row-selected-shadow': 'inset 0 0 0 1px rgba(255,255,255,0.025), 0 1px 2px rgba(0,0,0,0.16)',
-    '--row-transition': 'background-color 100ms ease, box-shadow 100ms ease',
+    // Calm rows, one shared moving lens, restrained icon wells.
+    '--row-padding': '7px 13px',
+    '--row-gap': '11px',
+    '--row-radius': '13px',
+    '--row-inset': '5px',
+    '--row-selected-bg': 'transparent',
+    '--row-selected-fg': 'var(--onix-foreground)',
+    '--row-selected-sublabel-fg': 'var(--onix-foreground-muted)',
+    '--row-hover-bg': 'var(--onix-material-hover)',
+    '--row-active-indicator-bg': '#55d68b',
+    '--row-selected-shadow': 'none',
+    '--row-transition':
+      'background-color 105ms ease, border-color 105ms ease, color 105ms ease, box-shadow 120ms ease, transform 95ms ease',
     '--sublabel-margin-left': '0px',
     '--sublabel-font': 'var(--font)',
     '--sublabel-flex-shrink': '1',
-    '--icon-size': '26px',
+    '--icon-size': '30px',
     '--icon-font-size': '16px',
-    '--row-svg-size': '20px',
-    '--label-font-size': '14px',
-    '--sublabel-font-size': '12px',
-    '--accessory-font-size': '11px',
-    '--accessory-radius': '6px',
+    '--row-svg-size': '18px',
+    '--label-font-size': '13.5px',
+    '--sublabel-font-size': '11.5px',
+    '--accessory-font-size': '10.5px',
+    '--accessory-radius': '999px',
     '--accessory-padding': '2px 7px',
-    '--accessory-bg': 'var(--bg-hover)',
-    '--accessory-border': 'var(--border)',
+    '--accessory-bg': 'rgba(255,255,255,0.045)',
+    '--accessory-border': 'rgba(255,255,255,0.075)',
     '--accessory-border-width': '1px',
     '--accessory-font': 'var(--font)',
 
-    // Search bar: 60 px height, 16 px horizontal margins
-    '--search-padding': '17px 16px',
-    '--search-height': '60px',
+    '--search-padding': '0 20px',
+    '--search-height': '66px',
     '--search-font-size': '17px',
-    '--search-icon-size': '20px',
-    '--search-gap': '12px',
-    '--search-back-bg': 'transparent',
-    '--preview-label-font-size': '17px',
-    '--preview-sublabel-font-size': '12px',
+    '--search-icon-size': '19px',
+    '--search-gap': '13px',
+    '--search-back-bg': 'rgba(255,255,255,0.045)',
+    '--preview-label-font-size': '16px',
+    '--preview-sublabel-font-size': '11px',
 
-    // Footer: 40 px height, 16 px horizontal padding
-    '--footer-padding': '8px 16px',
-    '--footer-height': '40px',
-    '--footer-font-size': '12px',
-    '--footer-button-radius': '6px',
-    '--footer-button-padding': '4px 10px',
-    '--footer-bg': 'var(--bg-tab)',
-    '--footer-hover-bg': 'var(--bg-hover)',
-    '--footer-primary-fg': 'var(--text)',
+    '--footer-padding': '7px 13px 9px',
+    '--footer-height': '42px',
+    '--footer-font-size': '11px',
+    '--footer-button-radius': '9px',
+    '--footer-button-padding': '4px 8px',
+    '--footer-bg': 'rgba(0,0,0,0.14)',
+    '--footer-hover-bg': 'rgba(255,255,255,0.055)',
+    '--footer-primary-fg': 'var(--onix-foreground)',
     '--footer-font': 'var(--font)',
     '--footer-primary-left-display': 'none',
     '--footer-primary-right-display': 'inline-flex',
@@ -213,48 +236,48 @@ const onixStyle: UIStyle = {
     '--kbd-font-size': '11px',
     '--kbd-padding': '2px 6px',
     '--kbd-radius': '4px',
-    '--kbd-bg': 'var(--bg-hover)',
-    '--kbd-border': 'var(--border)',
-    '--kbd-fg': 'var(--text-dim)',
-    '--kbd-shadow': 'inset 0 -1px 0 rgba(0,0,0,0.32)',
+    '--kbd-bg': 'rgba(255,255,255,0.055)',
+    '--kbd-border': 'rgba(255,255,255,0.095)',
+    '--kbd-fg': 'var(--onix-foreground-muted)',
+    '--kbd-shadow': 'inset 0 1px 0 rgba(255,255,255,0.045), inset 0 -1px 0 rgba(0,0,0,0.42)',
 
-    // Action panel: wider, more breathable
-    '--action-panel-width': '300px',
-    '--action-panel-padding': '8px 8px',
-    '--action-row-padding': '7px 10px',
+    // Dense B-style action treatment.
+    '--action-panel-width': '282px',
+    '--action-panel-padding': '8px 7px',
+    '--action-row-padding': '7px 9px',
     '--action-row-radius': '10px',
-    '--action-row-selected-bg': 'var(--bg-select)',
-    '--action-row-selected-fg': 'var(--text)',
-    '--action-icon-size': '18px',
-    '--action-font-size': '13px',
-    '--action-kbd-bg': 'var(--bg-hover)',
-    '--action-kbd-selected-bg': 'var(--bg-select-hover)',
-    '--action-panel-radius': '12px',
-    '--action-panel-shadow': '0 16px 48px rgba(0,0,0,0.48), 0 2px 8px rgba(0,0,0,0.32)',
+    '--action-row-selected-bg': 'transparent',
+    '--action-row-selected-fg': 'var(--onix-foreground)',
+    '--action-icon-size': '16px',
+    '--action-font-size': '12px',
+    '--action-kbd-bg': 'rgba(255,255,255,0.045)',
+    '--action-kbd-selected-bg': 'rgba(255,255,255,0.09)',
+    '--action-panel-radius': '17px',
+    '--action-panel-shadow': '0 22px 64px rgba(0,0,0,0.62), inset 0 1px 0 rgba(255,255,255,0.06)',
 
     // Grid
-    '--grid-padding': '12px 10px',
-    '--grid-gap': '10px',
-    '--grid-cell-radius': '10px',
-    '--grid-cell-padding': '12px 6px',
-    '--grid-icon-size': '36px',
+    '--grid-padding': '10px 9px',
+    '--grid-gap': '8px',
+    '--grid-cell-radius': '14px',
+    '--grid-cell-padding': '11px 6px',
+    '--grid-icon-size': '34px',
     '--grid-icon-font-size': '24px',
     '--grid-label-font-size': '12px',
     '--grid-sublabel-font-size': '10px',
-    '--grid-cell-bg': 'var(--bg-tab)',
-    '--grid-cell-selected-bg': 'var(--bg-select)',
-    '--grid-cell-border': 'var(--border)',
-    '--grid-cell-selected-border': 'var(--accent)',
-    '--grid-cell-selected-fg': 'var(--text)',
+    '--grid-cell-bg': 'rgba(255,255,255,0.018)',
+    '--grid-cell-selected-bg': 'transparent',
+    '--grid-cell-border': 'rgba(255,255,255,0.045)',
+    '--grid-cell-selected-border': 'transparent',
+    '--grid-cell-selected-fg': 'var(--onix-foreground)',
 
     // Detail pane
-    '--detail-width': '35%',
-    '--detail-padding': '14px 16px',
-    '--detail-radius': '8px',
+    '--detail-width': '36%',
+    '--detail-padding': '14px 15px',
+    '--detail-radius': '11px',
 
     // Form
-    '--form-padding': '12px 14px',
-    '--form-field-radius': '8px',
+    '--form-padding': '14px 16px',
+    '--form-field-radius': '11px',
 
     // Breadcrumb
     '--breadcrumb-font-size': '12px',
@@ -262,13 +285,15 @@ const onixStyle: UIStyle = {
     '--breadcrumb-border': '1px solid var(--divider)',
 
     // Results list container
-    '--results-list-padding': '4px 0px',
+    '--results-list-padding': '5px 7px 7px',
   },
 }
 
 const BUILTIN_STYLES: UIStyle[] = [defaultStyle, onixStyle]
 
 let appliedStyleKeys: string[] = []
+
+export const UI_STYLE_CHANGE_EVENT = 'commandeer:ui-style-change'
 
 export function applyStyle(name: string | undefined | null) {
   const style = BUILTIN_STYLES.find(s => s.name.toLowerCase() === (name ?? 'default').toLowerCase()) ?? defaultStyle
@@ -283,6 +308,11 @@ export function applyStyle(name: string | undefined | null) {
     appliedStyleKeys.push(key)
   }
   root.setAttribute('data-style', style.name.toLowerCase())
+  window.dispatchEvent(new CustomEvent(UI_STYLE_CHANGE_EVENT, { detail: style.name }))
+}
+
+export function getAppliedStyleName(): string {
+  return getStyleName(document.documentElement.getAttribute('data-style'))
 }
 
 export function getAllStyles(): UIStyle[] {

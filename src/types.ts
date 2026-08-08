@@ -47,8 +47,9 @@ export interface AppConfig {
   // scale the window width/height). 1.0 = default size; the Settings slider maps
   // 0–100% onto 0.5×–1.5× with 50% = 1.0×.
   palette_scale?: number
-  // UI style preset ('Default' or 'Onix'). Controls layout, spacing, fonts, and
-  // component treatment; the separate theme setting owns all colors.
+  // UI style preset ('Default' or 'Onix'). Controls layout, material, fonts, and
+  // component treatment. Onix fixes its neutral glass palette but still inherits
+  // the selected theme's accent color.
   ui_style?: string
   // Background auto-update from GitHub Releases. Undefined/true = on.
   auto_update?: boolean

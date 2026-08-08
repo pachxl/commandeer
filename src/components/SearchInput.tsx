@@ -10,6 +10,9 @@ interface SearchInputProps {
   preview?: LivePreview | null
   showBack?: boolean
   onBack?: () => void
+  compact?: boolean
+  hotkeyHint?: string
+  onEngage?: () => void
 }
 
 interface SliderInputProps {
@@ -22,9 +25,12 @@ interface SliderInputProps {
 }
 
 const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
-  ({ value, placeholder, loading, onChange, preview, showBack, onBack }, ref) => {
+  ({ value, placeholder, loading, onChange, preview, showBack, onBack, compact, hotkeyHint, onEngage }, ref) => {
     return (
       <div
+        data-search-shell
+        data-compact={compact || undefined}
+        onPointerDown={onEngage}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -126,6 +132,11 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
           spellCheck={false}
           autoComplete="off"
         />
+        {compact && hotkeyHint && !preview && (
+          <kbd data-search-hotkey aria-label={`Palette shortcut ${hotkeyHint}`}>
+            {hotkeyHint}
+          </kbd>
+        )}
         {preview && (
           <div
             title={preview.sublabel ? `${preview.label} · ${preview.sublabel}` : preview.label}
@@ -182,6 +193,7 @@ export const SliderInput = ({ value, min, max, step, icon = 'eye', onChange }: S
 
   return (
     <div
+      data-slider-shell
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -192,8 +204,9 @@ export const SliderInput = ({ value, min, max, step, icon = 'eye', onChange }: S
       }}
     >
       <Icon name={icon} width="var(--search-icon-size)" height="var(--search-icon-size)" color="var(--text-dim)" />
-      <div style={{ flex: 1, height: 4, position: 'relative' }}>
+      <div data-slider-track style={{ flex: 1, height: 4, position: 'relative' }}>
         <div
+          data-slider-fill
           style={{
             position: 'absolute',
             left: 0,

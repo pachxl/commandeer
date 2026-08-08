@@ -2,15 +2,17 @@ import { useReducer, useEffect, useRef, useState, useCallback, useMemo, MutableR
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { recordUse } from '../lib/frecency'
 import { getOverrides } from '../lib/overrides'
+import { getAppliedStyleName, UI_STYLE_CHANGE_EVENT } from '../lib/styles'
 import { SETTINGS_COMMAND_ID } from '../commands/settings'
 import { VOLUME_MIXER_COMMAND_ID } from '../providers/volume'
 import { loadActiveFolderItems, openFileItem } from '../commands/fileSearch'
 import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
-import { IS_LINUX, IS_MAC, openUrl } from '../lib/tauri'
+import { IS_LINUX, IS_MAC, openUrl, setPaletteSurface } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteItem, Step } from '../types'
 import { commandsToItems, commandsToFlatItems } from '../lib/paletteItems'
 import { applyOverride, type Overrides } from '../lib/paletteRanking'
+import { initialOnixSessionState, onixSessionReducer, resolveOnixPresentation } from '../lib/onixPresentation'
 import { parseAtQuery, computeMatchedItems, computePreviewResult } from '../lib/paletteModes'
 import { buildItemActions } from '../lib/paletteActions'
 import { useInlineScripts, type InlineScript } from '../hooks/useInlineScripts'
@@ -34,6 +36,7 @@ import Footer from './Footer'
 import StepBreadcrumb from './StepBreadcrumb'
 import VolumeMixer from './VolumeMixer'
 import PaletteStatePanel from './PaletteStatePanel'
+import OnixOpticalShell from './OnixOpticalShell'
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const LAST_CMD_KEY = 'commandeer:last'
@@ -47,6 +50,33 @@ const PROVIDER_DEBOUNCE_MS = 150
 
 const invalidateSequence = (sequence: MutableRefObject<number>) => {
   sequence.current++
+}
+
+function compactHotkeyLabel(binding: string): string {
+  const parts = binding.split('+').map(part => part.trim())
+  if (IS_MAC) {
+    return parts
+      .map(part => {
+        switch (part.toLowerCase()) {
+          case 'cmd':
+          case 'command':
+          case 'meta':
+            return '⌘'
+          case 'shift':
+            return '⇧'
+          case 'ctrl':
+          case 'control':
+            return '⌃'
+          case 'alt':
+          case 'option':
+            return '⌥'
+          default:
+            return part === 'Space' ? 'Space' : part
+        }
+      })
+      .join(' ')
+  }
+  return parts.join(' ')
 }
 
 export type { InlineScript }
@@ -91,6 +121,11 @@ export default function Palette({
   const [providerCommands, setProviderCommands] = useState<Command[]>([])
   const [actionPanelOpen, setActionPanelOpen] = useState(false)
   const [actionPanelIndex, setActionPanelIndex] = useState(0)
+  const [activeStyle, setActiveStyle] = useState(getAppliedStyleName)
+  // Once the capsule blooms it stays a panel for the rest of this visible
+  // session. Collapsing only during the whole-session reset avoids a window
+  // resize every time the query is cleared or a step is popped.
+  const [onixSession, dispatchOnixSession] = useReducer(onixSessionReducer, initialOnixSessionState)
   // Submenu navigation within the action panel: each entry is a nested menu the
   // user drilled into (empty = the root action list). See ActionItem.submenu.
   const [actionMenuStack, setActionMenuStack] = useState<ActionItem[]>([])
@@ -108,11 +143,22 @@ export default function Palette({
   configRef.current = config
   commandsRef.current = commands
   providerCommandsRef.current = providerCommands
-  // Onix follows Vicinae's launcher width; Default retains Commandeer's
-  // established compact width. Both remain subject to the user's scale.
-  const paletteWidth = config.ui_style?.toLowerCase() === 'onix' ? ONIX_PALETTE_WIDTH : DEFAULT_PALETTE_WIDTH
+  const isOnix = activeStyle.toLowerCase() === 'onix'
+  // The applied style is event-driven so live style previews change the shell
+  // and native window immediately, not only after config happens to rerender.
+  useEffect(() => {
+    const syncStyle = (event: Event) => {
+      const name =
+        event instanceof CustomEvent && typeof event.detail === 'string' ? event.detail : getAppliedStyleName()
+      setActiveStyle(name)
+    }
+    window.addEventListener(UI_STYLE_CHANGE_EVENT, syncStyle)
+    return () => window.removeEventListener(UI_STYLE_CHANGE_EVENT, syncStyle)
+  }, [])
+
+  const paletteWidth = isOnix ? ONIX_PALETTE_WIDTH : DEFAULT_PALETTE_WIDTH
   // Sizes the window to its content and returns the wrapper/container refs.
-  const { sizeRef, containerRef } = usePaletteWindowSize(scale, paletteWidth)
+  const { sizeRef, containerRef } = usePaletteWindowSize(scale, paletteWidth, isOnix)
   // Toasts, the HUD pill, and the confirm dialog (also registered on appEvents).
   const {
     toast,
@@ -171,6 +217,7 @@ export default function Palette({
       setActionPanelOpen(false)
       setActionPanelIndex(0)
       setActionMenuStack([])
+      dispatchOnixSession({ type: 'reset' })
       dispatch({ type: 'RESET' })
     }
     return () => {
@@ -582,6 +629,49 @@ export default function Palette({
     !timeMode &&
     (Boolean(state.query) || Boolean(currentStep))
 
+  const onixForcingSurface =
+    state.error ?? (showLoadingState || showEmptyState || hud || toasts.length > 0 ? true : null)
+  const onixPresentation = resolveOnixPresentation({
+    isOnix,
+    sessionExpanded: onixSession.expanded,
+    currentStep,
+    query: state.query,
+    error: onixForcingSurface,
+    confirmOpen: Boolean(confirmReq),
+    actionPanelOpen,
+  })
+  const onixCompact = onixPresentation === 'compact'
+
+  // Any state that needs panel space permanently blooms this invocation. The
+  // immediate predicate above prevents a one-frame compact flash; this effect
+  // records the transition so clearing the query/popping a step stays stable.
+  useEffect(() => {
+    if (!isOnix) return
+    dispatchOnixSession({
+      type: 'sync',
+      context: {
+        currentStep,
+        query: state.query,
+        error: onixForcingSurface,
+        confirmOpen: Boolean(confirmReq),
+        actionPanelOpen,
+      },
+    })
+  }, [isOnix, state.query, currentStep, onixForcingSurface, confirmReq, actionPanelOpen])
+
+  // Native material/radius follows the same presentation state. On macOS the
+  // measured expansion uses a short AppKit frame animation, whose ordinary
+  // resize events keep the glass curve synchronized; other platforms apply the
+  // same final geometry directly.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      void setPaletteSurface(activeStyle, !onixCompact, scale).catch(error => {
+        console.error('Failed to configure palette surface:', error)
+      })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [activeStyle, onixCompact, scale])
+
   // Forward ref so buildActions (defined before handleSelect) can trigger the
   // normal selection path for step rows
   const handleSelectRef = useRef<((item: PaletteItem) => Promise<void>) | null>(null)
@@ -764,6 +854,14 @@ export default function Palette({
         return
       }
 
+      // The compact capsule has no visible selection. Navigation/Enter first
+      // reveals the panel instead of silently activating a hidden row.
+      if (onixCompact && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab'].includes(e.key)) {
+        e.preventDefault()
+        dispatchOnixSession({ type: 'expand' })
+        return
+      }
+
       if (e.key === 'Escape') {
         e.preventDefault()
         // Esc walks back through menus one level at a time (sliders apply
@@ -801,6 +899,7 @@ export default function Palette({
       if (e.key.toLowerCase() === 'k' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault()
         if (selectedItem && actionItems.length > 0) {
+          dispatchOnixSession({ type: 'expand' })
           setActionPanelOpen(true)
           setActionPanelIndex(0)
           setActionMenuStack([])
@@ -945,6 +1044,7 @@ export default function Palette({
       timeMode,
       confirmReq,
       confirmFocus,
+      onixCompact,
     ],
   )
 
@@ -1088,7 +1188,12 @@ export default function Palette({
 
   const placeholder = isInputStep
     ? (currentStep?.placeholder ?? 'Enter value...')
-    : (currentStep?.placeholder ?? 'Search commands...')
+    : (currentStep?.placeholder ?? (isOnix ? 'Search Commandeer…' : 'Search commands...'))
+  const compactHotkey = compactHotkeyLabel(
+    gameModeEnabled
+      ? (config.global_hotkey_game ?? 'Alt+Space')
+      : (config.global_hotkey ?? (IS_MAC ? 'Cmd+Shift+Space' : 'Ctrl+Space')),
+  )
 
   return (
     // Outer wrapper is unscaled and full-width: usePaletteWindowSize measures
@@ -1099,20 +1204,30 @@ export default function Palette({
       <div
         ref={containerRef}
         data-palette-root
+        data-onix={isOnix || undefined}
+        data-shell-state={isOnix ? (onixCompact ? 'compact' : 'expanded') : 'default'}
         tabIndex={-1}
         style={{
           outline: 'none',
           position: 'relative',
           width: paletteWidth,
           zoom: scale,
-          background: 'var(--bg)',
-          backdropFilter: 'blur(60px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(60px) saturate(180%)',
+          background: isOnix ? 'transparent' : 'var(--bg)',
+          backdropFilter: isOnix ? 'none' : 'blur(60px) saturate(180%)',
+          WebkitBackdropFilter: isOnix ? 'none' : 'blur(60px) saturate(180%)',
           // Windows rounds the OS window itself via DWM (DWMWCP_ROUND), so only
           // round in CSS on platforms that don't: macOS 12px (matches the
           // vibrancy radius applied natively), Linux 8px (layer-shell surface
           // has no compositor rounding).
-          borderRadius: IS_MAC ? 12 : IS_LINUX ? 8 : undefined,
+          borderRadius: isOnix
+            ? onixCompact
+              ? 'var(--onix-capsule-radius)'
+              : 'var(--onix-panel-radius)'
+            : IS_MAC
+              ? 12
+              : IS_LINUX
+                ? 8
+                : undefined,
           display: 'flex',
           flexDirection: 'column',
           fontFamily: 'var(--font)',
@@ -1121,6 +1236,10 @@ export default function Palette({
         }}
         onKeyDown={handleKeyDown}
       >
+        {isOnix && (
+          <OnixOpticalShell expanded={!onixCompact} radius={25} style={{ inset: 'var(--onix-window-gutter)' }} />
+        )}
+
         <ToastContainer toasts={toasts} />
 
         {hud && <HudOverlay message={hud.message} icon={hud.icon} />}
@@ -1155,128 +1274,142 @@ export default function Palette({
             value={state.query}
             placeholder={placeholder}
             loading={state.loading}
-            onChange={q => dispatch({ type: 'SET_QUERY', query: q })}
+            onChange={q => {
+              if (isOnix && q.length > 0) dispatchOnixSession({ type: 'expand' })
+              dispatch({ type: 'SET_QUERY', query: q })
+            }}
             preview={previewResult}
-            showBack={config.ui_style?.toLowerCase() === 'onix' && state.stepStack.length > 0}
+            showBack={isOnix && state.stepStack.length > 0}
             onBack={() => dispatch({ type: 'POP_STEP' })}
-          />
-        )}
-
-        {state.error && <PaletteStatePanel kind="error" title="Something went wrong" message={state.error} />}
-
-        {state.stepStack.length > 0 && !isVolumeMixerStep && (
-          <div data-step-breadcrumb>
-            <StepBreadcrumb steps={state.stepStack} />
-          </div>
-        )}
-
-        {showLoadingState && (
-          <PaletteStatePanel
-            kind="loading"
-            title={`Loading ${currentStep?.label ?? (folderMode || findMode ? 'files' : 'commands')}…`}
-            message="This may take a moment on the first load."
-          />
-        )}
-
-        {showEmptyState && (
-          <PaletteStatePanel
-            kind="empty"
-            title={
-              state.query
-                ? folderMode || findMode
-                  ? `No files matching “${folderMode ? folderQuery : findQuery}”`
-                  : `No commands matching “${state.query}”`
-                : 'Nothing here yet'
-            }
-            message={
-              state.query
-                ? 'Try fewer words, use @find for files, or search for Commandeer Guide.'
-                : 'Add an item or go back to choose another command.'
-            }
-          />
-        )}
-
-        {!isInputStep && !isSliderStep && !isFormStep && !isVolumeMixerStep && visibleItems.length > 0 && (
-          <div style={{ display: 'flex', minHeight: 0 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              {isGridStep ? (
-                <ResultsGrid
-                  items={displayItems}
-                  selectedIndex={clampedIndex}
-                  query={state.query}
-                  columns={currentStep?.gridColumns}
-                  onSelect={handleSelect}
-                  onHover={i => dispatch({ type: 'SET_SELECTION', index: i })}
-                />
-              ) : (
-                <ResultsList
-                  items={displayItems}
-                  selectedIndex={clampedIndex}
-                  onSelect={handleSelect}
-                  onHover={i => dispatch({ type: 'SET_SELECTION', index: i })}
-                />
-              )}
-            </div>
-            {showPreview && <DetailPane item={selectedItem} />}
-          </div>
-        )}
-
-        {isVolumeMixerStep && <VolumeMixer onError={handleVolumeMixerError} />}
-
-        {isFormStep && currentStep && (
-          <FormView
-            fields={currentStep.fields ?? []}
-            values={formValues}
-            onChange={(id, value) => setFormValues(prev => ({ ...prev, [id]: value }))}
-            onSubmit={handleFormSubmit}
-            submitLabel={currentStep.submitLabel}
-          />
-        )}
-
-        {actionPanelOpen && actionItems.length > 0 && (
-          <ActionPanel
-            items={currentActionMenu}
-            selectedIndex={actionPanelClampedIndex}
-            title={actionMenuTitle}
-            onBack={() => {
-              setActionMenuStack(s => s.slice(0, -1))
-              setActionPanelIndex(0)
+            compact={onixCompact}
+            hotkeyHint={compactHotkey}
+            onEngage={() => {
+              if (onixCompact) dispatchOnixSession({ type: 'expand' })
             }}
-            onSelect={async item => {
-              if (item.submenu) {
-                setActionMenuStack(s => [...s, item])
-                setActionPanelIndex(0)
-                return
-              }
-              if (selectedItem) recordUse(selectedItem.id)
-              try {
-                await item.handler?.()
-              } catch (err) {
-                dispatch({ type: 'SET_ERROR', error: String(err) })
-              }
-              setActionPanelOpen(false)
-              setActionPanelIndex(0)
-              setActionMenuStack([])
-            }}
-            onHover={i => setActionPanelIndex(i)}
           />
         )}
 
-        {claudeUsageVisible && <ClaudeUsage />}
-        {codexUsageVisible && <CodexUsage />}
-        {systemStatsVisible && <SystemStatsPanel />}
-        <Footer
-          selectedItem={selectedItem}
-          primaryAction={primaryAction}
-          onOpenSettings={handleOpenSettings}
-          settingsVisible={!!settingsCmd}
-          onOpenVolumeMixer={handleOpenVolumeMixer}
-          volumeMixerVisible={!!volumeMixerCmd}
-          gameModeEnabled={gameModeEnabled}
-          onToggleGameMode={onToggleGameMode}
-          navigationTitle={currentStep?.label}
-          navigationIcon={currentStep?.icon}
-        />
+        {!onixCompact && (
+          <>
+            {state.error && <PaletteStatePanel kind="error" title="Something went wrong" message={state.error} />}
+
+            {state.stepStack.length > 0 && !isVolumeMixerStep && (
+              <div data-step-breadcrumb>
+                <StepBreadcrumb steps={state.stepStack} />
+              </div>
+            )}
+
+            {showLoadingState && (
+              <PaletteStatePanel
+                kind="loading"
+                title={`Loading ${currentStep?.label ?? (folderMode || findMode ? 'files' : 'commands')}…`}
+                message="This may take a moment on the first load."
+              />
+            )}
+
+            {showEmptyState && (
+              <PaletteStatePanel
+                kind="empty"
+                title={
+                  state.query
+                    ? folderMode || findMode
+                      ? `No files matching “${folderMode ? folderQuery : findQuery}”`
+                      : `No commands matching “${state.query}”`
+                    : 'Nothing here yet'
+                }
+                message={
+                  state.query
+                    ? 'Try fewer words, use @find for files, or search for Commandeer Guide.'
+                    : 'Add an item or go back to choose another command.'
+                }
+              />
+            )}
+
+            {!isInputStep && !isSliderStep && !isFormStep && !isVolumeMixerStep && visibleItems.length > 0 && (
+              <div data-palette-results style={{ display: 'flex', minHeight: 0 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {isGridStep ? (
+                    <ResultsGrid
+                      items={displayItems}
+                      selectedIndex={clampedIndex}
+                      query={state.query}
+                      columns={currentStep?.gridColumns}
+                      onSelect={handleSelect}
+                      onHover={i => dispatch({ type: 'SET_SELECTION', index: i })}
+                      active={!actionPanelOpen}
+                    />
+                  ) : (
+                    <ResultsList
+                      items={displayItems}
+                      selectedIndex={clampedIndex}
+                      onSelect={handleSelect}
+                      onHover={i => dispatch({ type: 'SET_SELECTION', index: i })}
+                      active={!actionPanelOpen}
+                    />
+                  )}
+                </div>
+                {showPreview && <DetailPane item={selectedItem} />}
+              </div>
+            )}
+
+            {isVolumeMixerStep && <VolumeMixer onError={handleVolumeMixerError} />}
+
+            {isFormStep && currentStep && (
+              <FormView
+                fields={currentStep.fields ?? []}
+                values={formValues}
+                onChange={(id, value) => setFormValues(prev => ({ ...prev, [id]: value }))}
+                onSubmit={handleFormSubmit}
+                submitLabel={currentStep.submitLabel}
+              />
+            )}
+
+            {actionPanelOpen && actionItems.length > 0 && (
+              <ActionPanel
+                items={currentActionMenu}
+                selectedIndex={actionPanelClampedIndex}
+                title={actionMenuTitle}
+                onBack={() => {
+                  setActionMenuStack(s => s.slice(0, -1))
+                  setActionPanelIndex(0)
+                }}
+                onSelect={async item => {
+                  if (item.submenu) {
+                    setActionMenuStack(s => [...s, item])
+                    setActionPanelIndex(0)
+                    return
+                  }
+                  if (selectedItem) recordUse(selectedItem.id)
+                  try {
+                    await item.handler?.()
+                  } catch (err) {
+                    dispatch({ type: 'SET_ERROR', error: String(err) })
+                  }
+                  setActionPanelOpen(false)
+                  setActionPanelIndex(0)
+                  setActionMenuStack([])
+                }}
+                onHover={i => setActionPanelIndex(i)}
+              />
+            )}
+
+            {claudeUsageVisible && <ClaudeUsage />}
+            {codexUsageVisible && <CodexUsage />}
+            {systemStatsVisible && <SystemStatsPanel />}
+            <Footer
+              selectedItem={selectedItem}
+              primaryAction={primaryAction}
+              onOpenSettings={handleOpenSettings}
+              settingsVisible={!!settingsCmd}
+              onOpenVolumeMixer={handleOpenVolumeMixer}
+              volumeMixerVisible={!!volumeMixerCmd}
+              gameModeEnabled={gameModeEnabled}
+              onToggleGameMode={onToggleGameMode}
+              navigationTitle={currentStep?.label}
+              navigationIcon={currentStep?.icon}
+            />
+          </>
+        )}
       </div>
     </div>
   )

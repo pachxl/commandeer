@@ -17,6 +17,7 @@ export default function ConfirmOverlay({ options, remember, focus, onToggleRemem
 
   return (
     <div
+      data-confirm-overlay
       style={{
         position: 'absolute',
         inset: 0,

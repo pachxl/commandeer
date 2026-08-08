@@ -21,7 +21,7 @@ startup, and reapplying persisted native settings.
 
 | Area                         | Module(s)                                                                                       | Responsibilities                                                               |
 | ---------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Composition and windows      | `lib.rs`, `commands/window.rs`                                                                  | Setup, show/hide, monitor positioning, transparency, tray, events              |
+| Composition and windows      | `lib.rs`, `commands/window.rs`, `commands/palette_surface.rs`                                   | Setup, show/hide, positioning, transparency, native palette material/geometry  |
 | Configuration                | `commands/config.rs`, `commands/shortcuts.rs`                                                   | JSON config, migrations, hotkey parsing/registration, overrides                |
 | Launching and scripts        | `commands/launcher.rs`, `commands/fs.rs`                                                        | Installed apps, running paths, script discovery, metadata, process launch      |
 | Search                       | `commands/file_index.rs`, `commands/search.rs`, `commands/explorer.rs`, `commands/bookmarks.rs` | FTS5 index, fallback search, active-folder traversal, browser bookmarks        |
@@ -47,6 +47,43 @@ Windows power APIs need the GUI message-queue thread; macOS AppKit mutations
 need the main thread; Windows low-level hooks must not do window positioning in
 the hook callback. These constraints belong in module-level comments and in
 the feature documentation.
+
+## Native palette surface contract
+
+`commands/palette_surface.rs` owns the palette's platform-native material and
+outer geometry. The typed `set_palette_surface(style, expanded, scale, window)`
+IPC applies a state change and remembers it. Setup calls
+`configure_palette_surface` before the hidden palette is first mapped, and the
+palette `WindowEvent::Resized` path calls `refresh_palette_surface` so the final
+native radius matches the resized window. These operations must remain
+idempotent because setup, frontend state, and resize notifications can converge
+on the same presentation.
+
+The platform implementations intentionally differ:
+
+- On macOS 26, a runtime-gated `NSGlassEffectView` becomes the `NSWindow`
+  content view and owns the existing Wry/WebKit content through its
+  `contentView` property. Onix uses adaptive Regular glass with no native tint,
+  explicitly keeps the host `NSWindow` non-opaque/clear, and leaves AppKit in
+  charge of backing/sampling resolution; only the public glass `cornerRadius`
+  shapes the native material. Reapplication updates that wrapper in place and
+  preserves the first responder. Removing
+  Onix unwraps it before applying the
+  `NSVisualEffectMaterial::HudWindow` fallback used by Default and older macOS.
+- On Windows, Tauri supplies Acrylic and the module owns only the DPI-aware
+  `SetWindowRgn` shape: capsule for compact Onix, rounded panel for expanded
+  Onix, and no custom region for Default.
+- On Linux, the native function is deliberately a no-op. The transparent
+  layer-shell host lets the frontend render the modeled optical fallback and
+  alpha corners; Wayland exposes no portable live-backdrop/refraction API.
+
+`commands/window.rs` exposes `resize_palette_window`. Its macOS branch runs on
+the AppKit main thread and animates an Onix expansion for 150 ms while preserving
+the window's top edge; ordinary resize notifications drive
+`refresh_palette_surface`, which interpolates the glass radius over the same
+frame interval. The non-macOS and Reduced Motion paths resize directly. The
+frontend keeps an expanded Onix surface expanded for the rest of the visible
+session and returns to compact only through whole-session reset/dismiss.
 
 ## State and failure behavior
 

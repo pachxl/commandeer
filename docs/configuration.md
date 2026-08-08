@@ -22,7 +22,7 @@ data directory or the `data_dir` IPC command rather than hard-coding an OS path.
 | `window_drag`         | `false`                                                               | Alt-drag move/resize on Windows/macOS                                      |
 | `per_monitor_alt_tab` | `false`                                                               | Windows monitor-local Alt+Tab replacement                                  |
 | `palette_scale`       | `1.0`; UI maps 0–100% to 0.5–1.5                                      | Whole-palette CSS/window scale                                             |
-| `ui_style`            | `Default`                                                             | Structural style preset such as `Default` or `Onix`                        |
+| `ui_style`            | `Default`                                                             | Presentation system: `Default` or Black Water `Onix`                       |
 | `auto_update`         | `true` when absent                                                    | Release-only signed background updater                                     |
 
 Optional fields use `serde(default)` and `skip_serializing_if` where appropriate,
@@ -32,6 +32,9 @@ so older config files continue to round-trip without gaining meaningless nulls.
 
 `src/commands/settings.ts` owns the Settings step and live previews. Theme and
 style changes preview while highlighted and restore the saved selection on exit.
+The applied-style event updates Onix's frontend shell and native material during
+the preview; do not key style-sensitive React behavior only from the persisted
+`config.ui_style`, which may not rerender while a preview is highlighted.
 Transparency and scale apply on every slider tick, but persistence is debounced
 and serialized; the trailing value is flushed when leaving the step. Do not
 replace this with independent fire-and-forget whole-config writes, because an
@@ -61,8 +64,23 @@ UI keeps this restart requirement visible rather than implying a live re-index.
 
 Built-in themes and structural styles live in `src/lib/themes.ts` and
 `src/lib/styles.ts`. User themes are JSON files in `<app-data>/themes/` with a
-`name` and CSS variable map, read by `commands/store.rs`. Theme controls colors;
-style controls layout, spacing, fonts, and component treatment.
+`name` and CSS variable map, read by `commands/store.rs`. Default keeps the
+traditional division in which the theme controls color and the style controls
+layout, spacing, fonts, and component treatment.
+
+Onix deliberately adds one narrow exception: its Black Water shell owns a
+dark-neutral material and readable foreground so it remains a coherent dark
+glass design even when a light theme is selected. The active theme still owns
+the accent and environmental tint used by the optical rim, selection lens, and
+semantic states. Do not substitute a theme's light background directly into the
+Onix shell or override the theme accent with a fixed blue.
+
+OS accessibility settings can further override presentation without changing
+`config.json`: reduced motion freezes pointer-responsive optics and removes
+shape/lens travel; reduced transparency selects an opaque dark CSS material;
+forced-colors uses system colors. These are runtime policies, not durable app
+preferences. The existing `transparency` field still controls whole-window
+alpha, including content, after the material has been selected.
 
 ## Safe config changes
 
@@ -80,7 +98,7 @@ For a new setting:
 ## Keeping this document current
 
 Update this page whenever `AppConfig`, Settings labels, defaults, slider mapping,
-theme/style loading, shortcut behavior, or config migration changes. Verify
-against `src/types.ts`, `src/commands/settings.ts`, and
+theme/style loading, Onix material policy, shortcut behavior, or config
+migration changes. Verify against `src/types.ts`, `src/commands/settings.ts`, and
 `src-tauri/src/commands/config.rs`; check that `AGENTS.md` and
 [`platforms.md`](platforms.md) still describe the same defaults.

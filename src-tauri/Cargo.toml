@@ -93,6 +93,8 @@ window-vibrancy = "0.5"
 # Set NSWindow.alphaValue for the transparency slider (msg_send). Version pinned
 # to match window-vibrancy's objc2 so only one copy is built.
 objc2 = "0.5"
+# ABI-correct NSRect/NSPoint/NSSize values for native palette frame animation.
+objc2-foundation = { version = "0.2", features = ["NSGeometry"] }
 # Synthesize the ⌘V keystroke for paste-to-previous (CGEvent).
 core-graphics = "0.24"
 # Process list for the process manager (the macOS analogue of EnumProcesses).

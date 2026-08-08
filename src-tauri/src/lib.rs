@@ -367,6 +367,11 @@ pub fn run() {
                         let _ = win.hide();
                     }
                 }
+                if let WindowEvent::Resized(_) = event {
+                    if let Some(palette) = win.app_handle().get_webview_window("palette") {
+                        let _ = commands::palette_surface::refresh_palette_surface(&palette);
+                    }
+                }
             }
             // Windows/macOS: dismiss the screenshot overlay on click-away. On
             // Linux the overlay layer's focus semantics are quirky (a spurious
@@ -568,18 +573,7 @@ pub fn run() {
                 // points (mirrors Raycast/Spotlight).
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-                // Translucent NSVisualEffect background + rounded corners for the
-                // palette — the macOS analogue of the Windows acrylic effect.
-                // Best-effort: any failure leaves the plain transparent window.
-                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
                 if let Some(win) = app.get_webview_window("palette") {
-                    let _ = apply_vibrancy(
-                        &win,
-                        NSVisualEffectMaterial::HudWindow,
-                        Some(NSVisualEffectState::Active),
-                        Some(12.0),
-                    );
-
                     // Join every Space (fullscreen apps included), like the
                     // screenshot overlay below. Without this the palette window
                     // lives on whichever Space it was last shown on, so toggling
@@ -622,6 +616,21 @@ pub fn run() {
                 // Start Alt-drag window management if the user left it enabled
                 // (best-effort; no-op without the Accessibility permission).
                 commands::window_drag::apply_from_config(app.app_handle());
+            }
+
+            // Match the native substrate to the saved presentation before the
+            // hidden palette is first mapped. On macOS 26 Onix wraps the web
+            // content in NSGlassEffectView; older macOS uses vibrancy, Windows
+            // shapes its Acrylic host, and Linux deliberately remains a
+            // transparent modeled-material surface.
+            if let Some(win) = app.get_webview_window("palette") {
+                let config = commands::config::load_config(app.app_handle());
+                let style = config.ui_style.as_deref().unwrap_or("Default");
+                let scale = config.palette_scale.unwrap_or(1.0);
+                let expanded = !style.eq_ignore_ascii_case("Onix");
+                let _ = commands::palette_surface::configure_palette_surface(
+                    &win, style, expanded, scale,
+                );
             }
 
             Ok(())
@@ -672,6 +681,8 @@ pub fn run() {
             commands::audio::set_audio_session_volume,
             commands::audio::toggle_audio_session_mute,
             commands::audio::toggle_mute,
+            commands::palette_surface::set_palette_surface,
+            commands::window::resize_palette_window,
             commands::window::set_window_transparency,
             commands::window_drag::set_window_drag,
             commands::alt_tab::set_per_monitor_alt_tab,

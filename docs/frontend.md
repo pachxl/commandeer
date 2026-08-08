@@ -53,6 +53,59 @@ visually consistent across root search and loaded steps. First-run onboarding is
 opened only after the hidden Accessory window receives real focus; existing
 installations are detected through earlier localStorage keys and are not interrupted.
 
+## Onix Black Water presentation
+
+Onix is a distinct Black Water interaction system, not a larger variation of
+Default. A fresh root session opens as a compact search capsule containing only
+the query field and active global-hotkey hint. Typing, clicking the search
+surface, pressing Up/Down/Enter/Tab, opening a step, or showing feedback that
+needs panel space blooms it into the full results panel. Expansion is sticky for
+that visible session: clearing the query, closing Actions, or popping back to
+root does not shrink the native window. Only the same whole-session reset used
+for dismissal returns Onix to its compact state for the next invocation. The
+pure transition rules and regression tests live in `lib/onixPresentation.ts`.
+
+`OnixOpticalShell.tsx` is the one palette-wide material layer. Its WebGL2 path
+uses a transparent premultiplied rounded-rectangle SDF to model dark edge
+absorption, a Fresnel rim, pointer-directed specular light, restrained color
+dispersion, caustics, and dither. Its depth-dependent smoked field is clearer at
+the rim and darker through the interior, leaving enough environmental detail for
+the adaptive native glass to remain visible. Rendering is event-driven, stops
+after values settle, and uses a 2× backing store even on a 1× display so the
+subpixel optical rim does not become jagged. WebGL cannot
+sample another application's pixels; the native Acrylic/glass/vibrancy surface
+provides the real environmental backdrop where available, while the shader adds
+the shared optical edge treatment. Shader failure or context loss switches to a
+marked CSS-gradient fallback without affecting input.
+
+Selection uses `SelectionLens.tsx`, one geometry layer per selectable list,
+grid, or Actions surface rather than a background painted by every row. Only the
+active surface exposes its lens; opening Actions deactivates the result lens.
+The lens reads the selected element's local offsets, so async item replacement,
+scrolling, and palette scale do not create a second selection target. Keep the
+existing selection clamping and movement-guarded pointer rules when changing it.
+
+`usePaletteWindowSize.ts` serializes native resizes and coalesces pending
+`ResizeObserver` phases to the newest geometry. On macOS, an Onix expansion uses
+`resize_palette_window` to animate the borderless AppKit frame downward from a
+fixed top edge over 150 ms. Each normal resize event interpolates the native
+glass radius from capsule to panel while the CSS curve and WebGL SDF follow the
+same short transition. A rounded 180 ms morph guard sits beneath WebGL only
+during expansion, preventing a newly exposed strip of native glass from flashing
+before the canvas backing store repaints; it is gone in the settled panel.
+Reduced Motion takes the direct resize path. Wayland
+sends final geometry through `resize_palette`; Windows and X11 use Tauri window
+size, recentering only for width changes. In parallel, `set_palette_surface`
+sends the applied style, compact/expanded state, and scale; the backend remembers
+it and refreshes native clipping after every host resize. Preserve both sequences
+so a slower earlier resize cannot overwrite the final panel size.
+
+Accessibility preferences are material policy. Reduced motion freezes the
+optical light and removes shell/lens travel. Reduced transparency disables
+WebGL glass and uses an opaque high-contrast dark surface; forced-colors uses
+system colors and removes decorative caustics. These paths must remain fully
+keyboard-functional and cannot change palette navigation state.
+
 When adding a load path:
 
 1. Give it a request sequence or equivalent freshness guard.
@@ -80,7 +133,8 @@ reports its initial state and owns the late-registration cleanup.
 | Detail Markdown      | `src/lib/markdown.ts`, `DetailPane.tsx`                                             |
 | Icons                | `Icon.tsx`, lazy `iconPath` resolution, Rust `icons.rs`                             |
 | Feedback             | `appEvents.ts`, `Toast.tsx`, `usePaletteFeedback.ts`                                |
-| Window sizing        | `usePaletteWindowSize.ts`; Linux delegates size requests to Rust layer-shell setup  |
+| Onix presentation    | `onixPresentation.ts`, `OnixOpticalShell.tsx`, `SelectionLens.tsx`                  |
+| Window sizing        | `usePaletteWindowSize.ts`; serialized newest-only native geometry                   |
 
 ## IPC and error handling
 
@@ -101,7 +155,8 @@ in the Rust-owned files documented in [`storage.md`](storage.md).
 ## Keeping this document current
 
 Update this page when the command/step protocol, provider registration, Palette
-state machine, async invariants, component ownership, IPC rules, or localStorage
-keys change. Check `src/types.ts`, `src/App.tsx`, `src/providers/index.ts`, and
-`src/components/Palette.tsx` before editing this page; update
+state machine, Onix presentation/material policy, async invariants, component
+ownership, IPC rules, or localStorage keys change. Check `src/types.ts`,
+`src/App.tsx`, `src/providers/index.ts`, and `src/components/Palette.tsx` before
+editing this page; update
 [`commands.md`](commands.md) for user-visible command changes.

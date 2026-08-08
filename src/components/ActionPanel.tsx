@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { ActionItem } from '../types'
 import { scrollToReveal } from '../lib/scroll'
 import { getIconSvg, hasIcon } from './Icon'
+import SelectionLens from './SelectionLens'
 
 interface ActionPanelProps {
   items: ActionItem[]
@@ -11,9 +12,18 @@ interface ActionPanelProps {
   // When inside a submenu: its label (shown in the header) and a back handler
   title?: string
   onBack?: () => void
+  active?: boolean
 }
 
-export default function ActionPanel({ items, selectedIndex, onSelect, onHover, title, onBack }: ActionPanelProps) {
+export default function ActionPanel({
+  items,
+  selectedIndex,
+  onSelect,
+  onHover,
+  title,
+  onBack,
+  active = true,
+}: ActionPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<HTMLDivElement>(null)
   const lastMousePos = useRef<{ x: number; y: number } | null>(null)
@@ -45,7 +55,10 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover, t
   return (
     <div
       ref={listRef}
+      className="palette-action-panel"
       data-action-panel
+      data-selection-surface="action"
+      data-selection-active={active ? 'true' : 'false'}
       onMouseMove={handleMouseMove}
       onMouseLeave={() => {
         lastMousePos.current = null
@@ -79,6 +92,8 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover, t
           textTransform: 'uppercase',
           letterSpacing: 0.6,
           cursor: title && onBack ? 'pointer' : 'default',
+          position: 'relative',
+          zIndex: 1,
         }}
       >
         {title ? `‹ ${title}` : 'Actions'}
@@ -89,7 +104,10 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover, t
           <div
             key={item.id}
             ref={selected ? selectedRef : null}
+            className="palette-action-row"
             data-action-index={i}
+            data-selected={selected || undefined}
+            data-selection-item="action"
             onClick={() => onSelect(item)}
             style={{
               display: 'flex',
@@ -100,10 +118,13 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover, t
               cursor: 'pointer',
               background: selected ? 'var(--action-row-selected-bg)' : 'transparent',
               userSelect: 'none',
+              position: 'relative',
+              zIndex: 1,
             }}
           >
             {item.icon && hasIcon(item.icon) && (
               <div
+                data-action-icon-well
                 style={{
                   width: 'var(--action-icon-size)',
                   height: 'var(--action-icon-size)',
@@ -163,6 +184,7 @@ export default function ActionPanel({ items, selectedIndex, onSelect, onHover, t
           </div>
         )
       })}
+      <SelectionLens containerRef={listRef} targetRef={selectedRef} surface="action" active={active} />
     </div>
   )
 }

@@ -104,8 +104,10 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(({ item, index, sel
   return (
     <div
       ref={ref}
+      className="palette-result-row"
       data-list-index={index}
       data-selected={selected || undefined}
+      data-selection-item="list"
       onClick={onSelect}
       style={{
         display: 'flex',
@@ -118,10 +120,13 @@ const ResultRow = forwardRef<HTMLDivElement, ResultRowProps>(({ item, index, sel
         boxShadow: selected ? 'var(--row-selected-shadow)' : 'none',
         transition: 'var(--row-transition)',
         userSelect: 'none',
+        position: 'relative',
+        zIndex: 1,
       }}
     >
       {hasIconValue && (
         <div
+          data-row-icon-well
           style={{
             width: 'var(--icon-size)',
             height: 'var(--icon-size)',

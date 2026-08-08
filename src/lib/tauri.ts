@@ -232,9 +232,26 @@ export const setCommandHotkey = (commandId: string, hotkey: string | null) =>
 // ignored by cosmic-comp; see CLAUDE.md "Window sizing/positioning").
 export const resizePalette = (height: number, width?: number) => invoke<void>('resize_palette', { height, width })
 
+// macOS Onix: resize the native borderless window with its top edge fixed so
+// the compact search lens physically grows into the panel instead of popping
+// to a full transparent host around a CSS-only reveal.
+export const resizePaletteWindow = (width: number, height: number, animated: boolean) =>
+  invoke<void>('resize_palette_window', { width, height, animated, window: getCurrentWindow() })
+
 // Re-center the palette on its current monitor after a width change (Rust reads
 // the live window size, so no frontend DPI/position races).
 export const recenterPalette = () => invoke<void>('recenter_palette')
+
+// Keep the platform-native backing material and corner geometry synchronized
+// with Onix's compact-search / expanded-panel states. macOS 26 uses genuine
+// Liquid Glass, Windows clips its Acrylic substrate, and Linux is a native no-op.
+export const setPaletteSurface = (style: string | undefined, expanded: boolean, scale: number) =>
+  invoke<void>('set_palette_surface', {
+    style: style ?? 'Default',
+    expanded,
+    scale,
+    window: getCurrentWindow(),
+  })
 
 export const setAutostart = (enabled: boolean) => invoke<void>('set_autostart', { enabled })
 
