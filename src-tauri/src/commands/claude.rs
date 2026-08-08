@@ -1,4 +1,4 @@
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::path::PathBuf;
 
 fn credentials_path() -> Result<PathBuf, String> {
@@ -70,6 +70,48 @@ fn read_credentials() -> Result<String, String> {
     }
 }
 
+fn normalized_window(payload: &Value, source_key: &str, kind: &str) -> Option<Value> {
+    let window = payload.get(source_key)?.as_object()?;
+    let percent = window.get("utilization")?.as_f64()?;
+    let resets_at = window
+        .get("resets_at")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    Some(json!({
+        "kind": kind,
+        "percent": percent,
+        "severity": if percent >= 90.0 {
+            "error"
+        } else if percent >= 75.0 {
+            "warning"
+        } else {
+            "normal"
+        },
+        "resets_at": resets_at,
+        "scope": null,
+    }))
+}
+
+/// Claude's OAuth endpoint historically returned a `limits` array, but now
+/// exposes the same counters as top-level `five_hour` and `seven_day` windows.
+/// Keep the frontend contract stable and accept either response shape.
+fn normalize_usage_payload(payload: Value) -> Value {
+    if payload.get("limits").is_some_and(Value::is_array) {
+        return payload;
+    }
+
+    let limits = [
+        normalized_window(&payload, "five_hour", "session"),
+        normalized_window(&payload, "seven_day", "weekly_all"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+
+    json!({ "limits": limits })
+}
+
 /// Fetch Claude plan usage (session + weekly limits) using the Claude Code
 /// OAuth token. The token never leaves the Rust side; only the usage JSON
 /// is returned to the webview.
@@ -103,7 +145,68 @@ pub async fn claude_usage() -> Result<Value, String> {
     if !status.is_success() {
         return Err(format!("usage endpoint returned {}", status));
     }
-    resp.json::<Value>()
+    let payload = resp
+        .json::<Value>()
         .await
-        .map_err(|e| format!("parse usage response: {e}"))
+        .map_err(|e| format!("parse usage response: {e}"))?;
+    Ok(normalize_usage_payload(payload))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_usage_payload;
+    use serde_json::json;
+
+    #[test]
+    fn normalizes_current_usage_windows() {
+        let normalized = normalize_usage_payload(json!({
+            "five_hour": {
+                "utilization": 24.5,
+                "resets_at": "2026-08-08T17:00:00Z"
+            },
+            "seven_day": {
+                "utilization": 81.0,
+                "resets_at": "2026-08-12T09:00:00Z"
+            },
+            "seven_day_sonnet": null,
+            "extra_usage": { "is_enabled": false }
+        }));
+
+        let limits = normalized["limits"].as_array().unwrap();
+        assert_eq!(limits.len(), 2);
+        assert_eq!(limits[0]["kind"], "session");
+        assert_eq!(limits[0]["percent"], 24.5);
+        assert_eq!(limits[0]["severity"], "normal");
+        assert_eq!(limits[1]["kind"], "weekly_all");
+        assert_eq!(limits[1]["percent"], 81.0);
+        assert_eq!(limits[1]["severity"], "warning");
+    }
+
+    #[test]
+    fn preserves_legacy_limits_payload() {
+        let payload = json!({
+            "limits": [{
+                "kind": "session",
+                "percent": 42,
+                "severity": "normal",
+                "resets_at": "2026-08-08T17:00:00Z",
+                "scope": null
+            }]
+        });
+
+        assert_eq!(normalize_usage_payload(payload.clone()), payload);
+    }
+
+    #[test]
+    fn skips_absent_or_null_windows() {
+        let normalized = normalize_usage_payload(json!({
+            "five_hour": null,
+            "seven_day": { "utilization": 12.0, "resets_at": null }
+        }));
+
+        let limits = normalized["limits"].as_array().unwrap();
+        assert_eq!(limits.len(), 1);
+        assert_eq!(limits[0]["kind"], "weekly_all");
+        assert_eq!(limits[0]["resets_at"], "");
+    }
 }

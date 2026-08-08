@@ -91,8 +91,14 @@ function loadCached(): CachedUsage | null {
     if (Array.isArray(parsed)) {
       return parsed.length > 0 ? { limits: parsed, fetchedAt: 0 } : null
     }
-    if (parsed.limits && parsed.fetchedAt) {
+    if (parsed.limits?.length && parsed.fetchedAt) {
       return { limits: parsed.limits, fetchedAt: parsed.fetchedAt }
+    }
+    if (parsed.limits && parsed.limits.length === 0) {
+      // Older builds cached the current API response as an empty legacy array.
+      // Remove its matching cooldown so the normalized backend is queried now.
+      localStorage.removeItem(CACHE_KEY)
+      localStorage.removeItem(STATE_KEY)
     }
     return null
   } catch {
@@ -222,6 +228,7 @@ export default function ClaudeUsage() {
         const sorted = (data.limits ?? [])
           .filter(l => KIND_ORDER.includes(l.kind))
           .sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind))
+        if (sorted.length === 0) throw new Error('Claude usage response did not include session or weekly limits')
         const next = { limits: sorted, fetchedAt: Date.now() }
         cacheRef.current = next
         setCache(next)

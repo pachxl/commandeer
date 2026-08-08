@@ -106,6 +106,9 @@ Codex and Claude usage panels read each tool’s OAuth data through the Rust
 backend, cache the last successful result in localStorage, and back off polling
 after rate limits. On macOS the backend reads Keychain items through the stable
 `/usr/bin/security` process, with a file fallback.
+Claude's backend normalizes both the legacy `limits` array and the current
+top-level `five_hour` / `seven_day` OAuth response into the same frontend model;
+empty legacy cache entries are discarded so schema migrations refresh immediately.
 
 ## Automatic updates
 
