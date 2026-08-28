@@ -819,6 +819,11 @@ const INLINE_LINE_MAX_CHARS: usize = 200;
 // to render the visible prefix, then keep draining without retaining output so
 // a noisy child can never fill its pipe or grow our memory use without bound.
 const INLINE_LINE_MAX_BYTES: usize = INLINE_LINE_MAX_CHARS * 4;
+type PipeDrainResult = Result<Vec<u8>, String>;
+type PipeDrain = (
+    std::sync::mpsc::Receiver<PipeDrainResult>,
+    std::thread::JoinHandle<()>,
+);
 
 fn drain_first_line(mut pipe: impl Read) -> std::io::Result<Vec<u8>> {
     let mut captured = Vec::with_capacity(INLINE_LINE_MAX_BYTES);
@@ -854,16 +859,7 @@ fn visible_first_line(bytes: &[u8]) -> String {
         .collect()
 }
 
-fn spawn_pipe_drain<R>(
-    pipe: R,
-    stream: &'static str,
-) -> Result<
-    (
-        std::sync::mpsc::Receiver<Result<Vec<u8>, String>>,
-        std::thread::JoinHandle<()>,
-    ),
-    String,
->
+fn spawn_pipe_drain<R>(pipe: R, stream: &'static str) -> Result<PipeDrain, String>
 where
     R: Read + Send + 'static,
 {
