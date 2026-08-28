@@ -76,52 +76,88 @@ export default function App() {
   // untrusted external URI navigation.
   const commandHotkeyRef = useRef<((commandId: string) => void) | null>(null)
   const commandDeepLinkRef = useRef<((commandId: string) => void) | null>(null)
+  const refreshGenerationRef = useRef(0)
+  const refreshPromiseRef = useRef<Promise<void> | null>(null)
 
-  async function refresh() {
-    try {
-      const { commands: cmds, scripts } = await loadScriptCommands(configRef.current)
-      localStorage.setItem(SCRIPTS_CACHE_KEY, JSON.stringify(scripts))
-      // Inline+refresh scripts are polled by the palette for live stdout.
-      const inline = scripts
-        .filter(s => !s.is_folder && s.metadata?.mode === 'inline' && s.metadata.refresh_seconds != null)
-        .map(s => ({ path: s.path, refreshSeconds: s.metadata!.refresh_seconds! }))
-      setInlineScripts(inline)
-      const providerCmds = await loadProviderCommands(configRef.current).catch(err => {
-        console.error(err)
-        return [] as Command[]
-      })
-      // Commands tagged with a folderName group under virtual folders (like
-      // script folders): hidden from root browse, still in the flat search
-      const webSearchCmds = isWebSearchVisible() ? [webSearchCommand] : []
-      const appCmds = providerCmds.filter(c => c.folderName === 'Apps')
-      const systemCmds = providerCmds.filter(c => c.folderName === 'System')
-      const toolsBuiltins = [...providerCmds, ...webSearchCmds].filter(c => c.folderName === 'Tools')
-      // Quick Links, Notes and Bookmarks live as sub-folders inside Tools. Each
-      // uses a dynamic child loader so adds/removes show up without leaving the
-      // folder; the individual items also stay in the flat search via
-      // providerCmds (their folderName keeps them out of the root browse).
-      const hasQuicklinks = providerCmds.some(c => c.folderName === 'Quick Links')
-      const hasNotes = providerCmds.some(c => c.folderName === 'Notes')
-      const hasBookmarks = providerCmds.some(c => c.folderName === 'Bookmarks')
-      const toolsChildren: Command[] = [
-        ...toolsBuiltins,
-        ...(hasQuicklinks ? [virtualFolderCommand('Quick Links', () => loadQuicklinkCommands())] : []),
-        ...(hasNotes ? [virtualFolderCommand('Notes', () => loadNoteCommands())] : []),
-        ...(hasBookmarks ? [virtualFolderCommand('Bookmarks', () => loadBookmarkCommands())] : []),
-      ]
-      setCommands([
-        ...cmds,
-        ...(appCmds.length > 0 ? [virtualFolderCommand('Apps', appCmds)] : []),
-        ...(systemCmds.length > 0 ? [virtualFolderCommand('System', systemCmds)] : []),
-        ...(toolsChildren.length > 0 ? [toolsFolderCommand(toolsChildren)] : []),
-        ...webSearchCmds,
-        ...providerCmds,
-        guideCommand(configRef.current),
-        settingsCommand(configRef.current),
-      ])
-    } catch (err) {
-      console.error(err)
+  function refresh(): Promise<void> {
+    refreshGenerationRef.current += 1
+    if (refreshPromiseRef.current) return refreshPromiseRef.current
+
+    const run = async () => {
+      try {
+        while (true) {
+          const generation = refreshGenerationRef.current
+          const configSnapshot: AppConfig = {
+            ...configRef.current,
+            search_paths: configRef.current.search_paths ? [...configRef.current.search_paths] : undefined,
+          }
+          const webSearchVisible = isWebSearchVisible()
+
+          try {
+            const { commands: cmds, scripts } = await loadScriptCommands(configSnapshot)
+            if (generation !== refreshGenerationRef.current) continue
+
+            const providerCmds = await loadProviderCommands(configSnapshot).catch(err => {
+              console.error(err)
+              return [] as Command[]
+            })
+
+            // A newer request arrived while loading. Discard the whole snapshot,
+            // including its cache and inline-script state, and load that request
+            // next instead of briefly rendering mixed generations.
+            if (generation !== refreshGenerationRef.current) continue
+
+            localStorage.setItem(SCRIPTS_CACHE_KEY, JSON.stringify(scripts))
+            const inline = scripts
+              .filter(s => !s.is_folder && s.metadata?.mode === 'inline' && s.metadata.refresh_seconds != null)
+              .map(s => ({ path: s.path, refreshSeconds: s.metadata!.refresh_seconds! }))
+            setInlineScripts(inline)
+
+            // Commands tagged with a folderName group under virtual folders
+            // (like script folders): hidden from root browse, still in search.
+            const webSearchCmds = webSearchVisible ? [webSearchCommand] : []
+            const appCmds = providerCmds.filter(c => c.folderName === 'Apps')
+            const systemCmds = providerCmds.filter(c => c.folderName === 'System')
+            const toolsBuiltins = [...providerCmds, ...webSearchCmds].filter(c => c.folderName === 'Tools')
+            // Quick Links, Notes and Bookmarks live as sub-folders inside Tools.
+            // Dynamic child loaders keep them current without leaving a folder.
+            const hasQuicklinks = providerCmds.some(c => c.folderName === 'Quick Links')
+            const hasNotes = providerCmds.some(c => c.folderName === 'Notes')
+            const hasBookmarks = providerCmds.some(c => c.folderName === 'Bookmarks')
+            const toolsChildren: Command[] = [
+              ...toolsBuiltins,
+              ...(hasQuicklinks ? [virtualFolderCommand('Quick Links', () => loadQuicklinkCommands())] : []),
+              ...(hasNotes ? [virtualFolderCommand('Notes', () => loadNoteCommands())] : []),
+              ...(hasBookmarks ? [virtualFolderCommand('Bookmarks', () => loadBookmarkCommands())] : []),
+            ]
+            setCommands([
+              ...cmds,
+              ...(appCmds.length > 0 ? [virtualFolderCommand('Apps', appCmds)] : []),
+              ...(systemCmds.length > 0 ? [virtualFolderCommand('System', systemCmds)] : []),
+              ...(toolsChildren.length > 0 ? [toolsFolderCommand(toolsChildren)] : []),
+              ...webSearchCmds,
+              ...providerCmds,
+              guideCommand(configRef.current),
+              settingsCommand(configRef.current),
+            ])
+          } catch (err) {
+            console.error(err)
+          }
+
+          if (generation === refreshGenerationRef.current) return
+        }
+      } finally {
+        // Clear before this async function settles so a just-arrived request
+        // cannot observe a completed promise and get dropped.
+        refreshPromiseRef.current = null
+      }
     }
+
+    // Defer the drain until the in-flight ref is assigned. This also keeps a
+    // future synchronous loader failure from leaving a settled promise behind.
+    const running = Promise.resolve().then(run)
+    refreshPromiseRef.current = running
+    return running
   }
 
   useEffect(() => {
