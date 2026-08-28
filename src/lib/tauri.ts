@@ -259,10 +259,16 @@ export const setDarkMode = (enabled: boolean) => invoke<void>('set_dark_mode', {
 
 export const getAutostart = () => invoke<boolean>('get_autostart')
 
-// A registered per-command global shortcut (or a commandeer://command/<id>
-// deep link) fired; payload is the command id
+// A registered per-command global shortcut fired; payload is the command id.
+// This is a trusted direct-execution path and deliberately stays separate from
+// external deep-link navigation.
 export const onCommandHotkey = (callback: (commandId: string) => void) =>
   listen<string>('command-hotkey', event => callback(event.payload))
+
+// An external commandeer://command/<id> URI requested navigation to a command.
+// The palette must show/select it or open its root step, never invoke its action.
+export const onCommandDeepLink = (callback: (commandId: string) => void) =>
+  listen<string>('command-deep-link', event => callback(event.payload))
 
 // Region screenshot (Lightshot-style). start → Rust freezes the screen and
 // emits screenshot-frame to the overlay window; the overlay reports the

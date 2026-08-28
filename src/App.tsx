@@ -13,7 +13,14 @@ import { appEvents } from './lib/appEvents'
 import { applyThemeByName } from './lib/themes'
 import { applyStyle } from './lib/styles'
 import { markOnboardingSeen, shouldShowOnboarding } from './lib/onboarding'
-import { onCommandHotkey, readConfig, setGameMode, setWindowTransparency, type ScriptInfo } from './lib/tauri'
+import {
+  onCommandDeepLink,
+  onCommandHotkey,
+  readConfig,
+  setGameMode,
+  setWindowTransparency,
+  type ScriptInfo,
+} from './lib/tauri'
 import type { AppConfig, Command } from './types'
 import Palette, { type InlineScript } from './components/Palette'
 
@@ -65,9 +72,10 @@ export default function App() {
   // live stdout. Computed from the loaded scripts in refresh().
   const [inlineScripts, setInlineScripts] = useState<InlineScript[]>([])
   const resetRef = useRef<(() => void) | null>(null)
-  // Palette registers its per-command hotkey handler here; the Rust side fires
-  // 'command-hotkey' events for registered shortcuts and deep links
+  // Palette registers separate handlers for trusted per-command shortcuts and
+  // untrusted external URI navigation.
   const commandHotkeyRef = useRef<((commandId: string) => void) | null>(null)
+  const commandDeepLinkRef = useRef<((commandId: string) => void) | null>(null)
 
   async function refresh() {
     try {
@@ -120,6 +128,7 @@ export default function App() {
     let disposed = false
     let unlisten: (() => void) | undefined
     let unlistenHotkey: (() => void) | undefined
+    let unlistenDeepLink: (() => void) | undefined
     let removeDismissListeners: (() => void) | undefined
 
     ;(async () => {
@@ -148,6 +157,7 @@ export default function App() {
       setGameMode(gameModeEnabled).catch(console.error)
 
       unlistenHotkey = await onCommandHotkey(id => commandHotkeyRef.current?.(id))
+      unlistenDeepLink = await onCommandDeepLink(id => commandDeepLinkRef.current?.(id))
 
       const win = getCurrentWindow()
       // Palette owns Escape while one of its navigation/confirmation states is
@@ -187,6 +197,7 @@ export default function App() {
       if (disposed) {
         unlisten?.()
         unlistenHotkey?.()
+        unlistenDeepLink?.()
         removeDismissListeners?.()
       }
     })()
@@ -195,6 +206,7 @@ export default function App() {
       disposed = true
       unlisten?.()
       unlistenHotkey?.()
+      unlistenDeepLink?.()
       removeDismissListeners?.()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -257,6 +269,7 @@ export default function App() {
       onConfigChange={() => {}}
       resetRef={resetRef}
       commandHotkeyRef={commandHotkeyRef}
+      commandDeepLinkRef={commandDeepLinkRef}
       onToggleGameMode={toggleGameMode}
       gameModeEnabled={gameModeEnabled}
       claudeUsageVisible={claudeUsageVisible}

@@ -143,9 +143,10 @@ fn macos_processes() -> Result<Vec<ProcessInfo>, String> {
     Ok(out)
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 mod tests {
     // Real sysinfo enumeration; the test process itself must be in the list.
+    #[cfg(target_os = "macos")]
     #[test]
     fn smoke_list_processes() {
         let procs = tokio::runtime::Runtime::new()
@@ -158,6 +159,23 @@ mod tests {
             procs.iter().any(|p| p.pid == me),
             "own pid {me} missing from the process list"
         );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn unix_kill_pid_rejects_special_and_unrepresentable_values() {
+        for pid in [0, 1, std::process::id(), i32::MAX as u32 + 1, u32::MAX] {
+            assert!(
+                super::validate_unix_kill_pid(pid).is_err(),
+                "unsafe pid {pid} was accepted"
+            );
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn unix_kill_pid_preserves_valid_native_pid() {
+        assert_eq!(super::validate_unix_kill_pid(i32::MAX as u32), Ok(i32::MAX));
     }
 }
 
@@ -229,8 +247,26 @@ fn linux_processes() -> Result<Vec<ProcessInfo>, String> {
     Ok(out)
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn validate_unix_kill_pid(pid: u32) -> Result<i32, String> {
+    let native_pid = i32::try_from(pid)
+        .map_err(|_| format!("refusing to kill process {pid}: PID is outside the Unix range"))?;
+
+    match native_pid {
+        0 => Err("refusing to kill PID 0: it represents the current process group".to_string()),
+        1 => Err("refusing to kill PID 1: it is the system init process".to_string()),
+        _ if pid == std::process::id() => {
+            Err(format!("refusing to kill Commandeer itself (PID {pid})"))
+        }
+        _ => Ok(native_pid),
+    }
+}
+
 #[tauri::command]
 pub async fn kill_process(pid: u32) -> Result<(), String> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let unix_pid = validate_unix_kill_pid(pid)?;
+
     #[cfg(target_os = "windows")]
     {
         tokio::task::spawn_blocking(move || {
@@ -254,7 +290,7 @@ pub async fn kill_process(pid: u32) -> Result<(), String> {
     {
         // SIGKILL to match the Windows TerminateProcess semantics: forceful,
         // no chance for the target to ignore it.
-        let ret = unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+        let ret = unsafe { libc::kill(unix_pid, libc::SIGKILL) };
         if ret == 0 {
             Ok(())
         } else {
@@ -271,7 +307,7 @@ pub async fn kill_process(pid: u32) -> Result<(), String> {
             // SIGTERM first for a graceful exit; escalate to SIGKILL if the
             // process is still around after a short window (the Windows arm's
             // TerminateProcess is forceful, so match that outcome).
-            let rc = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+            let rc = unsafe { libc::kill(unix_pid, libc::SIGTERM) };
             if rc != 0 {
                 return Err(format!(
                     "could not signal process {pid}: {}",
@@ -284,8 +320,15 @@ pub async fn kill_process(pid: u32) -> Result<(), String> {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(150));
             }
-            unsafe { libc::kill(pid as i32, libc::SIGKILL) };
-            Ok(())
+            let rc = unsafe { libc::kill(unix_pid, libc::SIGKILL) };
+            if rc == 0 {
+                Ok(())
+            } else {
+                Err(format!(
+                    "could not force-kill process {pid}: {}",
+                    std::io::Error::last_os_error()
+                ))
+            }
         })
         .await
         .map_err(|e| e.to_string())?

@@ -12,6 +12,7 @@ import { IS_LINUX, IS_MAC, openUrl, setPaletteSurface } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteItem, Step } from '../types'
 import { commandsToItems, commandsToFlatItems } from '../lib/paletteItems'
 import { applyOverride, type Overrides } from '../lib/paletteRanking'
+import { commandDeepLinkStep } from '../lib/commandDeepLink'
 import { initialOnixSessionState, onixSessionReducer, resolveOnixPresentation } from '../lib/onixPresentation'
 import { parseAtQuery, computeMatchedItems, computePreviewResult } from '../lib/paletteModes'
 import { buildItemActions } from '../lib/paletteActions'
@@ -91,6 +92,7 @@ interface PaletteProps {
   onConfigChange: (config: AppConfig) => void
   resetRef: MutableRefObject<(() => void) | null>
   commandHotkeyRef?: MutableRefObject<((commandId: string) => void) | null>
+  commandDeepLinkRef?: MutableRefObject<((commandId: string) => void) | null>
   onToggleGameMode: () => void
   gameModeEnabled: boolean
   claudeUsageVisible: boolean
@@ -108,6 +110,7 @@ export default function Palette({
   onConfigChange: _onConfigChange,
   resetRef,
   commandHotkeyRef,
+  commandDeepLinkRef,
   onToggleGameMode,
   gameModeEnabled,
   claudeUsageVisible,
@@ -244,8 +247,8 @@ export default function Palette({
     setOverrides(await getOverrides())
   }, [])
 
-  // Global per-command shortcut (or deep link) fired: show the palette and run
-  // the command's action or push its root step
+  // Trusted global per-command shortcut: show the palette and run the command's
+  // action or push its root step.
   const handleCommandHotkey = useCallback(
     async (commandId: string) => {
       const win = getCurrentWindow()
@@ -285,6 +288,38 @@ export default function Palette({
       commandHotkeyRef.current = null
     }
   }, [commandHotkeyRef, handleCommandHotkey])
+
+  // External command URI: surface UI, cancel any previous session feedback,
+  // and navigate only. Leaf actions remain behind an explicit Enter/click;
+  // confirmation commands open their root confirmation step.
+  const handleCommandDeepLink = useCallback(
+    async (commandId: string) => {
+      const win = getCurrentWindow()
+      await win.show()
+      await win.setFocus()
+
+      const step = commandDeepLinkStep(resolveCommand(commandId), configRef.current, recordUse)
+      if (!step) return
+
+      resetFeedback()
+      setActionPanelOpen(false)
+      setActionPanelIndex(0)
+      setActionMenuStack([])
+      dispatchOnixSession({ type: 'reset' })
+      dispatch({ type: 'RESET' })
+
+      dispatch({ type: 'PUSH_STEP', step })
+    },
+    [resetFeedback, resolveCommand],
+  )
+
+  useEffect(() => {
+    if (!commandDeepLinkRef) return
+    commandDeepLinkRef.current = handleCommandDeepLink
+    return () => {
+      commandDeepLinkRef.current = null
+    }
+  }, [commandDeepLinkRef, handleCommandDeepLink])
 
   // Reinitialise root items when the commands list or overrides change. The
   // Settings command is kept out of both lists — it's appended as the

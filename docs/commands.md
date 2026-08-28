@@ -46,8 +46,13 @@ the assembled root. Their children can also appear in flat search through their
   handlers or nested submenus.
 - `Commandeer Guide` remains searchable after the first-run welcome is complete.
 - `Ctrl+M` opens the Windows Volume Mixer when that feature is available.
-- `commandeer://command/<id>` opens/runs a command; `commandeer://screenshot`
-  starts capture; `commandeer://open` only shows the palette.
+- `commandeer://command/<id>` is navigation-only: it shows/focuses the palette,
+  opens the command's root step (including confirmation steps), or selects a
+  leaf command for an explicit Enter/click. URI handling never invokes
+  `Command.action`; only that later user activation does. The legacy
+  `commandeer://run/<id>` spelling has the same safe behavior.
+  `commandeer://screenshot` starts capture for the managed Linux desktop
+  binding; `commandeer://open` only shows the palette.
 
 ## Safety and visibility
 
