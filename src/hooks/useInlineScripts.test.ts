@@ -22,6 +22,14 @@ vi.mock('../lib/tauri', () => ({
 
 const scripts: InlineScript[] = [{ path: '/tmp/status.sh', refreshSeconds: 1 }]
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>(done => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
 describe('useInlineScripts lifecycle', () => {
   let focusHandler: FocusHandler | undefined
 
@@ -56,5 +64,42 @@ describe('useInlineScripts lifecycle', () => {
     expect(mocks.runScriptCapture).toHaveBeenCalledTimes(1)
     await act(async () => vi.advanceTimersByTime(1))
     expect(mocks.runScriptCapture).toHaveBeenCalledTimes(2)
+  })
+
+  it('coalesces polling and manual refreshes for the same path', async () => {
+    const capture = deferred<string>()
+    mocks.runScriptCapture.mockReturnValueOnce(capture.promise).mockResolvedValue('next')
+    const { result } = renderHook(() => useInlineScripts(scripts))
+    await act(async () => {})
+
+    act(() => focusHandler?.({ payload: true }))
+    await act(async () => vi.advanceTimersByTime(0))
+    const manualRefresh = result.current.refreshInline(scripts[0].path)
+
+    await act(async () => vi.advanceTimersByTime(1_000))
+    expect(mocks.runScriptCapture).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      capture.resolve('ready')
+      await manualRefresh
+    })
+    expect(result.current.inlineOutputs[scripts[0].path]).toBe('ready')
+
+    await act(async () => vi.advanceTimersByTime(1_000))
+    expect(mocks.runScriptCapture).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps polling errors quiet but rejects a manual refresh for UI feedback', async () => {
+    mocks.runScriptCapture.mockRejectedValue(new Error('capture failed'))
+    const { result } = renderHook(() => useInlineScripts(scripts))
+    await act(async () => {})
+
+    act(() => focusHandler?.({ payload: true }))
+    await act(async () => vi.advanceTimersByTime(0))
+    expect(result.current.inlineOutputs[scripts[0].path]).toBe('…')
+
+    await act(async () => {
+      await expect(result.current.refreshInline(scripts[0].path)).rejects.toThrow('capture failed')
+    })
   })
 })

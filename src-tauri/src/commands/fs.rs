@@ -138,13 +138,17 @@ fn parse_refresh_time(v: &str) -> Option<u64> {
         return None;
     }
     let n: u64 = chars.as_str().trim().parse().ok()?;
-    Some(match last {
-        's' => n,
-        'm' => n * 60,
-        'h' => n * 3600,
-        'd' => n * 86400,
+    if n == 0 {
+        return None;
+    }
+    let multiplier = match last {
+        's' => 1,
+        'm' => 60,
+        'h' => 3600,
+        'd' => 86400,
         _ => return None,
-    })
+    };
+    n.checked_mul(multiplier)
 }
 
 /// Parse one `@raycast.argumentN` / `@vicinae.argumentN` JSON value.
@@ -809,35 +813,236 @@ fn capture_script_output(path: &str) -> Result<String, String> {
     }
 }
 
-fn run_and_read_first_line(cmd: &mut std::process::Command) -> Result<String, String> {
-    let out = cmd
-        .output()
-        .map_err(|e| format!("Failed to run script: {e}"))?;
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let line = stdout.lines().next().unwrap_or("").trim().to_string();
-    if !line.is_empty() {
-        return Ok(if line.len() > 200 {
-            line[..200].to_string()
-        } else {
-            line
-        });
+const INLINE_SCRIPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const INLINE_LINE_MAX_CHARS: usize = 200;
+// Every Unicode scalar is at most four UTF-8 bytes. Capture only enough bytes
+// to render the visible prefix, then keep draining without retaining output so
+// a noisy child can never fill its pipe or grow our memory use without bound.
+const INLINE_LINE_MAX_BYTES: usize = INLINE_LINE_MAX_CHARS * 4;
+
+fn drain_first_line(mut pipe: impl Read) -> std::io::Result<Vec<u8>> {
+    let mut captured = Vec::with_capacity(INLINE_LINE_MAX_BYTES);
+    let mut keep_capturing = true;
+    let mut buffer = [0u8; 4096];
+
+    loop {
+        let read = pipe.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        if !keep_capturing {
+            continue;
+        }
+
+        let chunk = &buffer[..read];
+        let line_end = chunk.iter().position(|byte| *byte == b'\n').unwrap_or(read);
+        let remaining = INLINE_LINE_MAX_BYTES.saturating_sub(captured.len());
+        captured.extend_from_slice(&chunk[..line_end.min(remaining)]);
+        if line_end < read || captured.len() == INLINE_LINE_MAX_BYTES {
+            keep_capturing = false;
+        }
     }
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    let err_line = stderr.lines().next().unwrap_or("").trim();
-    if !err_line.is_empty() {
-        return Err(err_line.to_string());
+
+    Ok(captured)
+}
+
+fn visible_first_line(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes)
+        .trim()
+        .chars()
+        .take(INLINE_LINE_MAX_CHARS)
+        .collect()
+}
+
+fn spawn_pipe_drain<R>(
+    pipe: R,
+    stream: &'static str,
+) -> Result<
+    (
+        std::sync::mpsc::Receiver<Result<Vec<u8>, String>>,
+        std::thread::JoinHandle<()>,
+    ),
+    String,
+>
+where
+    R: Read + Send + 'static,
+{
+    let (tx, rx) = std::sync::mpsc::channel();
+    let thread = std::thread::Builder::new()
+        .name(format!("inline-script-{stream}"))
+        .spawn(move || {
+            let result = drain_first_line(pipe)
+                .map_err(|error| format!("Failed to read script {stream}: {error}"));
+            let _ = tx.send(result);
+        })
+        .map_err(|error| format!("Failed to start script {stream} reader: {error}"))?;
+    Ok((rx, thread))
+}
+
+fn terminate_script_child(child: &mut std::process::Child) {
+    let pid = child.id();
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    if let Ok(process_group) = i32::try_from(pid) {
+        // The child is placed in its own process group before spawn. Kill the
+        // whole group so a shell cannot leave grandchildren running or holding
+        // our stdout/stderr pipes open after the timeout.
+        let _ = unsafe { libc::kill(-process_group, libc::SIGKILL) };
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let pid = pid.to_string();
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", pid.as_str(), "/T", "/F"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+    }
+
+    // Always target the direct child too: this is the fallback if group/tree
+    // termination was unavailable or raced with process exit. wait() reaps it.
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn poll_pipe_result(
+    receiver: &std::sync::mpsc::Receiver<Result<Vec<u8>, String>>,
+    result: &mut Option<Result<Vec<u8>, String>>,
+    stream: &str,
+) {
+    if result.is_some() {
+        return;
+    }
+    match receiver.try_recv() {
+        Ok(value) => *result = Some(value),
+        Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            *result = Some(Err(format!("Script {stream} reader stopped unexpectedly")));
+        }
+    }
+}
+
+fn run_and_read_first_line_with_timeout(
+    cmd: &mut std::process::Command,
+    timeout: std::time::Duration,
+) -> Result<String, String> {
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|error| format!("Failed to run script: {error}"))?;
+    let Some(stdout) = child.stdout.take() else {
+        terminate_script_child(&mut child);
+        return Err("Failed to open script stdout".to_string());
+    };
+    let Some(stderr) = child.stderr.take() else {
+        terminate_script_child(&mut child);
+        return Err("Failed to open script stderr".to_string());
+    };
+
+    let (stdout_rx, stdout_thread) = match spawn_pipe_drain(stdout, "stdout") {
+        Ok(reader) => reader,
+        Err(error) => {
+            terminate_script_child(&mut child);
+            return Err(error);
+        }
+    };
+    let (stderr_rx, stderr_thread) = match spawn_pipe_drain(stderr, "stderr") {
+        Ok(reader) => reader,
+        Err(error) => {
+            terminate_script_child(&mut child);
+            let _ = stdout_thread.join();
+            return Err(error);
+        }
+    };
+
+    let deadline = std::time::Instant::now() + timeout;
+    let mut child_exited = false;
+    let mut stdout_result = None;
+    let mut stderr_result = None;
+    let failure = loop {
+        poll_pipe_result(&stdout_rx, &mut stdout_result, "stdout");
+        poll_pipe_result(&stderr_rx, &mut stderr_result, "stderr");
+
+        if let Some(Err(error)) = stdout_result.as_ref() {
+            break Some(error.clone());
+        }
+        if let Some(Err(error)) = stderr_result.as_ref() {
+            break Some(error.clone());
+        }
+        if !child_exited {
+            match child.try_wait() {
+                Ok(Some(_)) => child_exited = true,
+                Ok(None) => {}
+                Err(error) => break Some(format!("Failed waiting for script: {error}")),
+            }
+        }
+        if child_exited && stdout_result.is_some() && stderr_result.is_some() {
+            break None;
+        }
+
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            break Some("Script timed out (>10s)".to_string());
+        }
+        std::thread::sleep(
+            deadline
+                .saturating_duration_since(now)
+                .min(std::time::Duration::from_millis(10)),
+        );
+    };
+
+    if failure.is_some() {
+        terminate_script_child(&mut child);
+    } else {
+        // try_wait() already reaped the child; wait() returns the cached status.
+        let _ = child.wait();
+    }
+    let stdout_join = stdout_thread.join();
+    let stderr_join = stderr_thread.join();
+
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    stdout_join.map_err(|_| "Script stdout reader panicked".to_string())?;
+    stderr_join.map_err(|_| "Script stderr reader panicked".to_string())?;
+
+    let stdout = visible_first_line(
+        &stdout_result.ok_or_else(|| "Script stdout reader returned no result".to_string())??,
+    );
+    if !stdout.is_empty() {
+        return Ok(stdout);
+    }
+    let stderr = visible_first_line(
+        &stderr_result.ok_or_else(|| "Script stderr reader returned no result".to_string())??,
+    );
+    if !stderr.is_empty() {
+        return Err(stderr);
     }
     Err("Script produced no output".into())
 }
 
+fn run_and_read_first_line(cmd: &mut std::process::Command) -> Result<String, String> {
+    run_and_read_first_line_with_timeout(cmd, INLINE_SCRIPT_TIMEOUT)
+}
+
 #[tauri::command]
 pub async fn run_script_capture(path: String) -> Result<String, String> {
-    let timeout = std::time::Duration::from_secs(10);
-    let handle = tokio::task::spawn_blocking(move || capture_script_output(&path));
-    let join = tokio::time::timeout(timeout, handle)
+    tokio::task::spawn_blocking(move || capture_script_output(&path))
         .await
-        .map_err(|_| "Script timed out (>10s)".to_string())?;
-    join.map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?
 }
 
 /// Reveal a file or folder in the platform file manager with the item
@@ -956,9 +1161,28 @@ mod tests {
         assert_eq!(parse_refresh_time("1d"), Some(86400));
         // No unit → rejected.
         assert_eq!(parse_refresh_time("30"), None);
+        // Zero would create a tight polling loop; overflow must not wrap.
+        assert_eq!(parse_refresh_time("0s"), None);
+        assert_eq!(parse_refresh_time(&format!("{}m", u64::MAX)), None);
         // Garbage.
         assert_eq!(parse_refresh_time(""), None);
         assert_eq!(parse_refresh_time("abc"), None);
+    }
+
+    #[test]
+    fn inline_first_line_capture_is_bounded_and_unicode_safe() {
+        let first_line = format!("a{}", "🙂".repeat(300));
+        let input = format!("{first_line}\nignored");
+        let captured = drain_first_line(std::io::Cursor::new(input)).unwrap();
+
+        assert!(captured.len() <= INLINE_LINE_MAX_BYTES);
+        assert_eq!(
+            visible_first_line(&captured),
+            first_line
+                .chars()
+                .take(INLINE_LINE_MAX_CHARS)
+                .collect::<String>()
+        );
     }
 
     #[test]

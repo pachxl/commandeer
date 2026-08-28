@@ -1128,8 +1128,12 @@ export default function Palette({
         // Inline script: Enter force-refreshes its captured output (re-runs the
         // script and updates the live sublabel). Stays open so the row updates.
         if (item.liveOutputKey) {
-          await refreshInline(item.liveOutputKey)
-          toast('Refreshed', 'info')
+          try {
+            await refreshInline(item.liveOutputKey)
+            toast('Refreshed', 'info')
+          } catch (error) {
+            toast(`Refresh failed: ${String(error)}`, 'error')
+          }
           return
         }
         // Fallback commands (web / files / GitHub) shown when a query matched

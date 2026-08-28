@@ -58,7 +58,13 @@ git branch --show-current
 `inline` plus `refreshTime` creates a live row whose sublabel is captured stdout.
 The output is kept out of ranking text so refreshing it does not reorder the
 palette. Inline scripts start only after the palette is confirmed focused and
-their timers are stopped again while it is hidden.
+their timers are stopped again while it is hidden. Polling and manual Enter
+refreshes share one in-flight capture per script path, so a slow script is never
+started concurrently with itself. Background polling failures keep the previous
+output (or show an ellipsis before the first success) without raising UI noise;
+a failed manual refresh reports the error in the palette. Each capture keeps
+only the first 200 display characters, has a 10-second deadline, and terminates
+its child process tree on timeout.
 
 ## Execution and safety
 
