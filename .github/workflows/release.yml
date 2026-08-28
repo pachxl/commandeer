@@ -78,8 +78,26 @@ jobs:
       - name: Check agent configuration
         run: node .agents/hooks/check-agent-sync.mjs
 
-  publish:
+  prepare-release:
     needs: [release-version, quality]
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create draft release
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.release-version.outputs.version }}
+          RELEASE_TARGET_SHA: ${{ github.sha }}
+        run: node .github/scripts/atomic-release.mjs prepare
+
+  build-release-assets:
+    needs: [release-version, prepare-release]
     permissions:
       contents: write
     strategy:
@@ -124,8 +142,8 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build and publish release
-        uses: tauri-apps/tauri-action@v1
+      - name: Build and upload draft assets
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -144,13 +162,26 @@ jobs:
             --target ${{ matrix.target }}
             --bundles ${{ matrix.bundles }}
             --config '{"version":"${{ needs.release-version.outputs.version }}"}'
-          tagName: ${{ needs.release-version.outputs.version }}
-          releaseName: Commandeer ${{ needs.release-version.outputs.version }}
-          generateReleaseNotes: true
-          releaseDraft: false
-          prerelease: false
+          releaseId: ${{ needs.prepare-release.outputs.release_id }}
+          releaseDraft: true
           retryAttempts: 2
-          uploadUpdaterJson: true
+          uploadUpdaterJson: false
           uploadUpdaterSignatures: true
-          updaterJsonPreferNsis: true
           releaseAssetNamePattern: commandeer-[version]-[platform]-[arch][setup][ext]
+
+  finalize-release:
+    needs: [release-version, prepare-release, build-release-assets]
+    permissions:
+      actions: read
+      contents: write
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate and publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+          RELEASE_VERSION: ${{ needs.release-version.outputs.version }}
+          RELEASE_TARGET_SHA: ${{ github.sha }}
+        run: node .github/scripts/atomic-release.mjs finalize

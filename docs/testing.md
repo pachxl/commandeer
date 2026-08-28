@@ -9,18 +9,19 @@ macOS permissions.
 
 Run from the repository root unless noted:
 
-| Check                     | Command                                                     | What it proves                                    |
-| ------------------------- | ----------------------------------------------------------- | ------------------------------------------------- |
-| Install/preparation       | `bun install`                                               | Dependencies and Husky hook are present           |
-| Frontend typecheck/build  | `npm run build`                                             | Strict `tsc` plus Vite production bundle          |
-| Frontend regression suite | `npm test`                                                  | Vitest tests under `src/`                         |
-| ESLint                    | `npm run lint`                                              | Configured React hooks/lint rules                 |
-| Frontend formatting       | `npm run format:check`                                      | Prettier-clean frontend/docs/config files         |
-| Rust unit tests           | `cargo test` in `src-tauri/`                                | Current OS Rust tests and pure native logic       |
-| Rust formatting           | `cargo fmt --manifest-path src-tauri/Cargo.toml --check`    | rustfmt-clean Rust                                |
-| Rust lint                 | `cargo clippy --all-targets -- -D warnings` in `src-tauri/` | Current OS warning-free clippy                    |
-| Agent sync                | `node .agents/hooks/check-agent-sync.mjs`                   | Canonical/mirrored agent wiring                   |
-| Release binary            | `npm run tauri build -- --no-bundle`                        | Tauri release build, not a Vite-only dev artifact |
+| Check                    | Command                                                     | What it proves                                    |
+| ------------------------ | ----------------------------------------------------------- | ------------------------------------------------- |
+| Install/preparation      | `bun install`                                               | Dependencies and Husky hook are present           |
+| Frontend typecheck/build | `npm run build`                                             | Strict `tsc` plus Vite production bundle          |
+| Regression suite         | `npm test`                                                  | Vitest plus lightweight Node release/config tests |
+| Atomic release helper    | `npm run test:release`                                      | Asset validation and nine-key updater manifest    |
+| ESLint                   | `npm run lint`                                              | Configured React hooks/lint rules                 |
+| Frontend formatting      | `npm run format:check`                                      | Prettier-clean frontend/docs/config files         |
+| Rust unit tests          | `cargo test` in `src-tauri/`                                | Current OS Rust tests and pure native logic       |
+| Rust formatting          | `cargo fmt --manifest-path src-tauri/Cargo.toml --check`    | rustfmt-clean Rust                                |
+| Rust lint                | `cargo clippy --all-targets -- -D warnings` in `src-tauri/` | Current OS warning-free clippy                    |
+| Agent sync               | `node .agents/hooks/check-agent-sync.mjs`                   | Canonical/mirrored agent wiring                   |
+| Release binary           | `npm run tauri build -- --no-bundle`                        | Tauri release build, not a Vite-only dev artifact |
 
 The Tauri package script injects the exact numeric Git tag as the local build
 version (or `RELEASE_VERSION` in CI). This keeps a locally built release from
@@ -28,6 +29,11 @@ mistaking the current published tag for an update.
 
 The repository’s `npm run format:check` also checks Rust formatting through its
 package script. Use `npm run format` only when formatting changes are intended.
+
+The focused atomic-release helper tests cover the complete nine-key updater
+manifest and rejection of a missing updater payload. The live workflow adds the
+GitHub-side invariant: packages stay on one draft until every expected asset and
+the uploaded `latest.json` have been validated, then the draft is published once.
 
 ## Frontend tests
 

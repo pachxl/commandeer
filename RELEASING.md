@@ -1,12 +1,17 @@
 # Releases and automatic updates
 
-Every push to `main` runs `.github/workflows/release.yml`. The workflow builds
-Windows x64, Linux x64, and macOS Apple Silicon/Intel packages, publishes them
-under GitHub Releases, and uploads the signed `latest.json` consumed by the
-application updater. Publishing does not begin until a dedicated Linux quality
-job passes the repository's formatting, agent-sync, frontend build/lint/tests,
-and Rust test/Clippy checks. The platform matrix then builds from that same
-commit while preserving the independently resolved release version.
+Every push to `main` runs `.github/workflows/release.yml`. After the dedicated
+Linux quality job passes formatting, agent sync, frontend build/lint/tests, and
+Rust test/Clippy checks, the workflow creates one private draft release for that
+commit. A matrix builds Windows x64, Linux x64, and macOS Apple Silicon/Intel
+packages and uploads every package and updater signature to that shared draft.
+
+One finalizer then validates all 12 expected package/signature assets, builds the
+complete nine-platform-key `latest.json` once, verifies the uploaded manifest,
+and publishes the draft in a single GitHub API transition. Finalizers wait for
+lower workflow run numbers, so multiple automatic `main` runs may build in
+parallel but become public in version order. A failed build or validation leaves
+the previous latest release untouched and the incomplete draft private.
 
 `tauri.cjs` is the single build-version resolver. CI supplies
 `RELEASE_VERSION`; local builds use an exact numeric Git tag when HEAD is tagged,
