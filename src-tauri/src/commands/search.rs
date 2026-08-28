@@ -147,6 +147,8 @@ mod everything {
     const HEADER_SIZE: usize = 12;
     /// EVERYTHING_IPC_ITEMW: flags, filename_offset, path_offset (3 × u32)
     const ITEM_SIZE: usize = 12;
+    const ITEM_FLAG_FOLDER: u32 = 0x1;
+    const ITEM_FLAG_DRIVE: u32 = 0x2;
 
     // The reply lands in the wndproc on the thread that pumps the messages,
     // which is the same thread that runs query() — a thread-local hand-off
@@ -211,6 +213,7 @@ mod everything {
         let mut results = Vec::with_capacity(numitems);
         for i in 0..numitems {
             let base = HEADER_SIZE + i * ITEM_SIZE;
+            let flags = u32_at(base)?;
             let name_off = u32_at(base + 4)? as usize;
             let path_off = u32_at(base + 8)? as usize;
             let name = wide_str_at(data, name_off);
@@ -226,7 +229,8 @@ mod everything {
             results.push(FileResult {
                 name,
                 path: full.replace('\\', "/"),
-                icon: None,
+                icon: ((flags & (ITEM_FLAG_FOLDER | ITEM_FLAG_DRIVE)) != 0)
+                    .then(|| "folder".to_string()),
             });
         }
         Some(results)
@@ -344,7 +348,7 @@ pub async fn search_files(
         // 1. Prefer the self-hosted SQLite+FTS5 index.
         match index.search(&query, 100) {
             Ok(results) if !results.is_empty() => {
-                let mut out: Vec<FileResult> = results
+                let out: Vec<FileResult> = results
                     .into_iter()
                     .map(|r| FileResult {
                         name: Path::new(&r.path)
@@ -356,14 +360,6 @@ pub async fn search_files(
                         icon: None,
                     })
                     .collect();
-                #[cfg(any(target_os = "windows", target_os = "macos"))]
-                for r in &mut out {
-                    r.icon = crate::commands::icons::icon_for_path(&r.path);
-                }
-                #[cfg(target_os = "linux")]
-                for r in &mut out {
-                    r.icon = linux_icons::cached_icon_for_path(&r.path);
-                }
                 return Ok(out);
             }
             _ => {}
@@ -387,12 +383,9 @@ pub async fn search_files(
                     .collect();
                 format!("<{}> {}", scopes.join("|"), query)
             };
-            if let Some(mut results) =
+            if let Some(results) =
                 everything::query(&scoped, 50, std::time::Duration::from_millis(600))
             {
-                for r in &mut results {
-                    r.icon = crate::commands::icons::icon_for_path(&r.path);
-                }
                 return Ok(results);
             }
         }
@@ -462,15 +455,6 @@ pub async fn search_files(
             if results.len() >= max_results {
                 break;
             }
-        }
-
-        #[cfg(any(target_os = "windows", target_os = "macos"))]
-        for r in &mut results {
-            r.icon = crate::commands::icons::icon_for_path(&r.path);
-        }
-        #[cfg(target_os = "linux")]
-        for r in &mut results {
-            r.icon = linux_icons::cached_icon_for_path(&r.path);
         }
 
         Ok(results)

@@ -41,6 +41,8 @@ The complete format is documented in [`scripts.md`](scripts.md).
 `@find` uses the self-hosted SQLite FTS5 trigram index, then the Windows
 Everything IPC protocol when available, then a walkdir fallback. The frontend
 adds fuzzy matching, filename substring boosts, and junk-path down-ranking.
+Results return before native icon lookup; visible rows resolve shell icons
+lazily through the shared extension/path cache.
 `file_index.rs` scans configured roots at startup and watches them for changes;
 it prunes hidden, dependency, VCS, cache, and generated-output directories before
 descent and caps scan depth. Watcher changes use the same exclusions and

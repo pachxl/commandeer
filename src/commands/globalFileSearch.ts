@@ -59,6 +59,7 @@ export async function loadGlobalFileResults(query: string, config: AppConfig): P
     label: r.name,
     sublabel: r.path,
     icon: r.icon ?? 'file',
+    iconPath: r.path,
     source: 'file' as const,
     data: r.path,
     actionLabel: 'Open',
