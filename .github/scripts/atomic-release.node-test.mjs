@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+// Named `node-test` so Vitest does not also collect this Node-native suite.
 import { UPDATER_PLATFORM_KEYS, buildUpdaterManifest, requiredReleaseAssetNames } from './atomic-release.mjs'
 
 const version = '1.2.3'

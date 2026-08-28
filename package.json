@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "vitest run && node --test tauri-version-tests.cjs .github/scripts/atomic-release.test.mjs",
-    "test:release": "node --test .github/scripts/atomic-release.test.mjs",
+    "test": "vitest run && node --test tauri-version-tests.cjs .github/scripts/atomic-release.node-test.mjs",
+    "test:release": "node --test .github/scripts/atomic-release.node-test.mjs",
     "preview": "vite preview",
     "tauri": "node tauri.cjs",
     "release": "node release.cjs",
