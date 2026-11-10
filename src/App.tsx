@@ -4,11 +4,7 @@ import { loadScriptCommands, scriptsToCommands, webSearchCommand } from './comma
 import { settingsCommand } from './commands/settings'
 import { guideCommand, guideStep } from './commands/guide'
 import { loadProviderCommands } from './providers'
-import { loadBookmarkCommands } from './providers/bookmarks'
-import { loadQuicklinkCommands } from './providers/quicklinks'
-import { loadNoteCommands } from './providers/notes'
 import { killProcessCommand } from './providers/processes'
-import { toolsFolderCommand, virtualFolderCommand } from './providers/tools'
 import { appEvents } from './lib/appEvents'
 import { applyThemeByName } from './lib/themes'
 import { applyStyle } from './lib/styles'
@@ -113,28 +109,12 @@ export default function App() {
               .map(s => ({ path: s.path, refreshSeconds: s.metadata!.refresh_seconds! }))
             setInlineScripts(inline)
 
-            // Commands tagged with a folderName group under virtual folders
-            // (like script folders): hidden from root browse, still in search.
+            // Commands tagged with a folderName (Apps, System, Tools, Quick
+            // Links, Notes, Bookmarks) are hidden from the root browse but stay
+            // in the flat search. There are no browse folders for them.
             const webSearchCmds = webSearchVisible ? [webSearchCommand] : []
-            const appCmds = providerCmds.filter(c => c.folderName === 'Apps')
-            const systemCmds = providerCmds.filter(c => c.folderName === 'System')
-            const toolsBuiltins = [...providerCmds, ...webSearchCmds].filter(c => c.folderName === 'Tools')
-            // Quick Links, Notes and Bookmarks live as sub-folders inside Tools.
-            // Dynamic child loaders keep them current without leaving a folder.
-            const hasQuicklinks = providerCmds.some(c => c.folderName === 'Quick Links')
-            const hasNotes = providerCmds.some(c => c.folderName === 'Notes')
-            const hasBookmarks = providerCmds.some(c => c.folderName === 'Bookmarks')
-            const toolsChildren: Command[] = [
-              ...toolsBuiltins,
-              ...(hasQuicklinks ? [virtualFolderCommand('Quick Links', () => loadQuicklinkCommands())] : []),
-              ...(hasNotes ? [virtualFolderCommand('Notes', () => loadNoteCommands())] : []),
-              ...(hasBookmarks ? [virtualFolderCommand('Bookmarks', () => loadBookmarkCommands())] : []),
-            ]
             setCommands([
               ...cmds,
-              ...(appCmds.length > 0 ? [virtualFolderCommand('Apps', appCmds)] : []),
-              ...(systemCmds.length > 0 ? [virtualFolderCommand('System', systemCmds)] : []),
-              ...(toolsChildren.length > 0 ? [toolsFolderCommand(toolsChildren)] : []),
               ...webSearchCmds,
               ...providerCmds,
               guideCommand(configRef.current),

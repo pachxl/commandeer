@@ -330,7 +330,7 @@ export default function Palette({
 
     // Hierarchical view: everything from the user's commands folder first
     // (script folders, then loose scripts with last-used floating up), then
-    // built-in virtual folders (Apps, System, Tools) and any other builtins.
+    // any loose builtins.
     // searchOnly commands are excluded here but stay in the flat search list.
     const isScript = (c: Command) => c.source === 'script'
     const rootLoose = commands.filter(
