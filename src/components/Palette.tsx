@@ -10,7 +10,7 @@ import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
 import { IS_LINUX, IS_MAC, openUrl, setPaletteSurface } from '../lib/tauri'
 import type { ActionItem, AppConfig, Command, PaletteItem } from '../types'
-import { commandsToItems, commandsToFlatItems } from '../lib/paletteItems'
+import { commandsToItems, commandsToFlatItems, isShownAtRoot } from '../lib/paletteItems'
 import { applyOverride, type Overrides } from '../lib/paletteRanking'
 import { commandDeepLinkStep } from '../lib/commandDeepLink'
 import { initialOnixSessionState, onixSessionReducer, resolveOnixPresentation } from '../lib/onixPresentation'
@@ -293,12 +293,10 @@ export default function Palette({
     // Hierarchical view: everything from the user's commands folder first
     // (script folders, then loose scripts with last-used floating up), then
     // any loose builtins.
-    // searchOnly commands are excluded here but stay in the flat search list.
+    // Folder-tagged and searchOnly commands are excluded here unless the user
+    // chose Show in Root; they always stay in the flat search list.
     const isScript = (c: Command) => c.source === 'script'
-    const rootLoose = commands.filter(
-      c =>
-        !c.isFolder && !c.searchOnly && c.id !== SETTINGS_COMMAND_ID && (!c.folderName || overrides[c.id]?.showAtRoot),
-    )
+    const rootLoose = commands.filter(c => c.id !== SETTINGS_COMMAND_ID && isShownAtRoot(c, overrides[c.id]))
     const scriptFolders = commands.filter(c => c.isFolder && isScript(c))
     const builtinFolders = commands.filter(c => c.isFolder && !isScript(c))
     const scriptLoose = rootLoose.filter(isScript)

@@ -4,6 +4,23 @@
 // Command list into the PaletteItem rows the palette ranks and renders.
 
 import type { Command, PaletteItem } from '../types'
+import type { CommandOverride } from './tauri'
+
+// Whether the Ctrl+K "Show in Root" toggle changes anything for a command:
+// only commands kept off the main page by default — folder-tagged ones (Apps,
+// System, Tools, nested scripts) and search-only ones (e.g. per-input monitor
+// switches). Root scripts are always there, and folder rows / Settings are
+// placed by the palette itself, so offering the toggle for them is a no-op.
+export function canToggleShowAtRoot(cmd: Command): boolean {
+  return !cmd.isFolder && (!!cmd.folderName || !!cmd.searchOnly)
+}
+
+// Whether a loose (non-folder) command appears in the root browse list. The
+// user's Show in Root override wins over both folderName and searchOnly.
+export function isShownAtRoot(cmd: Command, ov?: CommandOverride): boolean {
+  if (cmd.isFolder) return false
+  return canToggleShowAtRoot(cmd) ? !!ov?.showAtRoot : true
+}
 
 // Extra search terms (folder name, keywords, aliases) folded into the
 // fuzzy-match text

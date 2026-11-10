@@ -28,6 +28,7 @@ import {
   type Quicklink,
 } from './tauri'
 import type { Overrides } from './paletteRanking'
+import { canToggleShowAtRoot } from './paletteItems'
 import type { ActionItem, AppConfig, Command, PaletteAction, PaletteItem } from '../types'
 import type { ToastKind } from '../components/Toast'
 import type { ConfirmOptions } from './confirm'
@@ -265,7 +266,8 @@ export function buildItemActions(item: PaletteItem, ctx: ActionContext): ActionI
 
   // Alias, pin & hotkey actions for persistent root commands (not for
   // dynamic step/search rows, whose ids never appear in the root list)
-  if (commandsRef.current.some(c => c.id === item.id)) {
+  const rootCommand = commandsRef.current.find(c => c.id === item.id)
+  if (rootCommand) {
     const ov = overridesRef.current[item.id]
     actions.push({
       id: 'pin',
@@ -278,17 +280,20 @@ export function buildItemActions(item: PaletteItem, ctx: ActionContext): ActionI
         toast(pinned ? 'Pinned — boosts search rank' : 'Unpinned', 'success')
       },
     })
-    actions.push({
-      id: 'show-at-root',
-      label: ov?.showAtRoot ? 'Hide from Root' : 'Show in Root',
-      icon: 'pin',
-      handler: async () => {
-        const showAtRoot = !ov?.showAtRoot
-        await setOverride(item.id, { showAtRoot })
-        await refreshOverrides()
-        toast(showAtRoot ? 'Shown on main page' : 'Hidden from main page', 'success')
-      },
-    })
+    // Only where it has an effect (see canToggleShowAtRoot) — root scripts,
+    // folder rows and Settings are always on the main page.
+    if (canToggleShowAtRoot(rootCommand))
+      actions.push({
+        id: 'show-at-root',
+        label: ov?.showAtRoot ? 'Hide from Root' : 'Show in Root',
+        icon: 'pin',
+        handler: async () => {
+          const showAtRoot = !ov?.showAtRoot
+          await setOverride(item.id, { showAtRoot })
+          await refreshOverrides()
+          toast(showAtRoot ? 'Shown on main page' : 'Hidden from main page', 'success')
+        },
+      })
     actions.push({
       id: 'alias',
       label: ov?.alias ? `Change Alias (${ov.alias})` : 'Set Alias…',
