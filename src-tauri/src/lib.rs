@@ -564,6 +564,9 @@ pub fn run() {
                 // Start Alt-drag window management if the user left it enabled.
                 commands::window_drag::apply_from_config(app.app_handle());
                 commands::alt_tab::apply_from_config(app.app_handle());
+                // DDC/CI capability probe for monitor input switching (slow, so
+                // warmed off-thread before the first palette open).
+                commands::monitor_input::warm();
             }
 
             #[cfg(target_os = "macos")]
@@ -681,6 +684,9 @@ pub fn run() {
             commands::audio::set_audio_session_volume,
             commands::audio::toggle_audio_session_mute,
             commands::audio::toggle_mute,
+            commands::monitor_input::cached_monitor_inputs,
+            commands::monitor_input::list_monitor_inputs,
+            commands::monitor_input::set_monitor_input,
             commands::palette_surface::set_palette_surface,
             commands::window::resize_palette_window,
             commands::window::set_window_transparency,

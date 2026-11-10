@@ -7,6 +7,7 @@ import { appLauncherProvider } from './appLauncher'
 import { bookmarksProvider } from './bookmarks'
 import { calculatorProvider } from './calculator'
 import { clipboardProvider } from './clipboard'
+import { monitorInputProvider } from './monitorInput'
 import { notesProvider } from './notes'
 import { processesProvider } from './processes'
 import { quicklinksProvider } from './quicklinks'
@@ -19,6 +20,7 @@ export const providers: CommandProvider[] = [
   appLauncherProvider,
   systemProvider,
   volumeProvider,
+  monitorInputProvider,
   clipboardProvider,
   processesProvider,
   toolsProvider,

@@ -444,6 +444,30 @@ export const setAudioSessionVolume = (id: string, level: number) =>
 
 export const toggleAudioSessionMute = (id: string) => invoke<boolean>('toggle_audio_session_mute', { id })
 
+// Monitor input switching over DDC/CI (Windows; MCCS VCP 0x60). Only monitors
+// that advertise input select are listed, so this is empty for most setups.
+export interface MonitorInput {
+  value: number
+  label: string
+}
+
+export interface MonitorInputs {
+  id: string
+  name: string
+  display: string
+  current: number | null
+  inputs: MonitorInput[]
+}
+
+// Last probe result, no DDC traffic (current is always null); cheap enough for
+// root command assembly. Triggers a background re-probe when stale.
+export const cachedMonitorInputs = () => invoke<MonitorInputs[]>('cached_monitor_inputs')
+
+// Fresh listing including each monitor's current input (slower: talks DDC/CI)
+export const listMonitorInputs = () => invoke<MonitorInputs[]>('list_monitor_inputs')
+
+export const setMonitorInput = (id: string, value: number) => invoke<void>('set_monitor_input', { id, value })
+
 export interface Theme {
   name: string
   variables: Record<string, string>

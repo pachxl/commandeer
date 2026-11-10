@@ -130,6 +130,10 @@ const ICONS: Record<string, (color?: string, size?: number) => string> = {
     '0 0 24 24',
     '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/>',
   ),
+  monitor: icon(
+    '0 0 24 24',
+    '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
+  ),
   x: icon('0 0 24 24', '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
   scale: icon(
     '0 0 24 24',

@@ -213,6 +213,23 @@ Space/Enter toggles mute; all apps stay visible on the same page. The backend is
 in `commands/audio.rs` (`IAudioSessionManager2` / `ISimpleAudioVolume`) and is
 Windows-gated; the frontend view is `components/VolumeMixer.tsx`.
 
+### Monitor input switching (DDC/CI)
+
+Windows can switch a monitor's input source (HDMI/DisplayPort/…) over DDC/CI
+VCP code `0x60` — the same channel ASUS DisplayWidget Center uses, so the vendor
+app isn't required. Backend `commands/monitor_input.rs` (dxva2 Monitor
+Configuration API); frontend `providers/monitorInput.ts`. The feature is
+**hardware-gated**: a monitor is listed only when its capabilities string
+advertises `60(...)` with input values, and with no such monitor the provider
+contributes no commands at all. Capability requests take ~1–2 s per monitor, so
+they're cached per physical monitor (keyed by device interface path) and warmed
+on a background thread at startup; root command assembly uses the cached listing
+(`cached_monitor_inputs`, no DDC traffic) and the **Switch Monitor Input** step
+does a fresh read for the current input. All DDC calls are serialized behind one
+lock and retried (other tools share the I2C bus). Besides the browse step, each
+monitor × input gets a search-only direct command (`Switch <model> to HDMI 1`)
+whose id is stable, so it can take a per-command global hotkey.
+
 ### Per-monitor Alt+Tab
 
 Windows can replace the system Alt+Tab UI with a native switcher scoped to the monitor under the cursor (`per_monitor_alt_tab`; Settings → Per-Monitor Alt+Tab). It lists every eligible window on that monitor plus only the topmost eligible maximized window from each other monitor, preserving global Z-order. Remote candidates must be genuinely maximized (`IsZoomed`) and not minimized (`!IsIconic`); snapped, manually stretched, minimized, and borderless-fullscreen windows do not qualify. The overlay itself stays on the cursor monitor, and choosing a remote candidate focuses it without moving the window or cursor.
