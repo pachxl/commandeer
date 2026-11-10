@@ -24,12 +24,17 @@ function inputKeywords(input: MonitorInput): string[] {
   return words
 }
 
-// Monitor display name; the Windows display number is appended only when two
-// monitors share a model name.
+// "left hdmi" / "main dp" should find the right monitor.
+function positionKeywords(m: MonitorInputs): string[] {
+  return m.position.toLowerCase().split(' · ')
+}
+
+// Monitor display name; the desk position is appended only when two monitors
+// share a model name (rows always show the position separately).
 export function monitorNames(monitors: MonitorInputs[]): Map<string, string> {
   const counts = new Map<string, number>()
   for (const m of monitors) counts.set(m.name, (counts.get(m.name) ?? 0) + 1)
-  return new Map(monitors.map(m => [m.id, (counts.get(m.name) ?? 0) > 1 ? `${m.name} (${m.display})` : m.name]))
+  return new Map(monitors.map(m => [m.id, (counts.get(m.name) ?? 0) > 1 ? `${m.name} (${m.position})` : m.name]))
 }
 
 interface InputItemData {
@@ -44,15 +49,14 @@ function switchStep(): Step {
     placeholder: 'Choose an input...',
     load: async (): Promise<PaletteItem[]> => {
       const monitors = await listMonitorInputs()
-      const names = monitorNames(monitors)
       return monitors.flatMap(m =>
         m.inputs.map(input => ({
           id: `monitor-input:item:${m.id}:${input.value}`,
           label: input.label,
-          sublabel: `${names.get(m.id)} · ${m.display}`,
+          sublabel: `${m.name} · ${m.position}`,
           icon: 'monitor',
           actionLabel: 'Switch',
-          keywords: [...inputKeywords(input), m.name],
+          keywords: [...inputKeywords(input), m.name, ...positionKeywords(m)],
           accessories: m.current === input.value ? [{ text: 'Current' }] : undefined,
           data: { monitorId: m.id, value: input.value } satisfies InputItemData,
         })),
@@ -85,12 +89,12 @@ export function monitorInputCommands(monitors: MonitorInputs[]): Command[] {
     m.inputs.map((input): Command => ({
       id: `monitor-input:${m.id}:${input.value}`,
       label: `Switch ${names.get(m.id)} to ${input.label}`,
-      description: `${m.display} input source`,
+      description: `${m.position} monitor`,
       icon: 'monitor',
       source: 'system',
       folderName: 'System',
       searchOnly: true,
-      keywords: [...BASE_KEYWORDS, ...inputKeywords(input)],
+      keywords: [...BASE_KEYWORDS, ...inputKeywords(input), ...positionKeywords(m)],
       actionLabel: 'Switch',
       action: async () => {
         await setMonitorInput(m.id, input.value)

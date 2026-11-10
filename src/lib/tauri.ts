@@ -454,7 +454,8 @@ export interface MonitorInput {
 export interface MonitorInputs {
   id: string
   name: string
-  display: string
+  // Desk position from the Windows layout, e.g. "Main · Left" or "Right"
+  position: string
   current: number | null
   inputs: MonitorInput[]
 }

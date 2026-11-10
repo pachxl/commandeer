@@ -35,8 +35,9 @@ pub struct MonitorInputs {
     pub id: String,
     /// Model name from the capabilities string, e.g. "XG27AQDMG"
     pub name: String,
-    /// Windows display number ("Display 1"), to tell identical models apart
-    pub display: String,
+    /// Where the monitor sits, matching the Settings → Display layout: "Main · Left",
+    /// "Right", ... ("Main" = the primary display)
+    pub position: String,
     /// Currently selected input, when it could be read (only filled by
     /// `list_monitor_inputs`; the cached listing leaves it empty)
     pub current: Option<u8>,
@@ -171,6 +172,75 @@ fn vcp_values(vcp: &str, code: u8) -> Option<Vec<u8>> {
     None
 }
 
+/// Desk-position label for each display from its virtual-screen rect
+/// (`[left, top, right, bottom]`): "Left"/"Right" (or "Top"/"Bottom" for a
+/// vertical stack, "Middle" for a third), prefixed with "Main" for the primary.
+/// Windows' internal `DISPLAYn` numbers don't reliably match the numbers shown
+/// in Settings, so the physical layout is the unambiguous way to name a monitor.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn position_labels(rects: &[[i32; 4]], primary: &[bool]) -> Vec<String> {
+    let n = rects.len();
+    let center = |r: &[i32; 4]| ((r[0] + r[2]) / 2, (r[1] + r[3]) / 2);
+    let spread = |axis: fn((i32, i32)) -> i32| {
+        let vals: Vec<i32> = rects.iter().map(|r| axis(center(r))).collect();
+        vals.iter().max().unwrap_or(&0) - vals.iter().min().unwrap_or(&0)
+    };
+    let horizontal = spread(|c| c.0) >= spread(|c| c.1);
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by_key(|&i| {
+        let (x, y) = center(&rects[i]);
+        if horizontal {
+            (x, y)
+        } else {
+            (y, x)
+        }
+    });
+    let (first, last, from) = if horizontal {
+        ("Left", "Right", "left")
+    } else {
+        ("Top", "Bottom", "top")
+    };
+    let mut sides: Vec<Option<String>> = vec![None; n];
+    for (rank, &i) in order.iter().enumerate() {
+        sides[i] = match n {
+            0 | 1 => None,
+            2 | 3 if rank == 0 => Some(first.to_string()),
+            2 | 3 if rank == n - 1 => Some(last.to_string()),
+            3 => Some("Middle".to_string()),
+            _ => Some(format!("{} from {from}", ordinal(rank + 1))),
+        };
+    }
+    sides
+        .into_iter()
+        .enumerate()
+        .map(|(i, side)| {
+            let main = primary
+                .get(i)
+                .copied()
+                .unwrap_or(false)
+                .then(|| "Main".to_string());
+            let parts: Vec<String> = main.into_iter().chain(side).collect();
+            if parts.is_empty() {
+                format!("Monitor {}", i + 1)
+            } else {
+                parts.join(" · ")
+            }
+        })
+        .collect()
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn ordinal(n: usize) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (_, 11..=13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
+}
+
 /// Cached listing (no DDC traffic, `current` left empty). Kicks off a
 /// background re-probe when the cache is stale, so hot-plugged monitors show up
 /// on a later palette open. Empty on non-Windows or without a capable monitor.
@@ -239,7 +309,10 @@ pub fn warm() {
 
 #[cfg(target_os = "windows")]
 mod win {
-    use super::{input_label, parse_capabilities, MonitorInput, MonitorInputs, VCP_INPUT_SOURCE};
+    use super::{
+        input_label, parse_capabilities, position_labels, MonitorInput, MonitorInputs,
+        VCP_INPUT_SOURCE,
+    };
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Mutex, OnceLock};
@@ -256,7 +329,9 @@ mod win {
         EnumDisplayDevicesW, EnumDisplayMonitors, GetMonitorInfoW, DISPLAY_DEVICEW, HDC, HMONITOR,
         MONITORINFO, MONITORINFOEXW,
     };
-    use windows::Win32::UI::WindowsAndMessaging::EDD_GET_DEVICE_INTERFACE_NAME;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EDD_GET_DEVICE_INTERFACE_NAME, MONITORINFOF_PRIMARY,
+    };
 
     /// Retry a monitor whose capabilities couldn't be read after this long.
     const NEGATIVE_TTL: Duration = Duration::from_secs(120);
@@ -332,7 +407,7 @@ mod win {
     /// Physical monitor handles for one enumeration; destroyed on drop.
     struct Physical {
         key: String,
-        display: String,
+        position: String,
         handle: PHYSICAL_MONITOR,
     }
 
@@ -371,22 +446,35 @@ mod win {
             );
         }
 
-        let mut out = Vec::new();
-        for hmon in hmons {
-            let mut info = MONITORINFOEXW::default();
-            info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
-            let device = unsafe {
-                if GetMonitorInfoW(hmon, &mut info as *mut _ as *mut MONITORINFO).as_bool() {
-                    wide_to_string(&info.szDevice)
-                } else {
-                    String::new()
+        // Layout of every display (DDC-capable or not), so positions describe
+        // the whole desk.
+        let infos: Vec<MONITORINFOEXW> = hmons
+            .iter()
+            .map(|&hmon| {
+                let mut info = MONITORINFOEXW::default();
+                info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+                unsafe {
+                    let _ = GetMonitorInfoW(hmon, &mut info as *mut _ as *mut MONITORINFO);
                 }
-            };
-            let display = device
-                .trim_start_matches(r"\\.\")
-                .strip_prefix("DISPLAY")
-                .map(|n| format!("Display {n}"))
-                .unwrap_or_else(|| device.clone());
+                info
+            })
+            .collect();
+        let rects: Vec<[i32; 4]> = infos
+            .iter()
+            .map(|i| {
+                let r = i.monitorInfo.rcMonitor;
+                [r.left, r.top, r.right, r.bottom]
+            })
+            .collect();
+        let primary: Vec<bool> = infos
+            .iter()
+            .map(|i| i.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0)
+            .collect();
+        let positions = position_labels(&rects, &primary);
+
+        let mut out = Vec::new();
+        for ((hmon, info), position) in hmons.into_iter().zip(&infos).zip(positions) {
+            let device = wide_to_string(&info.szDevice);
 
             let mut count = 0u32;
             if unsafe { GetNumberOfPhysicalMonitorsFromHMONITOR(hmon, &mut count) }.is_err()
@@ -428,7 +516,7 @@ mod win {
                 };
                 out.push(Physical {
                     key,
-                    display: display.clone(),
+                    position: position.clone(),
                     handle: p,
                 });
             }
@@ -515,7 +603,7 @@ mod win {
             out.push(MonitorInputs {
                 id: p.key.clone(),
                 name: model.unwrap_or_else(|| "Monitor".to_string()),
-                display: p.display.clone(),
+                position: p.position.clone(),
                 current: if with_current { read_current(p) } else { None },
                 inputs: inputs
                     .into_iter()
@@ -593,6 +681,39 @@ mod tests {
             parse_capabilities(caps),
             Some((Some("Foo".to_string()), vec![0x0F, 0x11]))
         );
+    }
+
+    #[test]
+    fn labels_positions_like_the_desk() {
+        // This machine: 2560x1440 primary on the left, 1080p to its right.
+        let rects = [[0, 0, 2560, 1440], [2560, 172, 4480, 1252]];
+        assert_eq!(
+            position_labels(&rects, &[true, false]),
+            ["Main · Left", "Right"]
+        );
+        // Enumeration order doesn't matter; the primary can be on the right.
+        let rects = [[0, 0, 1920, 1080], [-1920, 0, 0, 1080]];
+        assert_eq!(
+            position_labels(&rects, &[true, false]),
+            ["Main · Right", "Left"]
+        );
+        let three = [
+            [1920, 0, 3840, 1080],
+            [0, 0, 1920, 1080],
+            [3840, 0, 5760, 1080],
+        ];
+        assert_eq!(
+            position_labels(&three, &[true, false, false]),
+            ["Main · Middle", "Left", "Right"]
+        );
+        let stacked = [[0, 0, 1920, 1080], [0, -1080, 1920, 0]];
+        assert_eq!(
+            position_labels(&stacked, &[true, false]),
+            ["Main · Bottom", "Top"]
+        );
+        assert_eq!(position_labels(&[[0, 0, 10, 10]], &[true]), ["Main"]);
+        let four: Vec<[i32; 4]> = (0..4).map(|i| [i * 100, 0, i * 100 + 100, 100]).collect();
+        assert_eq!(position_labels(&four, &[false; 4])[1], "2nd from left");
     }
 
     #[test]
