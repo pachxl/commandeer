@@ -47,7 +47,6 @@ partially rewritten.
 | `commandeer:frecency`                       | `lib/frecency.ts`           | Stable command ranking history                    |
 | `commandeer:confirm-suppressed`             | `lib/confirm.ts`            | “Don’t ask again” confirmation keys               |
 | `commandeer:last`                           | `Palette.tsx`               | Last selected command                             |
-| `commandeer:onboarding-version`             | `lib/onboarding.ts`         | Completed first-run guide version                 |
 | `commandeer:codex-*`, `commandeer:claude-*` | usage components            | Last usage result and polling/backoff state       |
 
 Local caches must tolerate invalid JSON, quota/private-mode failures, and stale

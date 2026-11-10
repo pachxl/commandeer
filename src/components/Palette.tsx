@@ -9,7 +9,7 @@ import { loadActiveFolderItems, openFileItem } from '../commands/fileSearch'
 import { loadGlobalFileResults } from '../commands/globalFileSearch'
 import { searchAllProviders } from '../providers'
 import { IS_LINUX, IS_MAC, openUrl, setPaletteSurface } from '../lib/tauri'
-import type { ActionItem, AppConfig, Command, PaletteItem, Step } from '../types'
+import type { ActionItem, AppConfig, Command, PaletteItem } from '../types'
 import { commandsToItems, commandsToFlatItems } from '../lib/paletteItems'
 import { applyOverride, type Overrides } from '../lib/paletteRanking'
 import { commandDeepLinkStep } from '../lib/commandDeepLink'
@@ -98,8 +98,6 @@ interface PaletteProps {
   claudeUsageVisible: boolean
   codexUsageVisible: boolean
   systemStatsVisible: boolean
-  initialStep?: Step
-  onInitialStepOpened?: () => void
 }
 
 export default function Palette({
@@ -116,8 +114,6 @@ export default function Palette({
   claudeUsageVisible,
   codexUsageVisible,
   systemStatsVisible,
-  initialStep,
-  onInitialStepOpened,
 }: PaletteProps) {
   const [state, dispatch] = useReducer(reducer, config, initialState)
   const [sliderValue, setSliderValue] = useState(0)
@@ -177,40 +173,6 @@ export default function Palette({
     setConfirmFocus,
     resetFeedback,
   } = usePaletteFeedback(dispatch)
-
-  const initialStepHandled = useRef(false)
-  const onInitialStepOpenedRef = useRef(onInitialStepOpened)
-  onInitialStepOpenedRef.current = onInitialStepOpened
-
-  // First-run onboarding opens on the first real focus, not while the hidden
-  // accessory window mounts. This preserves it across startup blur/reset events.
-  useEffect(() => {
-    if (!initialStep || initialStepHandled.current) return
-    let disposed = false
-    let unlisten: (() => void) | undefined
-    const open = () => {
-      if (disposed || initialStepHandled.current) return
-      initialStepHandled.current = true
-      dispatch({ type: 'PUSH_STEP', step: initialStep })
-      onInitialStepOpenedRef.current?.()
-    }
-    const win = getCurrentWindow()
-    void win.isFocused().then(focused => {
-      if (focused) open()
-    })
-    void win
-      .onFocusChanged(({ payload: focused }) => {
-        if (focused) open()
-      })
-      .then(remove => {
-        if (disposed) remove()
-        else unlisten = remove
-      })
-    return () => {
-      disposed = true
-      unlisten?.()
-    }
-  }, [initialStep])
 
   // Expose a whole-session reset to App. Focus loss must settle confirmations
   // and cancel HUD timers as well as clearing reducer/navigation state.
@@ -1358,7 +1320,7 @@ export default function Palette({
                 }
                 message={
                   state.query
-                    ? 'Try fewer words, use @find for files, or search for Commandeer Guide.'
+                    ? 'Try fewer words, or use @find for files.'
                     : 'Add an item or go back to choose another command.'
                 }
               />

@@ -25,11 +25,10 @@ for a query.
 | Calculator search |                     10 | Expression result and Google fallback                                     | [`calculator.ts`](../src/providers/calculator.ts)                 |
 | Scripts           | assembled in `App.tsx` | User script commands and folders                                          | [`commands/index.ts`](../src/commands/index.ts), `commands/fs.rs` |
 | Settings          | assembled in `App.tsx` | Appearance, shortcuts, paths, feature toggles                             | [`commands/settings.ts`](../src/commands/settings.ts)             |
-| Commandeer Guide  | assembled in `App.tsx` | First-run welcome, shortcuts, search modes, and workflow help             | [`commands/guide.ts`](../src/commands/guide.ts)                   |
 
-Quick Links, Notes, and Bookmarks are represented as subfolders inside Tools in
-the assembled root. Their children can also appear in flat search through their
-`folderName` and source metadata.
+Commands tagged with a `folderName` (Apps, System, Tools, Quick Links, Notes,
+Bookmarks) have no browse folder on the root page; they appear only in search,
+with the `folderName` as their sublabel.
 
 ## Built-in interactions
 
@@ -37,14 +36,13 @@ the assembled root. Their children can also appear in flat search through their
   first and platform fallbacks after it.
 - `@search <query>` loads the focused Explorer/Finder folder on Windows/macOS;
   Linux falls back to the home folder.
-- Calculator expressions can be entered through the Tools step or recognized by
+- Calculator expressions can be entered through the Calculator step or recognized by
   the calculator provider. Currency needs cached or freshly fetched rates;
   an initial offline failure is retried by a later query instead of disabling
   conversion for the rest of the process.
-- Time-zone conversion is handled by the Tools input step and copies its result.
+- Time-zone conversion is handled by the Time Zone Converter step and copies its result.
 - `Ctrl+K` opens actions for the selected row. Action-panel actions may be leaf
   handlers or nested submenus.
-- `Commandeer Guide` remains searchable after the first-run welcome is complete.
 - `Ctrl+M` opens the Windows Volume Mixer when that feature is available.
 - `commandeer://command/<id>` is navigation-only: it shows/focuses the palette,
   opens the command's root step (including confirmation steps), or selects a

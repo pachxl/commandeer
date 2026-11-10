@@ -38,7 +38,7 @@ the uploaded `latest.json` have been validated, then the draft is published once
 ## Frontend tests
 
 Current regression coverage includes Palette reducer transitions, fuzzy
-ranking, focus-aware polling, feedback cleanup, onboarding and guide behavior,
+ranking, focus-aware polling, feedback cleanup,
 destructive confirmations, configured-path parsing and Settings persistence,
 multiline forms, Windows Volume Mixer rendering/navigation, Onix compact-session
 transitions, serialized native sizing, 2× optical render metrics and pointer-ray
@@ -66,8 +66,6 @@ Windows/macOS coverage.
 
 - Open/dismiss the palette repeatedly; verify pending confirms and toasts do not
   survive dismissal.
-- With empty localStorage, verify the welcome guide opens on first focus only;
-  with an existing-install key, verify it stays searchable but does not auto-open.
 - Verify loading, empty, and error panels are legible in both UI styles.
 - In Onix, verify a new root session opens as a compact search capsule. Typing,
   clicking the search surface, or pressing Up/Down/Enter/Tab must expand it;

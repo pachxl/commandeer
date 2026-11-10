@@ -22,8 +22,6 @@ changes.
 | `src/commands/index.ts`                   | Script-to-command conversion, web search, confirmations, live output | [`scripts.md`](scripts.md), [`commands.md`](commands.md)     |
 | `src/commands/settings.ts`                | Settings step, previews, persistence, feature toggles                | [`configuration.md`](configuration.md)                       |
 | `src/commands/settingsPaths.test.ts`      | Scripts-directory and search-root Settings regressions               | [`testing.md`](testing.md)                                   |
-| `src/commands/guide.ts`                   | First-run welcome and searchable usage guide                         | [`frontend.md`](frontend.md), [`commands.md`](commands.md)   |
-| `src/commands/guide.test.ts`              | Guide content and navigation regression tests                        | [`testing.md`](testing.md)                                   |
 | `src/commands/fileSearch.ts`              | Active-folder `@search` load/filter/open                             | [`features.md`](features.md)                                 |
 | `src/commands/globalFileSearch.ts`        | Global `@find` ranking and icon/detail mapping                       | [`features.md`](features.md)                                 |
 | `src/hooks/useInlineScripts.ts`           | Polls inline script output                                           | [`scripts.md`](scripts.md)                                   |
@@ -39,22 +37,22 @@ changes.
 
 ## Frontend providers
 
-| File                                       | Responsibility                                            | Detailed page                |
-| ------------------------------------------ | --------------------------------------------------------- | ---------------------------- |
-| `src/providers/index.ts`                   | Provider registry, priority ordering, isolation           | [`frontend.md`](frontend.md) |
-| `src/providers/appLauncher.ts`             | Installed app cache, running badges, launch commands      | [`features.md`](features.md) |
-| `src/providers/bookmarks.ts`               | Browser bookmark loading/search commands                  | [`commands.md`](commands.md) |
-| `src/providers/calculator.ts`              | Calculator query results and currency warmup              | [`commands.md`](commands.md) |
-| `src/providers/calculator.test.ts`         | Currency-rate retry and request-coalescing regressions    | [`testing.md`](testing.md)   |
-| `src/providers/clipboard.ts`               | Clipboard History step and clear action                   | [`features.md`](features.md) |
-| `src/providers/notes.ts`                   | Note add/remove/copy commands                             | [`storage.md`](storage.md)   |
-| `src/providers/processes.ts`               | Process grouping, kill step, inline kill search           | [`commands.md`](commands.md) |
-| `src/providers/quicklinks.ts`              | Templated links and CRUD steps                            | [`storage.md`](storage.md)   |
-| `src/providers/screenshot.ts`              | Screenshot palette trigger                                | [`features.md`](features.md) |
-| `src/providers/system.ts`                  | Power/session/appearance command definitions              | [`commands.md`](commands.md) |
-| `src/providers/tools.ts`                   | Tools folder, calculator/time-zone steps, virtual folders | [`frontend.md`](frontend.md) |
-| `src/providers/volume.ts`                  | Output-device sliders and Windows mixer entry             | [`features.md`](features.md) |
-| `src/providers/destructiveActions.test.ts` | Destructive provider confirmation regressions             | [`testing.md`](testing.md)   |
+| File                                       | Responsibility                                         | Detailed page                |
+| ------------------------------------------ | ------------------------------------------------------ | ---------------------------- |
+| `src/providers/index.ts`                   | Provider registry, priority ordering, isolation        | [`frontend.md`](frontend.md) |
+| `src/providers/appLauncher.ts`             | Installed app cache, running badges, launch commands   | [`features.md`](features.md) |
+| `src/providers/bookmarks.ts`               | Browser bookmark loading/search commands               | [`commands.md`](commands.md) |
+| `src/providers/calculator.ts`              | Calculator query results and currency warmup           | [`commands.md`](commands.md) |
+| `src/providers/calculator.test.ts`         | Currency-rate retry and request-coalescing regressions | [`testing.md`](testing.md)   |
+| `src/providers/clipboard.ts`               | Clipboard History step and clear action                | [`features.md`](features.md) |
+| `src/providers/notes.ts`                   | Note add/remove/copy commands                          | [`storage.md`](storage.md)   |
+| `src/providers/processes.ts`               | Process grouping, kill step, inline kill search        | [`commands.md`](commands.md) |
+| `src/providers/quicklinks.ts`              | Templated links and CRUD steps                         | [`storage.md`](storage.md)   |
+| `src/providers/screenshot.ts`              | Screenshot palette trigger                             | [`features.md`](features.md) |
+| `src/providers/system.ts`                  | Power/session/appearance command definitions           | [`commands.md`](commands.md) |
+| `src/providers/tools.ts`                   | Calculator and time-zone steps                         | [`frontend.md`](frontend.md) |
+| `src/providers/volume.ts`                  | Output-device sliders and Windows mixer entry          | [`features.md`](features.md) |
+| `src/providers/destructiveActions.test.ts` | Destructive provider confirmation regressions          | [`testing.md`](testing.md)   |
 
 ## Frontend components
 
@@ -118,8 +116,6 @@ changes.
 | `src/lib/styles.ts`                | Structural UI style presets                      | [`configuration.md`](configuration.md)                   |
 | `src/lib/styles.test.ts`           | Style application, events, and Default cleanup   | [`testing.md`](testing.md)                               |
 | `src/lib/overrides.ts`             | Per-command override/pin state                   | [`storage.md`](storage.md)                               |
-| `src/lib/onboarding.ts`            | First-run eligibility and version marker         | [`frontend.md`](frontend.md), [`storage.md`](storage.md) |
-| `src/lib/onboarding.test.ts`       | Onboarding eligibility regression tests          | [`testing.md`](testing.md)                               |
 | `src/lib/onixPresentation.ts`      | Sticky compact-to-panel Onix session rules       | [`frontend.md`](frontend.md)                             |
 | `src/lib/onixPresentation.test.ts` | Onix presentation/session transition regressions | [`testing.md`](testing.md)                               |
 

@@ -29,11 +29,11 @@ sorted by descending priority, loaded concurrently, and isolated so one failed
 provider does not remove all root commands. `src/App.tsx` still assembles:
 
 - settings commands;
-- the permanently searchable Commandeer Guide and first-run welcome step;
 - scanned script commands and script folders;
 - the optional web-search command;
-- the Tools virtual folder and its dynamic Quick Links, Notes, and Bookmarks
-  children.
+- the flat provider commands. `folderName`-tagged commands (Apps, System, Tools,
+  Quick Links, Notes, Bookmarks) are hidden from the root browse and reachable
+  only through search.
 
 When adding a provider, register it in `src/providers/index.ts`, give it a stable
 provider id and priority, and decide whether its children belong in a virtual
@@ -49,9 +49,7 @@ steps, `@search`, `@find`, and root search. `paletteNavigation.ts` and
 rendering.
 
 Loading, empty, and error states share `PaletteStatePanel.tsx`, keeping feedback
-visually consistent across root search and loaded steps. First-run onboarding is
-opened only after the hidden Accessory window receives real focus; existing
-installations are detected through earlier localStorage keys and are not interrupted.
+visually consistent across root search and loaded steps.
 
 ## Onix Black Water presentation
 
@@ -150,7 +148,7 @@ retryable.
 
 Small preferences and caches use webview `localStorage`: game mode, widget
 visibility, script/app caches, frecency, confirmation suppression, last command,
-the onboarding version, and usage-panel polling caches. Durable user content and configuration belongs
+and usage-panel polling caches. Durable user content and configuration belongs
 in the Rust-owned files documented in [`storage.md`](storage.md).
 
 ## Keeping this document current
